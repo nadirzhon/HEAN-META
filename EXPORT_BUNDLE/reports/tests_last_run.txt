@@ -1,0 +1,375 @@
+=== Test Collection (dry-run) ===
+============================= test session starts ==============================
+platform darwin -- Python 3.11.5, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/macbookpro/Desktop/HEAN
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.9.0, asyncio-1.3.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 249 items / 4 errors
+
+<Dir HEAN>
+  <Package tests>
+    <Module test_adaptive_allocator.py>
+      <Function test_weights_shift_toward_higher_pf>
+      <Function test_daily_change_limit_enforced>
+      <Function test_weights_normalize_to_one>
+      <Function test_weight_history_tracked>
+      <Function test_pf_below_one_decreases_weight>
+      <Function test_pf_above_one_point_three_increases_weight>
+    <Module test_adaptive_maker_router.py>
+      <Coroutine test_adaptive_ttl_increases_on_expirations>
+      <Coroutine test_adaptive_offset_widens_on_high_volatility>
+      <Coroutine test_adaptive_parameters_have_limits>
+      <Coroutine test_adaptive_parameters_are_deterministic>
+    <Module test_backtest.py>
+      <Coroutine test_event_simulator>
+      <Function test_backtest_metrics>
+      <Coroutine test_run_backtest_completes_and_prints_report>
+      <Coroutine test_run_evaluation_completes_and_prints_result>
+      <Coroutine test_event_simulator_terminates_correctly>
+      <Coroutine test_evaluate_produces_trades>
+      <Coroutine test_evaluate_nonzero_metrics>
+      <Coroutine test_evaluate_terminates>
+    <Module test_backtest_execution_metrics.py>
+      <Function test_backtest_metrics_includes_execution_diagnostics>
+      <Function test_backtest_metrics_includes_retry_queue_metrics>
+      <Function test_backtest_metrics_json_export>
+      <Function test_backtest_metrics_print_report_includes_execution>
+      <Function test_backtest_metrics_without_router>
+    <Module test_capital_pressure.py>
+      <Function test_pressure_boost_on_rising_pf_and_stable_dd>
+      <Function test_immediate_cut_after_two_losses_same_context>
+      <Function test_pressure_decays_toward_neutral>
+      <Function test_capital_pressure_influences_allocator_weights>
+    <Module test_config.py>
+      <Function test_default_settings>
+      <Function test_live_trading_requires_confirm>
+      <Function test_config_validation>
+    <Module test_contracts.py>
+      <Coroutine test_price_feed_contract_can_be_implemented>
+      <Coroutine test_alpha_module_contract_can_be_implemented>
+      <Coroutine test_income_stream_contract_can_be_implemented>
+      <Function test_diagnostics_contract_can_be_implemented>
+      <Coroutine test_market_context_dataclass_and_builder_buckets>
+    <Module test_decision_memory.py>
+      <Function test_context_blocks_after_loss_streak>
+      <Function test_block_expires_after_configured_time>
+      <Function test_penalty_scales_size_correctly>
+      <Function test_penalty_returns_zero_when_blocked>
+    <Module test_density.py>
+      <Class TestDensityController>
+        <Function test_relaxation_increases_with_idle_days>
+        <Function test_relaxation_resets_after_trade>
+    <Module test_dynamic_risk.py>
+      <Function test_risk_decreases_after_losses>
+      <Function test_risk_increases_only_with_stable_pf>
+      <Function test_drawdown_spike_safeguard>
+      <Function test_impulse_regime_cap>
+      <Function test_risk_multiplier_bounds>
+      <Function test_volatility_percentile_calculation>
+      <Function test_metrics_tracking>
+      <Function test_position_sizer_integration>
+      <Function test_regime_adjustments>
+      <Function test_drawdown_cooldown_expiry>
+      <Function test_high_drawdown_reduction>
+      <Function test_volatility_percentile_impact>
+      <Function test_combined_factors>
+    <Module test_edge_confirmation.py>
+      <Function test_first_impulse_creates_candidate_only>
+      <Function test_confirmation_by_spread_tightening>
+      <Function test_confirmation_by_volatility_expansion>
+      <Function test_micro_pullback_then_resume_long_confirms>
+      <Function test_micro_pullback_too_large_does_not_confirm>
+      <Function test_candidate_expires_and_is_replaced>
+    <Module test_edge_estimator.py>
+      <Function test_edge_positive_when_tp_distance_greater_than_spread>
+      <Function test_edge_negative_when_spread_too_large>
+      <Function test_different_thresholds_by_regime>
+      <Function test_should_emit_signal_blocks_low_edge>
+      <Function test_should_emit_signal_allows_high_edge>
+      <Function test_volatility_penalty_reduces_edge>
+      <Function test_regime_adjustment_impulse_allows_higher_edge>
+      <Function test_maker_fill_probability_by_regime>
+      <Function test_metrics_tracking>
+    <Module test_evaluation.py>
+      <Function test_evaluate_returns_structured_result>
+      <Function test_evaluate_fails_on_low_pf>
+      <Function test_evaluate_fails_on_high_drawdown>
+      <Function test_evaluate_fails_on_insufficient_positive_regimes>
+      <Function test_evaluate_passes_all_criteria>
+      <Function test_evaluate_handles_missing_regime_data>
+    <Module test_execution_diagnostics.py>
+      <Function test_execution_diagnostics_initialization>
+      <Function test_record_maker_attempt>
+      <Function test_record_maker_fill>
+      <Function test_record_maker_expired>
+      <Function test_record_volatility_rejections>
+      <Function test_maker_fill_rate_calculation>
+      <Function test_avg_time_to_fill>
+      <Function test_volatility_rejection_rate>
+      <Function test_recent_expired_count>
+      <Function test_snapshot>
+      <Function test_reset>
+    <Module test_execution_retry_queue.py>
+      <Function test_hard_block_leads_to_enqueue>
+      <Function test_improved_volatility_allows_retry>
+      <Function test_retries_stop_at_max>
+      <Function test_retry_respects_delay>
+      <Function test_retry_respects_capital_preservation>
+    <Module test_execution_volatility_gating.py>
+      <Coroutine test_hard_volatility_block>
+      <Coroutine test_soft_volatility_block_enqueues_for_retry>
+      <Coroutine test_low_volatility_allows_orders>
+      <Coroutine test_volatility_gating_tracks_metrics>
+    <Module test_idempotency_resilience.py>
+      <Coroutine test_daily_run_key_prevents_duplicates>
+      <Coroutine test_retry_backoff_handles_429_correctly>
+      <Coroutine test_non_retriable_errors_do_not_retry>
+      <Coroutine test_retry_backoff_exponential_delay>
+      <Coroutine test_daily_run_key_different_dates_allowed>
+    <Module test_impulse_filters.py>
+      <Class TestSpreadFilter>
+        <Function test_allows_trade_when_spread_is_acceptable>
+        <Function test_blocks_trade_when_spread_exceeds_threshold>
+        <Function test_allows_trade_when_no_bid_ask>
+      <Class TestVolatilityExpansionFilter>
+        <Function test_allows_trade_when_volatility_expands>
+        <Function test_blocks_trade_when_volatility_contracts>
+        <Function test_allows_trade_with_insufficient_data>
+        <Function test_allows_trade_when_long_term_vol_is_zero>
+      <Class TestTimeWindowFilter>
+        <Function test_allows_trade_when_in_allowed_hours>
+        <Function test_blocks_trade_when_outside_allowed_hours>
+        <Function test_allows_trade_when_no_restrictions>
+        <Function test_allows_trade_when_crossing_midnight>
+        <Function test_allows_trade_with_multiple_ranges>
+      <Class TestImpulseFilterPipeline>
+        <Function test_all_filters_pass>
+        <Function test_spread_filter_blocks>
+        <Function test_volatility_filter_blocks>
+        <Function test_time_filter_blocks>
+        <Function test_pass_rate_calculation>
+    <Module test_impulse_improvements.py>
+      <Coroutine test_break_even_activates>
+      <Coroutine test_no_trade_zone_spread>
+      <Coroutine test_max_time_in_trade_force_exit>
+      <Coroutine test_maker_edge_check>
+      <Function test_impulse_engine_metrics>
+    <Module test_impulse_precision.py>
+      <Coroutine test_break_even_activates>
+      <Coroutine test_no_trade_zone_blocks_entry>
+      <Coroutine test_max_time_in_trade_forces_exit>
+      <Coroutine test_maker_edge_check>
+      <Function test_impulse_engine_metrics>
+    <Module test_maker_execution.py>
+      <Coroutine test_maker_orders_lower_fees>
+      <Coroutine test_ttl_cancel_works>
+      <Coroutine test_taker_fallback_blocked_when_disabled>
+      <Coroutine test_maker_fill_rate_tracking>
+    <Module test_maker_retry_queue.py>
+      <Function test_retry_queue_initialization>
+      <Function test_enqueue_for_retry>
+      <Function test_enqueue_max_retries>
+      <Function test_get_ready_retries_volatility_improved>
+      <Function test_get_ready_retries_capital_preservation>
+      <Function test_get_ready_retries_regime_changed>
+      <Function test_get_ready_retries_drawdown_worsened>
+      <Function test_remove_order>
+      <Function test_retry_success_rate>
+      <Function test_clear>
+      <Function test_reset_metrics>
+    <Module test_no_trade_fix.py>
+      <Coroutine test_backtest_produces_trades>
+      <Function test_volatility_gating_allows_trades>
+    <Module test_no_trade_report.py>
+      <Function test_no_trade_report_increment_and_summary>
+      <Function test_no_trade_report_global_singleton_reset>
+    <Module test_no_trade_report_counters.py>
+      <Function test_signals_emitted_counter>
+      <Function test_signals_rejected_counters>
+      <Function test_execution_counters>
+      <Function test_order_counters>
+      <Function test_position_counters>
+      <Function test_full_pipeline_trace>
+      <Function test_starvation_diagnosis>
+    <Module test_openai_factory_hardening.py>
+      <Function test_strict_json_validation_rejection>
+      <Function test_required_fields_enforcement>
+      <Function test_kill_conditions_required>
+      <Function test_measurement_spec_required>
+      <Function test_budget_guardrails_max_steps>
+      <Function test_budget_guardrails_max_human_tasks>
+      <Function test_deterministic_generation_seed_temperature>
+      <Function test_safety_filter_rejects_unsafe_processes>
+      <Function test_budget_guardrails_stop_runaway_processes>
+    <Module test_paper_broker.py>
+      <Coroutine test_paper_broker_fill>
+      <Coroutine test_paper_broker_fees>
+    <Module test_paper_broker_maker_fill_model.py>
+      <Coroutine test_maker_order_fills_when_touched>
+      <Coroutine test_maker_order_does_not_fill_when_never_touched>
+      <Coroutine test_maker_order_fills_using_history_window>
+      <Coroutine test_ttl_cancel_works>
+    <Module test_paper_trade_assist.py>
+      <Function test_paper_assist_disabled_by_default>
+      <Function test_paper_assist_requires_dry_run_or_testnet>
+      <Function test_paper_assist_allowed_with_dry_run>
+      <Function test_paper_assist_allowed_with_testnet>
+      <Function test_paper_assist_multipliers>
+      <Function test_paper_assist_overrides>
+      <Function test_paper_assist_regime_allowance>
+    <Module test_process_factory_schemas.py>
+      <Function test_action_step>
+      <Function test_process_definition>
+      <Function test_process_run>
+      <Function test_kill_condition>
+      <Function test_scale_rule>
+    <Module test_process_factory_scorer.py>
+      <Function test_score_opportunity>
+      <Function test_score_opportunity_with_factors>
+      <Function test_rank_opportunities>
+      <Function test_rank_opportunities_min_score>
+    <Module test_process_factory_selector.py>
+      <Function test_selector_update_portfolio_entry>
+      <Function test_selector_evaluate_process_kill>
+      <Function test_selector_evaluate_process_promote>
+      <Function test_selector_compute_weight>
+    <Module test_process_factory_storage.py>
+      <Coroutine test_storage_snapshot>
+      <Coroutine test_storage_run>
+      <Coroutine test_storage_portfolio>
+      <Coroutine test_storage_capital_plan>
+    <Module test_regime.py>
+      <Coroutine test_regime_detector>
+      <Coroutine test_impulse_engine_gating>
+      <Function test_position_sizing_by_regime>
+      <Function test_strategy_regime_gating>
+    <Module test_risk.py>
+      <Function test_risk_limits_max_positions>
+      <Function test_position_sizer>
+      <Coroutine test_killswitch_drawdown>
+    <Module test_selector_anti_overfitting.py>
+      <Function test_min_sample_size_gating>
+      <Function test_decay_weighting_effect>
+      <Function test_holdout_rejection>
+      <Function test_regime_bucket_diversification>
+      <Function test_selector_promotes_after_min_sample_size>
+    <Module test_strategies.py>
+      <Coroutine test_funding_harvester>
+      <Coroutine test_impulse_engine>
+      <Coroutine test_basis_arbitrage>
+    <Module test_strategy_accounting.py>
+      <Function test_strategy_pnl_tracking>
+      <Function test_strategy_trades_tracking>
+      <Function test_strategy_win_loss_tracking>
+      <Function test_strategy_metrics_in_backtest_report>
+    <Module test_strategy_memory.py>
+      <Function test_weight_reduced_after_poor_pf>
+      <Function test_regime_specific_penalty_works>
+      <Function test_memory_recovers_after_cooldown>
+      <Function test_regime_blacklist_expires>
+      <Function test_rolling_pf_calculation>
+      <Function test_drawdown_tracking>
+      <Function test_penalty_applied_before_normalization>
+      <Function test_min_max_weight_bounds_respected>
+    <Module test_streams_smoke.py>
+      <Coroutine test_funding_stream_emits_signal>
+      <Coroutine test_maker_rebate_stream_emits_signal>
+      <Coroutine test_basis_stream_emits_signal>
+      <Coroutine test_volatility_stream_emits_signal>
+      <Coroutine test_stream_config_gating>
+    <Module test_timeframes.py>
+      <Coroutine test_candle_boundaries_and_aggregation>
+    <Module test_trade_density.py>
+      <Class TestTradeDensityTracker>
+        <Function test_initial_state>
+        <Function test_record_trade>
+        <Function test_idle_days_calculation>
+        <Function test_relaxation_levels>
+        <Function test_volatility_relaxation_factor>
+        <Function test_time_window_expansion>
+        <Function test_trade_resets_state>
+        <Function test_trades_last_N_days>
+        <Function test_density_state>
+        <Function test_multiple_strategies>
+        <Function test_trade_history_limit>
+      <Class TestGlobalTradeDensity>
+        <Function test_global_instance>
+    <Module test_trade_diagnostics.py>
+      <Function test_log_trade_blocked>
+      <Function test_check_dry_run>
+      <Function test_check_process_factory_actions>
+    <Module test_truth_layer.py>
+      <Function test_no_edge_present_primary_reason>
+      <Function test_over_filtering_primary_reason>
+      <Function test_bad_regime_mix_primary_reason>
+      <Function test_execution_inefficiency_primary_reason>
+      <Function test_success_path_reports_edge_present>
+    <Module test_truth_layer_invariants.py>
+      <Function test_truth_layer_invariant_total_formula>
+      <Function test_truth_layer_no_duplicate_ledger_entries>
+      <Function test_truth_layer_report_totals_match_ledger_sums>
+      <Function test_truth_layer_portfolio_attribution_aggregation>
+
+==================================== ERRORS ====================================
+______________________ ERROR collecting tests/test_api.py ______________________
+ImportError while importing test module '/Users/macbookpro/Desktop/HEAN/tests/test_api.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_api.py:4: in <module>
+    from fastapi.testclient import TestClient
+E   ModuleNotFoundError: No module named 'fastapi'
+____________________ ERROR collecting tests/test_api_e2e.py ____________________
+ImportError while importing test module '/Users/macbookpro/Desktop/HEAN/tests/test_api_e2e.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_api_e2e.py:4: in <module>
+    from fastapi.testclient import TestClient
+E   ModuleNotFoundError: No module named 'fastapi'
+__________________ ERROR collecting tests/test_api_routers.py __________________
+ImportError while importing test module '/Users/macbookpro/Desktop/HEAN/tests/test_api_routers.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_api_routers.py:4: in <module>
+    from fastapi.testclient import TestClient
+E   ModuleNotFoundError: No module named 'fastapi'
+__________________ ERROR collecting tests/test_smoke_test.py ___________________
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1204: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1176: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1147: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:690: in _load_unlocked
+    ???
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+tests/test_smoke_test.py:7: in <module>
+    from hean.process_factory.integrations.smoke_test import run_smoke_test
+E     File "/Users/macbookpro/Desktop/HEAN/src/hean/process_factory/integrations/smoke_test.py", line 69
+E       http_client: BybitHTTPClient | None = None
+E   IndentationError: unexpected indent
+=========================== short test summary info ============================
+ERROR tests/test_api.py
+ERROR tests/test_api_e2e.py
+ERROR tests/test_api_routers.py
+ERROR tests/test_smoke_test.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 4 errors during collection !!!!!!!!!!!!!!!!!!!!
+==================== 249 tests collected, 4 errors in 0.97s ====================

@@ -1,0 +1,53 @@
+Generate a new process definition based on this context:
+
+Environment Snapshot:
+{snapshot}
+
+Current Portfolio:
+{portfolio}
+
+Top Failures (processes that didn't work):
+{failures}
+
+Capability Gaps (missing capabilities that unlock opportunities):
+{capabilities}
+
+Return ONLY valid JSON matching the ProcessDefinition schema. Include:
+- id: unique identifier (e.g., "p7_custom_name")
+- name: human-readable name
+- type: one of TRADING, EARN, CAMPAIGN, BONUS, DATA, ACCESS, OTHER
+- description: process description
+- requirements: dict with needs_bybit (bool), needs_ui (bool), needs_kvc (bool), etc.
+- inputs_schema: JSON schema for inputs (dict)
+- actions: list of ActionStep objects with step_id, kind (API_CALL|HUMAN_TASK|COMPUTE|WAIT), params, timeout, retries, depends_on, description
+- expected_outputs: list of output keys (strings)
+- safety: SafetyPolicy object with max_capital_usd, require_manual_approval, max_risk_factor, allowed_timeframes, restrictions
+- measurement: MeasurementSpec object with metrics (list of strings) and attribution_rule (string)
+- kill_conditions: list of KillCondition objects (can be empty)
+- scale_rules: list of ScaleRule objects (can be empty)
+- version: string (default "1.0.0")
+
+SAFETY RULES (STRICTLY ENFORCED):
+- Do NOT generate processes that handle credentials directly
+- Do NOT generate processes that scrape UIs or automate browsers
+- Do NOT generate processes that violate Terms of Service
+- Do NOT generate processes that perform illegal actions
+- Do NOT generate processes that execute orders directly (use HUMAN_TASK or call existing execution interfaces)
+- Default to HUMAN_TASK for anything uncertain or requiring manual verification
+- Use API_CALL only for documented, safe API endpoints
+- Use COMPUTE only for data processing/analysis
+- Use WAIT only for delays/timeouts
+
+Example ActionStep structure:
+{{
+  "step_id": "step_1",
+  "kind": "HUMAN_TASK",
+  "description": "Human-readable description",
+  "params": {{"checklist": ["item1", "item2"]}},
+  "timeout": 300,
+  "retries": 0,
+  "depends_on": []
+}}
+
+Return ONLY valid JSON, no prose, no explanations.
+

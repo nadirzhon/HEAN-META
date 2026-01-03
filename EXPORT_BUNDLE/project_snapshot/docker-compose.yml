@@ -1,0 +1,114 @@
+services:
+  # Backend API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hean-api
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+    volumes:
+      - ./src:/app/src:ro
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    command: uvicorn hean.api.app:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # API endpoint
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - hean-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Legacy CLI service (optional, for backward compatibility)
+  hean:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hean-trading-system
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+    volumes:
+      - ./src:/app/src:ro
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    command: python -m hean.main run
+    restart: "no"  # Don't auto-start, use API instead
+    ports:
+      - "8080:8080"  # Health check endpoint
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - hean-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles:
+      - cli  # Only start with --profile cli
+
+  # Frontend Web UI
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: hean-website
+    restart: unless-stopped
+    ports:
+      - "3000:80"  # Website on port 3000
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - hean-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Redis for future distributed event bus
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: hean-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   networks:
+  #     - hean-network
+  #   restart: unless-stopped
+
+networks:
+  hean-network:
+    driver: bridge
+
+# volumes:
+#   redis-data:
+
+

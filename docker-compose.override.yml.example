@@ -1,0 +1,24 @@
+# Пример файла для переопределения настроек docker-compose.yml
+# Скопируйте в docker-compose.override.yml для локальной разработки
+
+version: '3.8'
+
+services:
+  hean:
+    # Для разработки: монтируем src с правами записи
+    volumes:
+      - ./src:/app/src  # Без :ro для возможности записи
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    
+    # Для отладки: запускаем bash вместо основной команды
+    # command: bash
+    
+    # Для тестирования: запускаем backtest
+    # command: python -m hean.main backtest --days 7
+    
+    # Дополнительные переменные окружения
+    environment:
+      - DEBUG_MODE=true
+      - LOG_LEVEL=DEBUG
+

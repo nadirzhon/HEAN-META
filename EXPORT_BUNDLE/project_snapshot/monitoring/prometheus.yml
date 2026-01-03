@@ -1,0 +1,24 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'hean'
+    replica: '0'
+
+scrape_configs:
+  - job_name: 'hean-api'
+    static_configs:
+      - targets: ['api:8000']
+        labels:
+          service: 'hean-api'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'hean-legacy'
+    static_configs:
+      - targets: ['hean:9090']
+        labels:
+          service: 'hean-trading-system'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+

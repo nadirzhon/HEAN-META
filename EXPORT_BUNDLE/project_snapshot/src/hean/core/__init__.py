@@ -1,0 +1,1 @@
+"""Core event-driven infrastructure."""
