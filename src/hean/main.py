@@ -191,6 +191,43 @@ class TradingSystem:
             self._price_feed = BybitPriceFeed(self._bus, symbols)
             await self._price_feed.start()
             logger.info(f"Using Bybit price feed for live trading: {symbols}")
+            
+            # Auto-detect balance from exchange in live mode
+            # System works with any amount - no need to specify INITIAL_CAPITAL
+            try:
+                from hean.exchange.bybit.http import BybitHTTPClient
+                http_client = BybitHTTPClient()
+                await http_client.connect()
+                account_info = await http_client.get_account_info()
+                await http_client.disconnect()
+                
+                # Parse balance from Bybit API response
+                # Bybit returns: {"result": {"list": [{"coin": [{"walletBalance": "...", "coin": "USDT"}]}]}}
+                balance = 0.0
+                if account_info.get("retCode") == 0:
+                    result = account_info.get("result", {})
+                    account_list = result.get("list", [])
+                    if account_list:
+                        coins = account_list[0].get("coin", [])
+                        for coin in coins:
+                            if coin.get("coin") == "USDT":
+                                balance = float(coin.get("walletBalance", 0))
+                                break
+                
+                if balance > 0:
+                    # Update accounting with real exchange balance
+                    self._accounting.set_balance_from_exchange(balance)
+                    # Update deposit protector with real balance
+                    self._deposit_protector.update_initial_capital(balance)
+                    # Update killswitch with real balance
+                    self._killswitch.set_initial_capital(balance)
+                    logger.info(f"✅ Synced with exchange balance: ${balance:,.2f} USDT")
+                    logger.info("📊 System ready to trade with any capital amount")
+                else:
+                    logger.warning(f"⚠️ Could not get balance from exchange, using config: ${initial_capital:,.2f}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not sync with exchange balance: {e}")
+                logger.info(f"Using configured initial capital: ${initial_capital:,.2f}")
         else:
             # Create default synthetic price feed for paper trading
             self._price_feed = SyntheticPriceFeed(self._bus, symbols)
@@ -550,7 +587,14 @@ class TradingSystem:
                 metrics.increment("signals_rejected")
                 no_trade_report.increment("risk_limits_reject", signal.symbol, signal.strategy_id)
                 no_trade_report.increment_pipeline("signals_rejected_risk", signal.strategy_id)
-                log_block_reason("risk_limits_reject", symbol=signal.symbol, strategy_id=signal.strategy_id)
+                log_block_reason(
+                    "risk_limits_reject",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    agent_name=signal.strategy_id,
+                    threshold=None,
+                    measured_value=None,
+                )
                 log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"risk_limits: {reason}")
                 return
         else:
@@ -569,18 +613,28 @@ class TradingSystem:
                 no_trade_report.increment_pipeline(
                     "signals_rejected_daily_attempts", signal.strategy_id
                 )
-                log_block_reason("daily_attempts_reject", symbol=signal.symbol, strategy_id=signal.strategy_id)
+                log_block_reason(
+                    "daily_attempts_reject",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    agent_name=signal.strategy_id,
+                )
                 log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"daily_attempts: {reason}")
                 return
 
-            # Check cooldown
+            # Check cooldown (bypassed in DEBUG_MODE / Aggressive Mode)
             allowed, reason = self._risk_limits.check_cooldown(signal.strategy_id)
             if not allowed:
                 logger.debug(f"Signal rejected: {reason}")
                 metrics.increment("signals_rejected")
                 no_trade_report.increment("cooldown_reject", signal.symbol, signal.strategy_id)
                 no_trade_report.increment_pipeline("signals_rejected_cooldown", signal.strategy_id)
-                log_block_reason("cooldown_reject", symbol=signal.symbol, strategy_id=signal.strategy_id)
+                log_block_reason(
+                    "cooldown_reject",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    agent_name=signal.strategy_id,
+                )
                 log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"cooldown: {reason}")
                 return
         else:
@@ -622,7 +676,12 @@ class TradingSystem:
                 no_trade_report.increment_pipeline(
                     "signals_blocked_decision_memory", signal.strategy_id
                 )
-                log_block_reason("decision_memory_block", symbol=signal.symbol, strategy_id=signal.strategy_id)
+                log_block_reason(
+                    "decision_memory_block",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    agent_name=signal.strategy_id,
+                )
                 log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note="decision_memory")
                 return
         else:

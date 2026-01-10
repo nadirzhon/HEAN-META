@@ -106,10 +106,19 @@ class RiskLimits:
 
     def check_cooldown(self, strategy_id: str) -> tuple[bool, str]:
         """Check if strategy is in cooldown period."""
+        # Aggressive Mode: Bypass cooldowns completely when DEBUG_MODE=True
+        if settings.debug_mode:
+            log_allow_reason("cooldown_bypassed_debug", strategy_id=strategy_id, note="DEBUG_MODE bypass")
+            return True, ""
+        
         if strategy_id == "impulse_engine":
             cooldown_threshold = settings.impulse_cooldown_after_losses
             # Apply paper assist multiplier (shorter cooldown)
             multiplier = get_cooldown_multiplier()
+            # If multiplier is 0, bypass cooldown
+            if multiplier == 0.0:
+                log_allow_reason("cooldown_bypassed_aggressive", strategy_id=strategy_id, note="Aggressive Mode")
+                return True, ""
             effective_threshold = int(cooldown_threshold / multiplier) if multiplier > 0 else cooldown_threshold
             
             if self._consecutive_losses[strategy_id] >= effective_threshold:

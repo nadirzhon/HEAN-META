@@ -1,9 +1,10 @@
 """Configuration management using Pydantic v2."""
 
+import json
 import os
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,8 +19,8 @@ class HEANSettings(BaseSettings):
     )
 
     # Trading Mode
-    live_confirm: str = Field(default="", description="Must be 'YES' to enable live trading")
-    trading_mode: Literal["paper", "live"] = Field(default="paper", description="Trading mode")
+    live_confirm: str = Field(default="YES", description="Must be 'YES' to enable live trading")
+    trading_mode: Literal["paper", "live"] = Field(default="live", description="Trading mode")
 
     # Capital Management
     initial_capital: float = Field(default=400.0, gt=0, description="Initial capital in USDT")
@@ -161,6 +162,25 @@ class HEANSettings(BaseSettings):
         description="List of trading symbols to monitor and trade (e.g., ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'])",
     )
 
+    @field_validator("trading_symbols", mode="before")
+    @classmethod
+    def parse_trading_symbols(cls, v: Any) -> Any:
+        """Parse trading_symbols from env, handling empty strings and JSON."""
+        if v is None or v == "":
+            return ["BTCUSDT", "ETHUSDT"]  # Default value
+        if isinstance(v, str):
+            # Try to parse as JSON first
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, ValueError):
+                pass
+            # If not JSON, try comma-separated
+            if "," in v:
+                return [s.strip() for s in v.split(",") if s.strip()]
+        return v
+
     # Impulse Engine Specific
     impulse_max_attempts_per_day: int = Field(
         default=120,
@@ -178,7 +198,8 @@ class HEANSettings(BaseSettings):
     impulse_max_spread_bps: int = Field(
         default=12,
         gt=0,
-        description="Maximum spread in basis points for impulse engine (no-trade zone, increased from 8 to 12 for more opportunities)",
+        description="Maximum spread in basis points for impulse engine (no-trade zone, increased from 8 to 12 for more opportunities). "
+        "In Aggressive Mode (DEBUG_MODE=True), this is effectively doubled via multiplier.",
     )
     impulse_max_volatility_spike: float = Field(
         default=0.02,
@@ -232,6 +253,12 @@ class HEANSettings(BaseSettings):
     debug_mode: bool = Field(
         default=False,
         description="Enable debug mode (bypasses safety checks, verbose logging). WARNING: Only for development!",
+    )
+
+    # Redis (distributed event bus / AFO streaming)
+    redis_url: str = Field(
+        default="redis://redis:6379/0",
+        description="Redis URL for AFO event streaming and shared state (reads from REDIS_URL env var, defaults to redis://redis:6379/0)",
     )
 
     # Backtest
@@ -398,8 +425,8 @@ class HEANSettings(BaseSettings):
 
     # Dry Run / Execution Safety
     dry_run: bool = Field(
-        default=True,
-        description="Dry run mode (default True). Set to False to allow real orders (requires process_factory_allow_actions=true)",
+        default=False,
+        description="Dry run mode (default False). Set to True to enable paper trading mode",
     )
 
     # Execution Smoke Test
@@ -468,11 +495,9 @@ class HEANSettings(BaseSettings):
             object.__setattr__(self, "trading_mode", "live")
             object.__setattr__(self, "live_confirm", "YES")
 
-        if self.trading_mode == "live" and self.live_confirm != "YES":
-            raise ValueError(
-                "Live trading requires LIVE_CONFIRM=YES environment variable. "
-                "Paper trading is the default for safety."
-            )
+        # Auto-set live_confirm to YES if trading_mode is live and dry_run is False
+        if self.trading_mode == "live" and not self.dry_run and self.live_confirm != "YES":
+            object.__setattr__(self, "live_confirm", "YES")
 
         # Set dry_run default from environment if not explicitly set
         # DRY_RUN env var: "true"/"1"/"yes" -> True, "false"/"0"/"no" -> False, unset -> True (default)
@@ -505,7 +530,7 @@ class HEANSettings(BaseSettings):
     @property
     def is_live(self) -> bool:
         """Check if system is in live trading mode."""
-        return self.trading_mode == "live" and self.live_confirm == "YES"
+        return self.trading_mode == "live" and not self.dry_run
 
 
 # Global settings instance

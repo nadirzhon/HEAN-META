@@ -221,6 +221,9 @@ class BybitPublicWebSocket:
                 ask=ask,
             )
 
+            # Update last tick timestamp for heartbeat monitoring
+            self._last_tick_timestamp = datetime.utcnow()
+
             await self._bus.publish(Event(event_type=EventType.TICK, data={"tick": tick}))
         except (ValueError, TypeError) as e:
             logger.error(f"Failed to parse ticker data: {e}")
@@ -231,8 +234,33 @@ class BybitPublicWebSocket:
         Args:
             data: Order book data from WebSocket
         """
-        # TODO: Implement order book handling if needed
-        pass
+        orderbook_data = data.get("data", {})
+        if not orderbook_data:
+            return
+
+        symbol = orderbook_data.get("s", "")
+        if not symbol:
+            return
+
+        # Extract bids and asks (L2 format)
+        bids = orderbook_data.get("b", [])  # List of [price, qty]
+        asks = orderbook_data.get("a", [])  # List of [price, qty]
+
+        orderbook = {
+            "symbol": symbol,
+            "b": bids,
+            "a": asks,
+            "ts": orderbook_data.get("ts", 0),
+            "u": orderbook_data.get("u", 0),  # Update ID
+        }
+
+        # Publish orderbook update event
+        await self._bus.publish(
+            Event(
+                event_type=EventType.ORDER_BOOK_UPDATE,
+                data={"orderbook": orderbook},
+            )
+        )
 
     async def _handle_trade(self, data: dict) -> None:
         """Handle trade update.

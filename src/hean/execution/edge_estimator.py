@@ -192,6 +192,7 @@ class ExecutionEdgeEstimator:
                 threshold=min_threshold,
                 symbol=tick.symbol,
                 strategy_id=signal.strategy_id,
+                agent_name=signal.strategy_id,
             )
             logger.debug(
                 f"Signal blocked by edge: edge={edge_bps:.1f} bps < "

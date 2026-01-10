@@ -127,3 +127,23 @@ async def cancel_all_orders(request: CancelAllOrdersRequest) -> dict:
         logger.error(f"Failed to cancel all orders: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/orderbook-presence")
+async def get_orderbook_presence(
+    symbol: str | None = Query(default=None, description="Symbol filter (optional)")
+) -> dict | list[dict]:
+    """Get our orderbook presence (Phase 3: Smart Limit Engine).
+    
+    Shows our limit orders as glowing clusters in the orderbook,
+    with their distance from mid-price.
+    """
+    if engine_facade is None:
+        raise HTTPException(status_code=500, detail="Engine facade not initialized")
+
+    try:
+        result = await engine_facade.get_orderbook_presence(symbol)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get orderbook presence: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+

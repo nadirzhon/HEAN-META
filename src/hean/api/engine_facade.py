@@ -268,6 +268,21 @@ class EngineFacade:
             return None
         return self._trading_system._bus
 
+    async def get_orderbook_presence(self, symbol: str | None = None) -> dict | list[dict]:
+        """Get orderbook presence (Phase 3: Smart Limit Engine).
+        
+        Args:
+            symbol: Optional symbol filter
+        
+        Returns:
+            Orderbook presence data
+        """
+        if not self._running or self._trading_system is None:
+            return {} if symbol else []
+        
+        execution_router = self._trading_system._execution_router
+        return execution_router.get_orderbook_presence(symbol)
+
     @property
     def is_running(self) -> bool:
         """Check if engine is running."""

@@ -59,11 +59,15 @@ class SpreadFilter(BaseFilter):
             max_spread_bps = max_spread_bps * multiplier
         
         if spread_bps > max_spread_bps:
+            # Determine agent name from context if available
+            agent_name = context.get("strategy_id", "impulse_engine") if context else "impulse_engine"
             log_block_reason(
                 "spread_reject",
                 measured_value=spread_bps,
                 threshold=max_spread_bps,
                 symbol=tick.symbol,
+                strategy_id=agent_name,
+                agent_name=agent_name,
             )
             return False
         
@@ -103,11 +107,15 @@ class VolatilityExpansionFilter(BaseFilter):
                 required_ratio = settings.impulse_vol_expansion_ratio
                 actual_ratio = vol_short / vol_long
                 if actual_ratio < required_ratio:
+                    # Determine agent name from context if available
+                    agent_name = context.get("strategy_id", "impulse_engine") if context else "impulse_engine"
                     log_block_reason(
                         "volatility_expansion_reject",
                         measured_value=actual_ratio,
                         threshold=required_ratio,
                         symbol=tick.symbol,
+                        strategy_id=agent_name,
+                        agent_name=agent_name,
                     )
                     return False
         

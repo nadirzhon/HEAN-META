@@ -53,6 +53,8 @@ function switchPage(page) {
         loadOrders();
     } else if (page === 'positions') {
         loadPositions();
+    } else if (page === 'depth') {
+        loadDepth();
     } else if (page === 'settings') {
         loadSettings();
     }
@@ -102,6 +104,17 @@ function initializeButtons() {
     const refreshPositionsBtn = document.getElementById('btn-refresh-positions');
     if (refreshPositionsBtn) {
         refreshPositionsBtn.addEventListener('click', loadPositions);
+    }
+
+    // Depth visualization
+    const refreshDepthBtn = document.getElementById('btn-refresh-depth');
+    if (refreshDepthBtn) {
+        refreshDepthBtn.addEventListener('click', loadDepth);
+    }
+
+    const depthSymbolSelect = document.getElementById('depth-symbol-select');
+    if (depthSymbolSelect) {
+        depthSymbolSelect.addEventListener('change', loadDepth);
     }
 
     // Order filter
@@ -325,6 +338,126 @@ async function loadPositions() {
     }
 }
 
+// Depth Visualization
+async function loadDepth() {
+    try {
+        const symbolSelect = document.getElementById('depth-symbol-select');
+        const selectedSymbol = symbolSelect?.value || null;
+        const endpoint = selectedSymbol ? `/orderbook-presence?symbol=${selectedSymbol}` : '/orderbook-presence';
+        
+        const data = await apiCall(endpoint);
+        const visualization = document.getElementById('depth-visualization');
+        const info = document.getElementById('depth-info');
+        
+        if (!visualization || !info) {
+            return;
+        }
+        
+        // Handle single symbol or list of symbols
+        const presenceData = Array.isArray(data) ? data : (data && Object.keys(data).length > 0 ? [data] : []);
+        
+        if (presenceData.length === 0) {
+            visualization.innerHTML = '<div class="loading">No active orders in orderbook</div>';
+            info.innerHTML = '<div class="depth-info-item">No presence data available</div>';
+            return;
+        }
+        
+        // Build visualization HTML
+        let visualizationHTML = '<div class="depth-chart">';
+        
+        for (const presence of presenceData) {
+            const symbol = presence.symbol || 'UNKNOWN';
+            const midPrice = presence.mid_price || 0;
+            const bestBid = presence.best_bid || midPrice * 0.9999;
+            const bestAsk = presence.best_ask || midPrice * 1.0001;
+            const bidOrders = presence.bid_orders || [];
+            const askOrders = presence.ask_orders || [];
+            const numOrders = presence.num_orders || 0;
+            const totalSize = presence.total_size || 0;
+            
+            visualizationHTML += `
+                <div class="depth-symbol-section">
+                    <h3>${symbol}</h3>
+                    <div class="depth-orderbook">
+                        <div class="depth-asks">
+                            <div class="depth-header">Asks (Sell Orders)</div>
+                            ${askOrders.length > 0 ? askOrders.map(order => `
+                                <div class="depth-order-item depth-order-ask" 
+                                     style="left: ${Math.min(100, (order.distance_from_mid_bps || 0) * 10)}%; 
+                                            opacity: ${Math.min(1.0, (order.size || 0) / 10)};">
+                                    <div class="depth-order-price">$${order.price?.toFixed(2) || 'N/A'}</div>
+                                    <div class="depth-order-size">${order.size?.toFixed(4) || '0'}</div>
+                                    <div class="depth-order-distance">${(order.distance_from_mid_bps || 0).toFixed(2)} bps</div>
+                                </div>
+                            `).join('') : '<div class="no-orders">No ask orders</div>'}
+                            <div class="depth-best-price">Best Ask: $${bestAsk.toFixed(2)}</div>
+                        </div>
+                        
+                        <div class="depth-mid">
+                            <div class="depth-mid-price">Mid: $${midPrice.toFixed(2)}</div>
+                            <div class="depth-spread">Spread: ${((bestAsk - bestBid) / midPrice * 10000).toFixed(2)} bps</div>
+                        </div>
+                        
+                        <div class="depth-bids">
+                            <div class="depth-header">Bids (Buy Orders)</div>
+                            ${bidOrders.length > 0 ? bidOrders.map(order => `
+                                <div class="depth-order-item depth-order-bid" 
+                                     style="left: ${Math.min(100, Math.abs(order.distance_from_mid_bps || 0) * 10)}%; 
+                                            opacity: ${Math.min(1.0, (order.size || 0) / 10)};">
+                                    <div class="depth-order-price">$${order.price?.toFixed(2) || 'N/A'}</div>
+                                    <div class="depth-order-size">${order.size?.toFixed(4) || '0'}</div>
+                                    <div class="depth-order-distance">${Math.abs(order.distance_from_mid_bps || 0).toFixed(2)} bps</div>
+                                </div>
+                            `).join('') : '<div class="no-orders">No bid orders</div>'}
+                            <div class="depth-best-price">Best Bid: $${bestBid.toFixed(2)}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        visualizationHTML += '</div>';
+        visualization.innerHTML = visualizationHTML;
+        
+        // Build info HTML
+        let infoHTML = '<div class="depth-info-header">Orderbook Presence Summary</div>';
+        for (const presence of presenceData) {
+            infoHTML += `
+                <div class="depth-info-item">
+                    <div class="depth-info-symbol">${presence.symbol || 'UNKNOWN'}</div>
+                    <div class="depth-info-stats">
+                        <div>Orders: ${presence.num_orders || 0}</div>
+                        <div>Total Size: ${presence.total_size?.toFixed(4) || '0'}</div>
+                        <div>Bid Orders: ${presence.bid_orders?.length || 0}</div>
+                        <div>Ask Orders: ${presence.ask_orders?.length || 0}</div>
+                    </div>
+                </div>
+            `;
+        }
+        info.innerHTML = infoHTML;
+        
+        // Update symbol select if needed
+        if (symbolSelect && !selectedSymbol) {
+            const symbols = presenceData.map(p => p.symbol).filter(Boolean);
+            symbols.forEach(symbol => {
+                if (!Array.from(symbolSelect.options).some(opt => opt.value === symbol)) {
+                    const option = document.createElement('option');
+                    option.value = symbol;
+                    option.textContent = symbol;
+                    symbolSelect.appendChild(option);
+                }
+            });
+        }
+        
+    } catch (error) {
+        console.error('Failed to load depth visualization:', error);
+        const visualization = document.getElementById('depth-visualization');
+        if (visualization) {
+            visualization.innerHTML = `<div class="error">Failed to load depth data: ${error.message}</div>`;
+        }
+    }
+}
+
 // Settings
 async function loadSettings() {
     try {
@@ -435,6 +568,8 @@ function startPolling() {
             loadOrders(document.getElementById('order-filter')?.value || 'all');
         } else if (currentPage === 'positions') {
             loadPositions();
+        } else if (currentPage === 'depth') {
+            loadDepth();
         }
     }, 5000); // Poll every 5 seconds
 }

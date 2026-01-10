@@ -30,10 +30,16 @@ def get_spread_threshold_multiplier() -> float:
     """Get multiplier for spread threshold (higher = more lenient).
     
     Returns:
-        Multiplier (default 2.5x for paper assist, 1.0x otherwise)
+        Multiplier (default 2.5x for paper assist, 2.0x for debug mode, 1.0x otherwise)
+        In Aggressive Mode (both enabled), returns 2.0x effectively doubling MAX_ALLOWED_SPREAD
     """
+    # Aggressive Mode: Double the spread tolerance when both enabled
+    if settings.debug_mode:
+        if is_paper_assist_enabled():
+            return 2.0  # Double tolerance (100% increase)
+        return 2.0  # Still double in debug mode alone
     if is_paper_assist_enabled():
-        return 2.5
+        return 2.5  # Original paper assist multiplier
     return 1.0
 
 
@@ -54,7 +60,11 @@ def get_edge_threshold_reduction_pct() -> float:
     
     Returns:
         Reduction percentage (e.g., 40.0 means reduce threshold by 40%)
+        In Aggressive Mode (DEBUG_MODE=True), reduces to near-zero (95% reduction)
     """
+    # Aggressive Mode: Reduce edge requirement to near-zero
+    if settings.debug_mode:
+        return 95.0  # 95% reduction = near-zero threshold
     if is_paper_assist_enabled():
         return 40.0  # Reduce threshold by 40%
     return 0.0
@@ -87,7 +97,11 @@ def get_cooldown_multiplier() -> float:
     
     Returns:
         Multiplier (default 0.33x = 3x shorter for paper assist)
+        In Aggressive Mode (DEBUG_MODE=True), returns 0.0 to bypass cooldowns
     """
+    # Aggressive Mode: Bypass cooldowns completely
+    if settings.debug_mode:
+        return 0.0  # Effectively bypass cooldowns (0 duration)
     if is_paper_assist_enabled():
         return 0.33  # 3x shorter
     return 1.0
@@ -126,6 +140,7 @@ def log_block_reason(
     threshold: float | None = None,
     symbol: str = "",
     strategy_id: str = "",
+    agent_name: str = "",
 ) -> None:
     """Log a block reason with diagnostic information.
     
@@ -135,18 +150,34 @@ def log_block_reason(
         threshold: Threshold that was exceeded
         symbol: Trading symbol
         strategy_id: Strategy ID
+        agent_name: Agent/strategy name (for compatibility with warden-style logging)
     """
-    msg_parts = [f"[BLOCK] {reason_code}"]
-    if symbol:
-        msg_parts.append(f"symbol={symbol}")
-    if strategy_id:
-        msg_parts.append(f"strategy={strategy_id}")
-    if measured_value is not None:
-        msg_parts.append(f"measured={measured_value:.4f}")
-    if threshold is not None:
-        msg_parts.append(f"threshold={threshold:.4f}")
+    # Use agent_name if provided, otherwise use strategy_id
+    agent_display = agent_name or strategy_id or "unknown"
     
-    logger.debug(" ".join(msg_parts))
+    # Format: [SIGNAL REJECTED] Agent: {name} | Reason: {reason} | Current Value: {value} | Threshold: {limit}
+    msg_parts = [f"[SIGNAL REJECTED] Agent: {agent_display} | Reason: {reason_code}"]
+    if measured_value is not None:
+        msg_parts.append(f"| Current Value: {measured_value:.6f}")
+    if threshold is not None:
+        msg_parts.append(f"| Threshold: {threshold:.6f}")
+    if symbol:
+        msg_parts.append(f"| Symbol: {symbol}")
+    
+    # Always log at INFO level for visibility in docker-compose logs
+    logger.info(" ".join(msg_parts))
+    
+    # Also log detailed debug info
+    debug_parts = [f"[BLOCK] {reason_code}"]
+    if symbol:
+        debug_parts.append(f"symbol={symbol}")
+    if strategy_id:
+        debug_parts.append(f"strategy={strategy_id}")
+    if measured_value is not None:
+        debug_parts.append(f"measured={measured_value:.6f}")
+    if threshold is not None:
+        debug_parts.append(f"threshold={threshold:.6f}")
+    logger.debug(" ".join(debug_parts))
 
 
 def log_allow_reason(
