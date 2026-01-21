@@ -4,8 +4,10 @@ from hean.config import settings
 from hean.core.regime import Regime
 from hean.core.types import Signal
 from hean.logging import get_logger
+from hean.portfolio.accounting import PortfolioAccounting
 from hean.risk.capital_preservation import CapitalPreservationMode
 from hean.risk.dynamic_risk import DynamicRiskManager
+from hean.risk.kelly_criterion import KellyCriterion
 from hean.risk.smart_leverage import SmartLeverageManager
 
 logger = get_logger(__name__)

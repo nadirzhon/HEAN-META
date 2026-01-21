@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package hean.network;
+
+// Distributed Node Manager Protocol
+service GlobalSync {
+    // Heartbeat to check node health and latency
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+    
+    // Request trade execution from best-positioned node
+    rpc RequestTradeExecution(TradeExecutionRequest) returns (TradeExecutionResponse);
+    
+    // Notify other nodes of position changes
+    rpc NotifyPositionUpdate(PositionUpdate) returns (Acknowledge);
+    
+    // Request master role takeover (failover)
+    rpc RequestMasterRole(MasterRoleRequest) returns (MasterRoleResponse);
+    
+    // Stream market events for hedge-cover nodes
+    rpc StreamMarketEvents(MarketEventSubscription) returns (stream MarketEvent);
+    
+    // Synchronize node state
+    rpc SyncNodeState(NodeStateRequest) returns (NodeStateResponse);
+}
+
+// Node identifiers
+enum NodeRegion {
+    NODE_UNKNOWN = 0;
+    NODE_TOKYO = 1;
+    NODE_SINGAPORE = 2;
+    NODE_FRANKFURT = 3;
+}
+
+enum NodeRole {
+    ROLE_UNKNOWN = 0;
+    ROLE_MASTER = 1;      // Primary execution node
+    ROLE_HEDGE = 2;       // Hedge cover node
+    ROLE_STANDBY = 3;     // Standby node
+}
+
+message HeartbeatRequest {
+    NodeRegion node_region = 1;
+    int64 timestamp_ns = 2;
+    double cpu_usage = 3;
+    double memory_usage = 4;
+    int32 active_connections = 5;
+    bool is_healthy = 6;
+    map<string, double> exchange_latencies = 7;  // exchange -> latency_ms
+}
+
+message HeartbeatResponse {
+    bool acknowledged = 1;
+    int64 server_timestamp_ns = 2;
+    NodeRole assigned_role = 3;
+    int32 master_node_region = 4;  // Which node is currently master
+    double network_latency_ms = 5;
+    bool should_takeover = 6;  // If true, this node should become master
+}
+
+message TradeExecutionRequest {
+    string symbol = 1;
+    string side = 2;  // "buy" or "sell"
+    double quantity = 3;
+    double price = 4;
+    string exchange = 5;
+    NodeRegion requesting_node = 6;
+    int64 request_timestamp_ns = 7;
+    map<string, double> node_latencies = 8;  // node_region -> latency_ms to exchange
+}
+
+message TradeExecutionResponse {
+    bool executed = 1;
+    NodeRegion executing_node = 2;
+    string order_id = 3;
+    double execution_price = 4;
+    int64 execution_timestamp_ns = 5;
+    string reject_reason = 6;
+}
+
+message PositionUpdate {
+    string symbol = 1;
+    string exchange = 2;
+    double position_size = 3;
+    double entry_price = 4;
+    double unrealized_pnl = 5;
+    NodeRegion reporting_node = 6;
+    int64 timestamp_ns = 7;
+}
+
+message Acknowledge {
+    bool received = 1;
+    int64 timestamp_ns = 2;
+}
+
+message MasterRoleRequest {
+    NodeRegion requesting_node = 1;
+    int64 request_timestamp_ns = 2;
+    string reason = 3;  // e.g., "master_node_offline", "latency_advantage"
+    map<string, double> exchange_latencies = 4;
+}
+
+message MasterRoleResponse {
+    bool granted = 1;
+    int64 takeover_timestamp_ns = 2;
+    string rejection_reason = 3;
+}
+
+message MarketEventSubscription {
+    repeated string symbols = 1;
+    repeated string exchanges = 2;
+    NodeRegion subscriber_node = 3;
+}
+
+message MarketEvent {
+    string symbol = 1;
+    string exchange = 2;
+    string event_type = 3;  // "tick", "orderbook", "trade"
+    bytes event_data = 4;  // JSON serialized
+    int64 timestamp_ns = 5;
+}
+
+message NodeStateRequest {
+    NodeRegion requesting_node = 1;
+    bool include_positions = 2;
+    bool include_orders = 3;
+}
+
+message NodeStateResponse {
+    NodeRole current_role = 1;
+    map<string, double> active_positions = 2;  // symbol -> size
+    int32 active_order_count = 3;
+    double total_exposure = 4;
+    int64 state_timestamp_ns = 5;
+}

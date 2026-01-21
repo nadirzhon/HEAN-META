@@ -18,6 +18,11 @@ class EngineFacade:
         self._trading_system: TradingSystem | None = None
         self._running = False
         self._lock = asyncio.Lock()
+        
+        # Expose advanced systems (will be set when trading system starts)
+        self._meta_learning_engine = None
+        self._causal_inference_engine = None
+        self._multimodal_swarm = None
 
     async def start(self) -> dict[str, Any]:
         """Start the trading engine.
@@ -33,6 +38,15 @@ class EngineFacade:
                 # Create and start trading system
                 self._trading_system = TradingSystem(mode="run")
                 await self._trading_system.start()
+                
+                # Expose advanced systems for API access
+                if hasattr(self._trading_system, '_meta_learning_engine'):
+                    self._meta_learning_engine = self._trading_system._meta_learning_engine
+                if hasattr(self._trading_system, '_causal_inference_engine'):
+                    self._causal_inference_engine = self._trading_system._causal_inference_engine
+                if hasattr(self._trading_system, '_multimodal_swarm'):
+                    self._multimodal_swarm = self._trading_system._multimodal_swarm
+                
                 self._running = True
 
                 logger.info("Engine started successfully")

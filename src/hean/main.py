@@ -64,6 +64,21 @@ from hean.strategies.basis_arbitrage import BasisArbitrage
 from hean.strategies.funding_harvester import FundingHarvester
 from hean.strategies.impulse_engine import ImpulseEngine
 
+        # Phase 5: Statistical Arbitrage & Anti-Fragile Architecture
+        from hean.core.intelligence.correlation_engine import CorrelationEngine
+        from hean.risk.tail_risk import GlobalSafetyNet
+        from hean.observability.monitoring.self_healing import SelfHealingMiddleware
+        
+        # Absolute+: Post-Singularity Systems
+        from hean.core.intelligence.meta_learning_engine import MetaLearningEngine
+        from hean.core.intelligence.causal_inference_engine import CausalInferenceEngine
+        from hean.core.intelligence.multimodal_swarm import MultimodalSwarm
+        
+        # Singularity: Metamorphic Engine, Causal Discovery, Atomic Execution
+        from hean.core.intelligence.metamorphic_integration import MetamorphicIntegration
+        from hean.core.intelligence.causal_discovery import CausalDiscoveryEngine
+        from hean.execution.atomic_executor import AtomicExecutor
+
 logger = get_logger(__name__)
 
 
@@ -110,6 +125,16 @@ class TradingSystem:
         self._improvement_catalyst: ImprovementCatalyst | None = None
         self._capital_optimizer = CapitalOptimizer()
         self._report_generator = ReportGenerator()
+
+        # Phase 5: Statistical Arbitrage & Anti-Fragile Architecture
+        self._correlation_engine: CorrelationEngine | None = None
+        self._safety_net: GlobalSafetyNet | None = None
+        self._self_healing: SelfHealingMiddleware | None = None
+
+        # Absolute+: Post-Singularity Systems (Market-Architecting Entity)
+        self._meta_learning_engine: MetaLearningEngine | None = None
+        self._causal_inference_engine: CausalInferenceEngine | None = None
+        self._multimodal_swarm: MultimodalSwarm | None = None
 
         # Skip HealthCheck in evaluate mode
         self._health_check = HealthCheck() if mode == "run" else None
@@ -173,6 +198,104 @@ class TradingSystem:
         # Start regime detector
         await self._regime_detector.start()
         self._bus.subscribe(EventType.REGIME_UPDATE, self._handle_regime_update)
+        
+        # Phase: Oracle Engine Integration (Algorithmic Fingerprinting + TCN)
+        if mode == "run" and getattr(settings, 'oracle_engine_enabled', True):
+            from hean.core.intelligence.oracle_integration import OracleIntegration
+            self._oracle_integration = OracleIntegration(self._bus, symbols=settings.trading_symbols)
+            await self._oracle_integration.start()
+            logger.info("Oracle Engine Integration started (Fingerprinting + TCN)")
+
+        # Phase 5: Initialize Statistical Arbitrage & Anti-Fragile Architecture
+        if mode == "run" and settings.phase5_correlation_engine_enabled:
+            # 1. Correlation Engine for pair trading
+            self._correlation_engine = CorrelationEngine(self._bus, symbols=settings.trading_symbols)
+            await self._correlation_engine.start()
+            logger.info("Phase 5: Correlation Engine started")
+
+        if mode == "run" and settings.phase5_safety_net_enabled:
+            # 2. Global Safety Net (Black Swan Protection)
+            self._safety_net = GlobalSafetyNet(
+                bus=self._bus,
+                regime_detector=self._regime_detector,
+                accounting=self._accounting,
+                position_sizer=self._position_sizer
+            )
+            await self._safety_net.start()
+            logger.info("Phase 5: Global Safety Net activated")
+
+        if mode == "run" and settings.phase5_self_healing_enabled:
+            # 3. Self-Healing Middleware
+            self._self_healing = SelfHealingMiddleware(
+                bus=self._bus,
+                order_manager=self._order_manager
+            )
+            await self._self_healing.start()
+            logger.info("Phase 5: Self-Healing Middleware started")
+
+        if mode == "run" and settings.phase5_kelly_criterion_enabled:
+            # 4. Enable Kelly Criterion for Position Sizer
+            try:
+                from hean.risk.kelly_criterion import KellyCriterion
+                if hasattr(self._position_sizer, 'enable_kelly_criterion'):
+                    self._position_sizer.enable_kelly_criterion(
+                        self._accounting, 
+                        fractional_kelly=settings.phase5_kelly_fractional
+                    )
+                    logger.info(f"Phase 5: Kelly Criterion enabled with fractional_kelly={settings.phase5_kelly_fractional}")
+            except Exception as e:
+                logger.warning(f"Could not enable Kelly Criterion: {e}")
+
+        # Absolute+: Initialize Post-Singularity Systems
+        if mode == "run" and getattr(settings, 'absolute_plus_enabled', True):
+            # 1. Meta-Learning Engine (Recursive Intelligence Core)
+            try:
+                cpp_source_dir = Path(__file__).parent.parent.parent / "src" / "hean" / "core" / "cpp"
+                self._meta_learning_engine = MetaLearningEngine(
+                    bus=self._bus,
+                    cpp_source_dir=cpp_source_dir,
+                    simulation_rate=getattr(settings, 'meta_learning_rate', 1_000_000),
+                    auto_patch_enabled=getattr(settings, 'meta_learning_auto_patch', True),
+                    max_concurrent_simulations=getattr(settings, 'meta_learning_max_workers', 100)
+                )
+                await self._meta_learning_engine.start()
+                logger.info("⚡ ABSOLUTE+: Meta-Learning Engine started (Recursive Intelligence Core)")
+            except Exception as e:
+                logger.warning(f"Failed to start Meta-Learning Engine: {e}")
+            
+            # 2. Causal Inference Engine
+            try:
+                # Source symbols for cross-asset pre-echo detection
+                source_symbols = getattr(settings, 'causal_source_symbols', [
+                    "BTCUSDT", "ETHUSDT", "BNBUSDT",  # Other exchanges could be added
+                    "SPX", "NDX",  # Stock indices (if available)
+                    "DXY"  # Dollar index
+                ])
+                self._causal_inference_engine = CausalInferenceEngine(
+                    bus=self._bus,
+                    target_symbols=settings.trading_symbols,
+                    source_symbols=source_symbols,
+                    window_size=getattr(settings, 'causal_window_size', 500),
+                    min_causality_threshold=getattr(settings, 'causal_min_threshold', 0.3),
+                    min_transfer_entropy=getattr(settings, 'causal_min_te', 0.1)
+                )
+                await self._causal_inference_engine.start()
+                logger.info("🔮 ABSOLUTE+: Causal Inference Engine started (Granger Causality + Transfer Entropy)")
+            except Exception as e:
+                logger.warning(f"Failed to start Causal Inference Engine: {e}")
+            
+            # 3. Multimodal Swarm (Unified Tensor Processing)
+            try:
+                self._multimodal_swarm = MultimodalSwarm(
+                    bus=self._bus,
+                    symbols=settings.trading_symbols,
+                    window_size=getattr(settings, 'multimodal_window_size', 100),
+                    num_agents=getattr(settings, 'multimodal_num_agents', 50)
+                )
+                await self._multimodal_swarm.start()
+                logger.info("🌐 ABSOLUTE+: Multimodal Swarm started (Price + Sentiment + On-Chain + Macro)")
+            except Exception as e:
+                logger.warning(f"Failed to start Multimodal Swarm: {e}")
 
         # Start price feed
         symbols = settings.trading_symbols
@@ -338,6 +461,14 @@ class TradingSystem:
         # Stop candle aggregation
         if self._candle_aggregator:
             await self._candle_aggregator.stop()
+
+        # Phase 5: Stop Statistical Arbitrage & Anti-Fragile Architecture
+        if self._self_healing:
+            await self._self_healing.stop()
+        if self._safety_net:
+            await self._safety_net.stop()
+        if self._correlation_engine:
+            await self._correlation_engine.stop()
 
         # Stop regime detector
         self._bus.unsubscribe(EventType.REGIME_UPDATE, self._handle_regime_update)

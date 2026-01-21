@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Source Code Pro', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  background: #0a0e27;
+  color: #00ff88;
+  font-family: var(--font-mono);
+}
+
+body {
+  background: linear-gradient(135deg, #050811 0%, #0a0e27 50%, #050811 100%);
+  min-height: 100vh;
+}
+
+/* HEAN Design System - Cyber-Command Center Styles */
+.hean-glass {
+  background: rgba(10, 14, 39, 0.6);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 255, 136, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.hean-glow {
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+}
+
+.hean-glow-secondary {
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+}
+
+.hean-glow-danger {
+  box-shadow: 0 0 20px rgba(255, 51, 102, 0.5);
+}
+
+.hean-button {
+  @apply px-6 py-3 rounded-lg font-medium transition-all duration-200;
+  @apply border border-hean-primary text-hean-primary;
+  @apply hover:bg-hean-primary hover:text-hean-dark hover:shadow-glow;
+  @apply active:scale-95;
+}
+
+.hean-button-danger {
+  @apply border-hean-danger text-hean-danger;
+  @apply hover:bg-hean-danger hover:text-white hover:shadow-glow-danger;
+}
+
+.hean-card {
+  @apply hean-glass rounded-xl p-6;
+  @apply transition-all duration-300;
+}
+
+.hean-card:hover {
+  @apply border-hean-primary shadow-glow;
+}
+
+.hean-text-glow {
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.8);
+}
+
+.hean-text-glow-secondary {
+  text-shadow: 0 0 10px rgba(0, 212, 255, 0.8);
+}
+
+/* Reconnecting overlay */
+.reconnecting-overlay {
+  @apply fixed inset-0 z-50 flex items-center justify-center;
+  @apply bg-hean-darker bg-opacity-90 backdrop-blur-sm;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(10, 14, 39, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 136, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 136, 0.5);
+}
+
+/* Pulse animation for live data */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.8);
+  }
+}
+
+.live-pulse {
+  animation: pulse-glow 2s ease-in-out infinite;
+}

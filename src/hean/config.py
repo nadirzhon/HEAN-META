@@ -486,6 +486,52 @@ class HEANSettings(BaseSettings):
         description="Maximum time in minutes for micro-trade before forced exit (default 5)",
     )
 
+    # Phase 5: Statistical Arbitrage & Anti-Fragile Architecture
+    phase5_correlation_engine_enabled: bool = Field(
+        default=True,
+        description="Enable Correlation Engine for pair trading (Phase 5)",
+    )
+    phase5_safety_net_enabled: bool = Field(
+        default=True,
+        description="Enable Global Safety Net (Black Swan Protection) (Phase 5)",
+    )
+    phase5_kelly_criterion_enabled: bool = Field(
+        default=True,
+        description="Enable Kelly Criterion for position sizing (Phase 5)",
+    )
+    phase5_kelly_fractional: float = Field(
+        default=0.25,
+        ge=0.1,
+        le=1.0,
+        description="Fractional Kelly to use (0.25 = quarter Kelly, recommended) (Phase 5)",
+    )
+    phase5_self_healing_enabled: bool = Field(
+        default=True,
+        description="Enable Self-Healing Middleware for system monitoring (Phase 5)",
+    )
+    phase5_correlation_min_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Minimum correlation threshold for pair trading (default 0.7 = 70%) (Phase 5)",
+    )
+    phase5_correlation_gap_threshold: float = Field(
+        default=2.0,
+        gt=0,
+        description="Price gap threshold in standard deviations for pair trading (default 2.0) (Phase 5)",
+    )
+    phase5_entropy_spike_threshold: float = Field(
+        default=3.0,
+        gt=1.0,
+        description="Market entropy spike threshold (300% = 3.0x baseline) for safety net (Phase 5)",
+    )
+    phase5_emergency_size_multiplier: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Position size multiplier during emergency (80% reduction = 0.2x) (Phase 5)",
+    )
+
     def model_post_init(self, __context: Any) -> None:
         """Validate trading mode after initialization."""
         # Check environment for LIVE_CONFIRM if not already set

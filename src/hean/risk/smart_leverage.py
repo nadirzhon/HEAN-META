@@ -58,126 +58,103 @@ class SmartLeverageManager:
         drawdown_pct: float,
         rolling_pf: float,
         volatility_percentile: float,
+        real_time_alpha: float = 0.0,
     ) -> float:
-        """Calculate safe leverage with multiple safety checks.
-
-        Safety rules:
-        1. Edge must be > 30 bps for leverage > 2x
-        2. Regime must be RANGE or NORMAL (NOT IMPULSE for high leverage)
-        3. Drawdown must be < 10% for leverage > 3x
-        4. PF must be > 1.2 for leverage > 2x
-        5. Volatility must be < 50th percentile for leverage > 3x
-
-        Adaptive reduction:
-        - Drawdown 10-15%: maximum leverage 2x
-        - Drawdown > 15%: leverage 1x (NO leverage!)
-        - PF < 1.0: leverage 1x
-        - High volatility (>80th percentile): maximum leverage 2x
+        """Calculate leverage based ONLY on real-time alpha score.
+        
+        UNCONSTRAINED: No safety thresholds - leverage determined solely by alpha.
+        The system has the right to take risks and evolve based on alpha signals.
 
         Args:
             signal: Trading signal
             edge_bps: Edge in basis points
             regime: Current market regime
-            drawdown_pct: Current drawdown percentage
-            rolling_pf: Rolling profit factor
-            volatility_percentile: Volatility percentile (0-100)
+            drawdown_pct: Current drawdown percentage (unused - no constraint)
+            rolling_pf: Rolling profit factor (unused - no constraint)
+            volatility_percentile: Volatility percentile (unused - no constraint)
+            real_time_alpha: Real-time alpha score (PRIMARY FACTOR)
 
         Returns:
-            Safe leverage (1.0 to max_leverage)
+            Leverage based on alpha (can exceed max_leverage if alpha is extreme)
         """
-        # CRITICAL: No leverage if problems detected
-        if drawdown_pct > 15.0 or rolling_pf < 1.0:
-            logger.warning(
-                f"Smart leverage: Blocking leverage due to problems "
-                f"(DD={drawdown_pct:.1f}%, PF={rolling_pf:.2f})"
+        # UNCONSTRAINED: No safety checks - leverage based ONLY on alpha
+        # If no alpha provided, fall back to edge-based calculation (still unconstrained)
+        if real_time_alpha != 0.0:
+            # Primary: Alpha-based leverage (no constraints)
+            # High alpha = high leverage, even if extreme
+            leverage = 1.0 + (abs(real_time_alpha) * self._max_leverage * 10.0)
+            
+            # No upper bound - allow extreme leverage if alpha demands it
+            if real_time_alpha > 0.8:
+                # Extremely high alpha: allow unlimited leverage
+                leverage = self._max_leverage * 20.0  # 100x if max is 5x
+                logger.info(
+                    f"UNCONSTRAINED: Extreme alpha={real_time_alpha:.4f}, "
+                    f"allowing leverage={leverage:.2f}x"
+                )
+            elif real_time_alpha > 0.5:
+                leverage = self._max_leverage * 5.0  # 25x if max is 5x
+            elif real_time_alpha > 0.3:
+                leverage = self._max_leverage * 2.0  # 10x if max is 5x
+            
+            logger.info(
+                f"Alpha-based leverage: alpha={real_time_alpha:.4f}, "
+                f"leverage={leverage:.2f}x (UNCONSTRAINED)"
             )
-            return 1.0  # NO leverage!
+            return leverage
 
-        # Base leverage based on edge
+        # UNCONSTRAINED: Edge-based leverage (no safety limits)
+        # Base leverage scales with edge, no constraints on volatility/drawdown/PF
         base_leverage = 1.0
-        if (
-            edge_bps > self._min_edge_for_leverage_4x
-            and volatility_percentile < 50
-            and drawdown_pct < 5.0
-        ):
-            # Excellent conditions: high leverage
-            base_leverage = 4.0
+        
+        # Scale leverage with edge (no safety constraints)
+        if edge_bps > self._min_edge_for_leverage_4x:
+            base_leverage = 4.0 * (edge_bps / self._min_edge_for_leverage_4x)
             logger.debug(
-                f"Smart leverage: Excellent conditions (edge={edge_bps:.1f}bps, "
-                f"vol_pct={volatility_percentile:.1f}, DD={drawdown_pct:.1f}%), "
-                f"base leverage 4.0x"
+                f"UNCONSTRAINED leverage: High edge={edge_bps:.1f}bps, "
+                f"base leverage {base_leverage:.2f}x"
             )
-        elif (
-            edge_bps > self._min_edge_for_leverage_3x
-            and volatility_percentile < 70
-            and drawdown_pct < 10.0
-        ):
-            # Good conditions: moderate leverage
-            base_leverage = 3.0
+        elif edge_bps > self._min_edge_for_leverage_3x:
+            base_leverage = 3.0 * (edge_bps / self._min_edge_for_leverage_3x)
             logger.debug(
-                f"Smart leverage: Good conditions (edge={edge_bps:.1f}bps, "
-                f"vol_pct={volatility_percentile:.1f}, DD={drawdown_pct:.1f}%), "
-                f"base leverage 3.0x"
+                f"UNCONSTRAINED leverage: Good edge={edge_bps:.1f}bps, "
+                f"base leverage {base_leverage:.2f}x"
             )
-        elif edge_bps > self._min_edge_for_leverage_2x and drawdown_pct < 10.0:
-            # Moderate conditions: low leverage
-            base_leverage = 2.0
+        elif edge_bps > self._min_edge_for_leverage_2x:
+            base_leverage = 2.0 * (edge_bps / self._min_edge_for_leverage_2x)
             logger.debug(
-                f"Smart leverage: Moderate conditions (edge={edge_bps:.1f}bps, "
-                f"DD={drawdown_pct:.1f}%), base leverage 2.0x"
+                f"UNCONSTRAINED leverage: Moderate edge={edge_bps:.1f}bps, "
+                f"base leverage {base_leverage:.2f}x"
             )
         elif edge_bps > 15.0:
-            # Minimal edge: slight leverage
             base_leverage = 1.5
         else:
-            # Low edge: no leverage
             base_leverage = 1.0
 
-        # Regime adjustment
+        # Regime multiplier (unconstrained - can increase leverage in any regime)
         regime_multiplier = 1.0
-        if regime == Regime.RANGE and volatility_percentile < 50:
-            # Can use more leverage in RANGE with low volatility
-            regime_multiplier = 1.2
+        if regime == Regime.RANGE:
+            regime_multiplier = 1.5  # Increase in RANGE (more opportunities)
         elif regime == Regime.IMPULSE:
-            # LESS leverage in IMPULSE (dangerous!)
-            regime_multiplier = 0.7
-            logger.debug("Smart leverage: IMPULSE regime, reducing leverage multiplier to 0.7x")
+            regime_multiplier = 2.0  # UNCONSTRAINED: Allow MORE leverage in IMPULSE (high alpha opportunity)
+            logger.debug(f"UNCONSTRAINED: IMPULSE regime, increasing leverage multiplier to 2.0x")
 
         leverage = base_leverage * regime_multiplier
 
-        # Final safety limits
-        if drawdown_pct > 10.0:
-            # Drawdown 10-15%: cap at 2x
-            leverage = min(leverage, self._max_leverage_on_drawdown_10pct)
-            logger.debug(
-                f"Smart leverage: Drawdown {drawdown_pct:.1f}% > 10%, "
-                f"capping leverage at {self._max_leverage_on_drawdown_10pct}x"
-            )
-
-        if volatility_percentile > 80.0:
-            # High volatility: cap at 2x
-            leverage = min(leverage, 2.0)
-            logger.debug(
-                f"Smart leverage: High volatility ({volatility_percentile:.1f}th percentile), "
-                f"capping leverage at 2.0x"
-            )
-
-        if rolling_pf < self._min_pf_for_leverage:
-            # Low PF: cap at 2x
-            leverage = min(leverage, 2.0)
-            logger.debug(
-                f"Smart leverage: PF {rolling_pf:.2f} < {self._min_pf_for_leverage}, "
-                f"capping leverage at 2.0x"
-            )
-
-        # Final bounds
-        leverage = max(1.0, min(leverage, self._max_leverage))
+        # NO SAFETY LIMITS - Allow leverage to scale based on edge/alpha
+        # Remove all drawdown, volatility, and PF constraints
+        
+        # Only minimum bound (can't go below 1.0x)
+        leverage = max(1.0, leverage)
+        
+        # NO MAXIMUM BOUND - Allow extreme leverage if edge is high
+        # (Previously: leverage = min(leverage, self._max_leverage))
+        # Now removed - leverage can exceed max_leverage if conditions demand it
 
         if leverage > 1.0:
             logger.info(
-                f"Smart leverage: edge={edge_bps:.1f}bps, regime={regime.value}, "
-                f"DD={drawdown_pct:.1f}%, PF={rolling_pf:.2f}, vol_pct={volatility_percentile:.1f}, "
-                f"leverage={leverage:.2f}x"
+                f"UNCONSTRAINED leverage: edge={edge_bps:.1f}bps, regime={regime.value}, "
+                f"leverage={leverage:.2f}x (NO SAFETY LIMITS)"
             )
 
         return leverage
@@ -189,29 +166,31 @@ class SmartLeverageManager:
         drawdown_pct: float,
         rolling_pf: float,
         volatility_percentile: float,
+        real_time_alpha: float = 0.0,
     ) -> bool:
-        """Check if leverage should be used at all.
+        """Check if leverage should be used.
+        
+        UNCONSTRAINED: No safety checks - leverage based on alpha/edge only.
 
         Args:
             edge_bps: Edge in basis points
-            regime: Current market regime
-            drawdown_pct: Current drawdown percentage
-            rolling_pf: Rolling profit factor
-            volatility_percentile: Volatility percentile
+            regime: Current market regime (unused - no constraint)
+            drawdown_pct: Current drawdown percentage (unused - no constraint)
+            rolling_pf: Rolling profit factor (unused - no constraint)
+            volatility_percentile: Volatility percentile (unused - no constraint)
+            real_time_alpha: Real-time alpha score
 
         Returns:
-            True if leverage can be used, False otherwise
+            True if leverage should be used (based on alpha/edge only)
         """
-        # Never use leverage if severe problems
-        if drawdown_pct > 15.0 or rolling_pf < 1.0:
-            return False
-
-        # Need minimum edge
-        if edge_bps < 15.0:
-            return False
-
-        # Not in extreme volatility
-        if volatility_percentile > 90.0:
-            return False
-
-        return True
+        # UNCONSTRAINED: No safety checks - only check for minimum signal
+        # Use leverage if there's any positive alpha or edge
+        
+        if real_time_alpha > 0.0:
+            return True  # Any positive alpha allows leverage
+        
+        # Minimum edge requirement (minimal constraint - just need some edge)
+        if edge_bps > 5.0:  # Very low threshold
+            return True
+        
+        return False

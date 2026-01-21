@@ -7,8 +7,9 @@ ultra-low latency data exchange between components.
 import mmap
 import os
 import struct
-from ctypes import Structure, c_double, c_int64, c_uint64
-from typing import Optional
+from ctypes import Structure, c_double, c_int64, c_uint64, Array, POINTER
+from typing import Optional, List, Tuple
+import numpy as np
 
 from hean.logging import get_logger
 
@@ -25,6 +26,19 @@ MAX_MARKET_DATA_ENTRIES = 10000
 # Risk state structure size
 RISK_STATE_SIZE = 256  # bytes
 
+# TDA Point Cloud shared memory (optimized for lock-free access)
+TDA_POINT_CLOUD_SHM_NAME = "/hean_tda_point_cloud"
+TDA_POINT_CLOUD_ENTRY_SIZE = 32  # bytes per entry (8 + 8 + 8 + 8)
+MAX_TDA_POINT_CLOUD_ENTRIES = 5000  # Support up to 5000 points per symbol
+
+# Deep Liquid Memory: Lock-free orderbook tensor shared memory
+# Used for raw orderbook tensor exchange between C++ FastWarden and Python brain
+ORDERBOOK_TENSOR_SHM_NAME = "/hean_orderbook_tensor"
+ORDERBOOK_TENSOR_LEVEL_SIZE = 16  # bytes per level (8 bytes price + 8 bytes size)
+MAX_ORDERBOOK_LEVELS = 50  # Max depth per side (50 bids + 50 asks = 100 levels)
+MAX_ORDERBOOK_SYMBOLS = 100  # Support up to 100 symbols simultaneously
+ORDERBOOK_TENSOR_SIZE = ORDERBOOK_TENSOR_LEVEL_SIZE * MAX_ORDERBOOK_LEVELS * 2 * MAX_ORDERBOOK_SYMBOLS  # ~160KB total
+
 
 class MarketDataEntry(Structure):
     """Market data entry in shared memory (C-compatible)."""
@@ -37,6 +51,22 @@ class MarketDataEntry(Structure):
         ("timestamp_ns", c_int64),  # Nanoseconds since epoch
         ("volume", c_double),
         ("latency_us", c_uint64),  # Latency in microseconds
+    ]
+
+
+class TDAPointCloudEntry(Structure):
+    """TDA point cloud entry for lock-free access (C-compatible).
+    
+    Optimized for Persistent Homology computation on L2 orderbook.
+    Each entry represents a single point in the orderbook manifold.
+    """
+    
+    _fields_ = [
+        ("symbol_hash", c_uint64),  # Hash of symbol
+        ("price", c_double),        # Normalized price coordinate
+        ("size", c_double),         # Normalized size coordinate (liquidity)
+        ("timestamp_ns", c_int64),  # Nanoseconds since epoch
+        ("valid", c_uint64),        # 1 if valid, 0 if invalid (lock-free marker)
     ]
 
 

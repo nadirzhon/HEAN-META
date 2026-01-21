@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eureka UI - Visual Singularity</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+        
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            min-width: 300px;
+        }
+        
+        #controls h2 {
+            margin-bottom: 15px;
+            color: #00d9ff;
+            font-size: 18px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        
+        .control-group {
+            margin-bottom: 15px;
+        }
+        
+        .control-label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+        }
+        
+        .stat {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ff88;
+        }
+        
+        .stat-label {
+            font-size: 11px;
+            color: #666;
+            margin-top: 3px;
+        }
+        
+        #leader-info {
+            background: rgba(0, 217, 255, 0.1);
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            border-left: 3px solid #00d9ff;
+        }
+        
+        #leader-info .leader-name {
+            font-size: 16px;
+            color: #00d9ff;
+            font-weight: bold;
+        }
+        
+        #future-shadow-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 580px;
+            height: 300px;
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 10px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+        
+        #latency-monitor-panel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 550px;
+            height: 300px;
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 10px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+        
+        #causal-web-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 400px;
+            height: 400px;
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 10px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+        
+        #causal-web-title {
+            font-size: 14px;
+            color: #00d9ff;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        #causal-web-canvas {
+            width: 100%;
+            height: 350px;
+            background: rgba(10, 14, 39, 0.5);
+            border-radius: 5px;
+        }
+        
+        .sel-level {
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .sel-level.novice { color: #888; }
+        .sel-level.intermediate { color: #00aaff; }
+        .sel-level.advanced { color: #00d9ff; }
+        .sel-level.expert { color: #00ff88; }
+        .sel-level.master { color: #ff00ff; }
+        .sel-level.singularity { color: #ffff00; }
+        
+        #latency-monitor-title {
+            font-size: 14px;
+            color: #00d9ff;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        #latency-stats {
+            font-size: 11px;
+            color: #888;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .latency-stat {
+            background: rgba(0, 217, 255, 0.1);
+            padding: 8px;
+            border-radius: 5px;
+            border-left: 2px solid #00d9ff;
+        }
+        
+        .latency-stat-label {
+            font-size: 10px;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        
+        .latency-stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #00ff88;
+        }
+        
+        .latency-stat-value.warning {
+            color: #ffaa00;
+        }
+        
+        .latency-stat-value.critical {
+            color: #ff4444;
+        }
+        
+        #latency-chart {
+            width: 100%;
+            height: 180px;
+        }
+        
+        .latency-line {
+            fill: none;
+            stroke-width: 2;
+        }
+        
+        .latency-line.internal {
+            stroke: #00ff88;
+        }
+        
+        .latency-line.jitter {
+            stroke: #ff00ff;
+        }
+        
+        .latency-line.target {
+            stroke: #ff4444;
+            stroke-dasharray: 2, 2;
+            opacity: 0.5;
+        }
+        
+        #future-shadow-title {
+            font-size: 14px;
+            color: #00d9ff;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        #prediction-stats {
+            font-size: 11px;
+            color: #888;
+        }
+        
+        #price-chart {
+            width: 100%;
+            height: 250px;
+            position: relative;
+        }
+        
+        .price-line {
+            fill: none;
+            stroke-width: 2;
+        }
+        
+        .price-line.current {
+            stroke: #00ff88;
+            opacity: 0.9;
+        }
+        
+        .price-line.future-500ms {
+            stroke: #ff00ff;
+            stroke-width: 2;
+            opacity: 0.8;
+            stroke-dasharray: 3, 3;
+        }
+        
+        .price-line.future-1s {
+            stroke: #ffaa00;
+            stroke-width: 2;
+            opacity: 0.7;
+            stroke-dasharray: 5, 5;
+        }
+        
+        .price-line.future-5s {
+            stroke: #00aaff;
+            stroke-width: 2;
+            opacity: 0.6;
+            stroke-dasharray: 7, 7;
+        }
+        
+        .confidence-band {
+            fill-opacity: 0.2;
+            stroke: none;
+        }
+        
+        .confidence-band-500ms {
+            fill: #ff00ff;
+        }
+        
+        .confidence-band-1s {
+            fill: #ffaa00;
+        }
+        
+        .confidence-band-5s {
+            fill: #00aaff;
+        }
+        
+        .prediction-label {
+            font-size: 10px;
+            fill: #fff;
+            text-anchor: end;
+        }
+        
+        .prediction-marker {
+            r: 4;
+            opacity: 0.9;
+        }
+        
+        #oracle-legend {
+            margin-top: 10px;
+            font-size: 11px;
+            color: #888;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item-prediction {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .legend-line {
+            width: 30px;
+            height: 2px;
+        }
+        
+        .axis {
+            color: #666;
+            font-size: 10px;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 2000;
+        }
+        
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top: 3px solid #00d9ff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        #legend {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 12px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 3px;
+            margin-right: 8px;
+        }
+        
+        .legend-color.leader { background: #00d9ff; }
+        .legend-color.laggard { background: #ff6b6b; }
+        .legend-color.neutral { background: #888; }
+        .legend-color.energy { background: #ff00ff; }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <div id="loading">
+            <div class="spinner"></div>
+            <div>Initializing Visual Singularity...</div>
+        </div>
+        
+        <div id="controls">
+            <h2>Quantum Graph Engine</h2>
+            <div class="control-group">
+                <div class="stat-label">System Evolution Level (SEL)</div>
+                <div class="stat" id="system-evolution-level">0.00</div>
+                <div class="stat-label" id="sel-description">Initializing...</div>
+            </div>
+            <div class="control-group">
+                <div class="stat-label">Market Leader</div>
+                <div id="leader-info">
+                    <div class="leader-name" id="leader-name">Calculating...</div>
+                    <div class="stat-label" id="leader-score">Leader Score: 0.00</div>
+                </div>
+            </div>
+            <div class="control-group">
+                <div class="stat-label">Active Assets</div>
+                <div class="stat" id="asset-count">0</div>
+            </div>
+            <div class="control-group">
+                <div class="stat-label">Energy Flow Intensity</div>
+                <div class="stat" id="energy-intensity">0.0</div>
+            </div>
+            <div class="control-group">
+                <div class="stat-label">Prediction Accuracy</div>
+                <div class="stat" id="prediction-accuracy">0.0%</div>
+            </div>
+            <div class="control-group">
+                <div class="stat-label">Causal Relationships</div>
+                <div class="stat" id="causal-edges">0</div>
+            </div>
+        </div>
+        
+        <div id="legend">
+            <div style="font-weight: bold; margin-bottom: 10px; color: #00d9ff;">LEGEND</div>
+            <div class="legend-item">
+                <div class="legend-color leader"></div>
+                <span>Leader Asset</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color laggard"></div>
+                <span>Laggard Asset</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color neutral"></div>
+                <span>Neutral Asset</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color energy"></div>
+                <span>Energy Flow</span>
+            </div>
+        </div>
+        
+        <div id="future-shadow-panel">
+            <div id="future-shadow-title">
+                <span>The Oracle View: Predictive Waves</span>
+                <span id="prediction-stats">Confidence: 0% | Reversal Prob: 0%</span>
+            </div>
+            <div id="price-chart"></div>
+            <div id="oracle-legend">
+                <div class="legend-item-prediction">
+                    <svg width="30" height="2"><line x1="0" y1="1" x2="30" y2="1" stroke="#00ff88" stroke-width="2"/></svg>
+                    <span>Current Price</span>
+                </div>
+                <div class="legend-item-prediction">
+                    <svg width="30" height="2"><line x1="0" y1="1" x2="30" y2="1" stroke="#ff00ff" stroke-width="2" stroke-dasharray="3,3"/></svg>
+                    <span>500ms Prediction</span>
+                </div>
+                <div class="legend-item-prediction">
+                    <svg width="30" height="2"><line x1="0" y1="1" x2="30" y2="1" stroke="#ffaa00" stroke-width="2" stroke-dasharray="5,5"/></svg>
+                    <span>1s Prediction</span>
+                </div>
+                <div class="legend-item-prediction">
+                    <svg width="30" height="2"><line x1="0" y1="1" x2="30" y2="1" stroke="#00aaff" stroke-width="2" stroke-dasharray="7,7"/></svg>
+                    <span>5s Prediction</span>
+                </div>
+            </div>
+        </div>
+        
+        <div id="causal-web-panel">
+            <div id="causal-web-title">Causal Web: Market Domino Effects</div>
+            <canvas id="causal-web-canvas"></canvas>
+        </div>
+        
+        <div id="latency-monitor-panel">
+            <div id="latency-monitor-title">
+                <span>Ultra-Low Latency Monitor</span>
+                <span id="latency-status" style="font-size: 10px; color: #00ff88;">● OPTIMAL</span>
+            </div>
+            <div id="latency-stats">
+                <div class="latency-stat">
+                    <div class="latency-stat-label">Internal Latency</div>
+                    <div class="latency-stat-value" id="internal-latency">0 μs</div>
+                </div>
+                <div class="latency-stat">
+                    <div class="latency-stat-label">Micro-Tick Jitter</div>
+                    <div class="latency-stat-value" id="jitter">0 μs</div>
+                </div>
+                <div class="latency-stat">
+                    <div class="latency-stat-label">Packet → Order</div>
+                    <div class="latency-stat-value" id="packet-to-order">0 μs</div>
+                </div>
+                <div class="latency-stat">
+                    <div class="latency-stat-label">Target: &lt;100μs</div>
+                    <div class="latency-stat-value" id="target-status">PASS</div>
+                </div>
+            </div>
+            <div id="latency-chart"></div>
+        </div>
+    </div>
+    
+    <script src="eureka.js"></script>
+</body>
+</html>

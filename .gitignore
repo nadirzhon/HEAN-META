@@ -64,3 +64,16 @@ Thumbs.db
 *.db
 *.sqlite
 
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+
+# Web interface builds
+web/eureka_interface/node_modules/
+web/eureka_interface/.next/
+web/eureka_interface/dist/
+web/eureka_interface/build/

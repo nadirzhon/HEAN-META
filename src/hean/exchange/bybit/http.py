@@ -32,6 +32,9 @@ class BybitHTTPClient:
             self._base_url = "https://api.bybit.com"
 
         self._client: httpx.AsyncClient | None = None
+        
+        # Phase 16: Dynamic endpoint switching support
+        self._dynamic_endpoint: str | None = None
 
     def _sign_request(self, params: dict[str, Any], timestamp: int) -> str:
         """Sign request using HMAC SHA256 for Bybit API v5.
@@ -120,7 +123,9 @@ class BybitHTTPClient:
         if method.upper() == "POST":
             headers["Content-Type"] = "application/json"
 
-        url = f"{self._base_url}{endpoint}"
+        # Phase 16: Use dynamic endpoint if set (from API Scouter)
+        base_url = self._dynamic_endpoint if self._dynamic_endpoint else self._base_url
+        url = f"{base_url}{endpoint}"
 
         # Retry logic with exponential backoff
         max_retries = 3
@@ -561,6 +566,23 @@ class BybitHTTPClient:
 
         response = await self._request("GET", "/v5/earn/holding", params=params)
         return response.get("rows", [])
+    
+    def set_endpoint(self, rest_url: str) -> None:
+        """Phase 16: Set dynamic REST endpoint (called by API Scouter).
+        
+        Args:
+            rest_url: New REST API base URL (e.g., "https://api.bybit.com")
+        """
+        if rest_url and rest_url != self._base_url:
+            logger.info(f"Switching REST endpoint to: {rest_url}")
+            self._dynamic_endpoint = rest_url
+            # Recreate HTTP client with new endpoint
+            if self._client:
+                # Client will use new endpoint on next request
+                pass
+        else:
+            # Reset to default
+            self._dynamic_endpoint = None
 
     async def place_earn_order(
         self,

@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HEAN - Topological Manifold Visualization</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0e27;
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+        
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+        }
+        
+        #info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(10, 14, 39, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            min-width: 300px;
+            backdrop-filter: blur(10px);
+        }
+        
+        #info-panel h2 {
+            margin: 0 0 15px 0;
+            color: #64c8ff;
+            font-size: 18px;
+        }
+        
+        .metric {
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .metric-label {
+            color: #a0a0a0;
+            font-size: 14px;
+        }
+        
+        .metric-value {
+            color: #64c8ff;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .status-stable { color: #4ade80; }
+        .status-unstable { color: #fbbf24; }
+        .status-collapsing { color: #f87171; }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(10, 14, 39, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        #controls button {
+            background: #1e3a5f;
+            color: #64c8ff;
+            border: 1px solid #64c8ff;
+            padding: 8px 15px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        #controls button:hover {
+            background: #2a4f7a;
+        }
+        
+        #overlay-heatmap {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(10, 14, 39, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 2px;
+            margin-top: 10px;
+        }
+        
+        .heatmap-cell {
+            width: 20px;
+            height: 20px;
+            border-radius: 2px;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="canvas-container"></div>
+        
+        <div id="info-panel">
+            <h2>🔬 Topological Data Analysis</h2>
+            <div class="metric">
+                <span class="metric-label">Market Topology Score:</span>
+                <span class="metric-value" id="topology-score">1.000</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Stability:</span>
+                <span class="metric-value" id="stability-status">Stable</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Topological Holes:</span>
+                <span class="metric-value" id="num-holes">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Manifold Status:</span>
+                <span class="metric-value" id="manifold-status">Connected</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Symbol:</span>
+                <span class="metric-value" id="current-symbol">BTCUSDT</span>
+            </div>
+        </div>
+        
+        <div id="controls">
+            <button onclick="toggleAutoRotate()">Toggle Rotation</button>
+            <button onclick="resetCamera()">Reset Camera</button>
+            <button onclick="toggleWireframe()">Toggle Wireframe</button>
+            <select id="symbol-select" onchange="changeSymbol()">
+                <option value="BTCUSDT">BTCUSDT</option>
+                <option value="ETHUSDT">ETHUSDT</option>
+                <option value="SOLUSDT">SOLUSDT</option>
+            </select>
+        </div>
+        
+        <div id="overlay-heatmap">
+            <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #64c8ff;">Orderbook Heatmap</h3>
+            <div class="heatmap-grid" id="heatmap-grid"></div>
+        </div>
+    </div>
+    
+    <script>
+        // Three.js scene setup
+        let scene, camera, renderer, controls;
+        let pointCloud, wireframe;
+        let autoRotate = false;
+        let wireframeMode = false;
+        let currentSymbol = 'BTCUSDT';
+        
+        // Initialize scene
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0e27);
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(
+                75,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                1000
+            );
+            camera.position.set(2, 2, 2);
+            camera.lookAt(0, 0, 0);
+            
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0x64c8ff, 0.8);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+            
+            // Initialize point cloud
+            createPointCloud([]);
+            
+            // Start update loop
+            animate();
+            
+            // Start data fetching
+            fetchManifoldData();
+            setInterval(fetchManifoldData, 1000);  // Update every second
+            
+            // Initialize heatmap
+            initHeatmap();
+        }
+        
+        function createPointCloud(points) {
+            // Remove old point cloud if exists
+            if (pointCloud) {
+                scene.remove(pointCloud);
+                if (wireframe) {
+                    scene.remove(wireframe);
+                }
+            }
+            
+            if (points.length === 0) {
+                return;
+            }
+            
+            // Create geometry
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(points.length * 3);
+            const colors = new Float32Array(points.length * 3);
+            
+            // Normalize points for visualization
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            let minZ = Infinity, maxZ = -Infinity;
+            
+            points.forEach(p => {
+                minX = Math.min(minX, p.x);
+                maxX = Math.max(maxX, p.x);
+                minY = Math.min(minY, p.y);
+                maxY = Math.max(maxY, p.y);
+                minZ = Math.min(minZ, p.z);
+                maxZ = Math.max(maxZ, p.z);
+            });
+            
+            const rangeX = maxX - minX || 1;
+            const rangeY = maxY - minY || 1;
+            const rangeZ = maxZ - minZ || 1;
+            
+            // Set positions and colors
+            points.forEach((p, i) => {
+                const idx = i * 3;
+                
+                // Normalize to [-1, 1] range
+                positions[idx] = ((p.x - minX) / rangeX - 0.5) * 2;
+                positions[idx + 1] = ((p.y - minY) / rangeY - 0.5) * 2;
+                positions[idx + 2] = ((p.z - minZ) / rangeZ - 0.5) * 2;
+                
+                // Color based on position (blue to cyan gradient)
+                colors[idx] = 0.4 + positions[idx] * 0.3;      // R
+                colors[idx + 1] = 0.8 + positions[idx + 1] * 0.2;  // G
+                colors[idx + 2] = 1.0;                         // B
+            });
+            
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            // Material
+            const material = new THREE.PointsMaterial({
+                size: 0.05,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.8,
+            });
+            
+            pointCloud = new THREE.Points(geometry, material);
+            scene.add(pointCloud);
+            
+            // Create wireframe (topological holes visualization)
+            const edgesGeometry = new THREE.EdgesGeometry(geometry);
+            const edgesMaterial = new THREE.LineBasicMaterial({
+                color: 0xff6b6b,
+                linewidth: 2,
+                transparent: true,
+                opacity: 0.6,
+            });
+            wireframe = new THREE.LineSegments(edgesGeometry, edgesMaterial);
+            wireframe.visible = wireframeMode;
+            scene.add(wireframe);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (autoRotate) {
+                pointCloud.rotation.y += 0.005;
+                if (wireframe) {
+                    wireframe.rotation.y += 0.005;
+                }
+            }
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        function fetchManifoldData() {
+            // Fetch topology score
+            fetch('/api/graph-engine/topology/score')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('topology-score').textContent = data.market_topology_score.toFixed(3);
+                    const stabilityEl = document.getElementById('stability-status');
+                    stabilityEl.textContent = data.stability.charAt(0).toUpperCase() + data.stability.slice(1);
+                    stabilityEl.className = 'metric-value status-' + data.stability;
+                    
+                    const manifoldEl = document.getElementById('manifold-status');
+                    manifoldEl.textContent = data.is_disconnected ? 'Disconnected ⚠️' : 'Connected ✓';
+                    manifoldEl.style.color = data.is_disconnected ? '#f87171' : '#4ade80';
+                })
+                .catch(err => console.error('Error fetching topology score:', err));
+            
+            // Fetch manifold data
+            fetch(`/api/graph-engine/topology/manifold/${currentSymbol}`)
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('num-holes').textContent = data.num_holes;
+                    document.getElementById('current-symbol').textContent = data.symbol;
+                    createPointCloud(data.point_cloud || []);
+                })
+                .catch(err => console.error('Error fetching manifold data:', err));
+        }
+        
+        function initHeatmap() {
+            const grid = document.getElementById('heatmap-grid');
+            for (let i = 0; i < 100; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'heatmap-cell';
+                cell.style.backgroundColor = `hsl(${200 + Math.random() * 60}, 70%, ${40 + Math.random() * 40}%)`;
+                cell.style.opacity = 0.6 + Math.random() * 0.4;
+                grid.appendChild(cell);
+            }
+        }
+        
+        function toggleAutoRotate() {
+            autoRotate = !autoRotate;
+        }
+        
+        function resetCamera() {
+            camera.position.set(2, 2, 2);
+            camera.lookAt(0, 0, 0);
+            controls.reset();
+        }
+        
+        function toggleWireframe() {
+            wireframeMode = !wireframeMode;
+            if (wireframe) {
+                wireframe.visible = wireframeMode;
+            }
+        }
+        
+        function changeSymbol() {
+            currentSymbol = document.getElementById('symbol-select').value;
+            fetchManifoldData();
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Initialize on load
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>

@@ -10,6 +10,7 @@ from hean.api.services.event_stream import event_stream_service
 from hean.api.services.job_queue import job_queue_service
 from hean.api.services.log_stream import log_stream_service
 from hean.config import settings
+from hean.core.system.health_monitor import get_health_monitor
 from hean.logging import get_logger
 from hean.observability.metrics import metrics
 
@@ -25,6 +26,47 @@ async def health_check() -> dict:
         "status": "healthy",
         "engine_running": engine_facade.is_running if engine_facade else False,
     }
+
+
+@router.get("/health/pulse")
+async def health_pulse() -> dict:
+    """Get health status from The Pulse (health monitor)."""
+    try:
+        monitor = await get_health_monitor()
+        status = monitor.get_health_status()
+        return {
+            "status": "ok",
+            "modules": status,
+            "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Failed to get health pulse: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e),
+        }
+
+
+@router.get("/health/module/{module_name}")
+async def get_module_health(module_name: str) -> dict:
+    """Get health status for a specific module."""
+    try:
+        monitor = await get_health_monitor()
+        health = monitor.get_module_health(module_name)
+        if not health:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Module {module_name} not found")
+        return {
+            "status": "ok",
+            "module": module_name,
+            "health": health,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get module health: {e}", exc_info=True)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/settings")
@@ -125,4 +167,67 @@ async def get_metrics() -> Response:
     exporter = MetricsExporter()
     metrics_text = exporter.export()
     return Response(content=metrics_text, media_type="text/plain")
+
+
+@router.get("/v1/dashboard")
+async def get_dashboard_data() -> dict:
+    """Get dashboard data for the frontend."""
+    from hean.api.app import engine_facade
+    
+    if engine_facade is None:
+        raise HTTPException(status_code=500, detail="Engine facade not initialized")
+    
+    try:
+        # Get basic metrics from engine facade
+        risk_status = await engine_facade.get_risk_status() if engine_facade.is_running else {}
+        
+        # Get portfolio data if available
+        portfolio_data = {}
+        if hasattr(engine_facade, '_engine') and hasattr(engine_facade._engine, '_accounting'):
+            accounting = engine_facade._engine._accounting
+            equity = accounting.get_equity() if hasattr(accounting, 'get_equity') else 0
+            portfolio_data = {
+                "equity": equity,
+            }
+        
+        # Phase 19: Get network stats from DistributedNodeManager if available
+        network_stats = None
+        try:
+            # Try to get network manager from engine or system
+            # In production, this would be injected or accessed via a singleton
+            from hean.core.network.global_sync import DistributedNodeManager
+            # For now, return empty stats - will be populated when manager is initialized
+            network_stats = {
+                "local_region": "UNKNOWN",
+                "local_role": "UNKNOWN",
+                "master_node": None,
+                "nodes": {},
+                "execution_count": {},
+                "failover_count": 0,
+                "active_positions": 0,
+                "active_orders": 0,
+            }
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"Network manager not available: {e}")
+            network_stats = None
+        
+        return {
+            "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+            "metrics": {
+                "equity": portfolio_data.get("equity", 0),
+                "daily_pnl": 0,  # TODO: Calculate from portfolio
+                "return_pct": 0,  # TODO: Calculate from portfolio
+                "open_positions": risk_status.get("open_positions", 0),
+                "daily_trades": 0,  # TODO: Get from metrics
+                "win_rate": 0,  # TODO: Get from metrics
+            },
+            "status": {
+                "engine_running": engine_facade.is_running,
+                "trading_mode": settings.trading_mode,
+            },
+            "network_stats": network_stats,  # Phase 19: Network stats
+        }
+    except Exception as e:
+        logger.error(f"Failed to get dashboard data: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 

@@ -26,6 +26,8 @@ services:
       start_period: 10s
     networks:
       - hean-network
+    depends_on:
+      - redis
     logging:
       driver: "json-file"
       options:
@@ -59,6 +61,8 @@ services:
       start_period: 40s
     networks:
       - hean-network
+    depends_on:
+      - redis
     logging:
       driver: "json-file"
       options:
@@ -92,23 +96,34 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Optional: Redis for future distributed event bus
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: hean-redis
-  #   ports:
-  #     - "6379:6379"
-  #   volumes:
-  #     - redis-data:/data
-  #   networks:
-  #     - hean-network
-  #   restart: unless-stopped
+  # Redis for atomic state sharing between C++ and Python
+  redis:
+    image: redis:7-alpine
+    container_name: hean-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - hean-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   hean-network:
     driver: bridge
 
-# volumes:
-#   redis-data:
+volumes:
+  redis-data:
 
 

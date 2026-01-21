@@ -39,6 +39,9 @@ class BybitPublicWebSocket:
             self._ws_url = "wss://stream-testnet.bybit.com/v5/public/linear"
         else:
             self._ws_url = "wss://stream.bybit.com/v5/public/linear"
+        
+        # Phase 16: Dynamic endpoint switching support
+        self._dynamic_ws_url: str | None = None
 
     async def connect(self) -> None:
         """Connect to Bybit public WebSocket."""
@@ -52,6 +55,9 @@ class BybitPublicWebSocket:
             )
 
         try:
+            # Phase 16: Use dynamic endpoint if set (from API Scouter)
+            ws_url = self._dynamic_ws_url if self._dynamic_ws_url else self._ws_url
+            
             # Create SSL context that doesn't verify certificates (for macOS compatibility)
             # WARNING: In production, use proper certificate verification
             ssl_context = ssl.create_default_context()
@@ -59,13 +65,13 @@ class BybitPublicWebSocket:
             ssl_context.verify_mode = ssl.CERT_NONE
             
             self._websocket = await websockets.connect(
-                self._ws_url,
+                ws_url,
                 ssl=ssl_context
             )  # type: ignore
             self._connected = True
             self._task = asyncio.create_task(self._listen())
             logger.info(
-                f"Bybit public WebSocket connected to {'testnet' if self._testnet else 'mainnet'}"
+                f"Bybit public WebSocket connected to {ws_url} ({'testnet' if self._testnet else 'mainnet'})"
             )
         except Exception as e:
             logger.error(f"Failed to connect to Bybit public WebSocket: {e}")
@@ -316,3 +322,34 @@ class BybitPublicWebSocket:
             logger.info(f"Subscribed to orderbook for {symbol} (depth: {depth})")
         except Exception as e:
             logger.error(f"Failed to subscribe to orderbook for {symbol}: {e}")
+    
+    async def switch_endpoint(self, ws_url: str) -> None:
+        """Phase 16: Switch WebSocket endpoint dynamically (called by API Scouter).
+        
+        Disconnects from current endpoint and reconnects to new endpoint,
+        preserving subscriptions.
+        
+        Args:
+            ws_url: New WebSocket URL
+        """
+        if ws_url == (self._dynamic_ws_url or self._ws_url):
+            logger.debug(f"Endpoint already set to {ws_url}, skipping switch")
+            return
+        
+        logger.info(f"Phase 16: Switching WebSocket endpoint to: {ws_url}")
+        
+        # Save current subscriptions
+        subscribed_symbols = self._subscribed_symbols.copy()
+        
+        # Disconnect from current endpoint
+        await self.disconnect()
+        
+        # Set new endpoint
+        self._dynamic_ws_url = ws_url
+        
+        # Reconnect to new endpoint
+        await self.connect()
+        
+        # Re-subscribe to all symbols
+        for symbol in subscribed_symbols:
+            await self.subscribe_ticker(symbol)

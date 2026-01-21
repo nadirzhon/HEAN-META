@@ -46,6 +46,9 @@ class EventType(str, Enum):
     # Market structure / context events
     CANDLE = "candle"
     CONTEXT_UPDATE = "context_update"
+    
+    # Meta-learning events
+    META_LEARNING_PATCH = "meta_learning_patch"
 
 
 @dataclass
