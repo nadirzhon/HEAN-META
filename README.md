@@ -542,6 +542,10 @@ make dev
 
 См. [BYBIT_INTEGRATION_COMPLETE.md](BYBIT_INTEGRATION_COMPLETE.md) и [BYBIT_SETUP_GUIDE.md](BYBIT_SETUP_GUIDE.md) для деталей.
 
+## Acknowledgments
+
+This project was developed with the assistance of **Claude AI** (Anthropic). Claude helped with architecture design, code implementation, testing, and documentation throughout the development process.
+
 ## License
 
 MIT
