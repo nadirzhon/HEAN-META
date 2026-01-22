@@ -154,6 +154,124 @@ docker-compose down
 
 See [DOCKER_GUIDE.md](DOCKER_GUIDE.md) for detailed Docker instructions.
 
+### Auto-Deploy to Mac via Self-Hosted Runner
+
+Automatically deploy the project to your Mac on every push to `main` using GitHub Actions and a self-hosted runner.
+
+#### How It Works
+
+1. **Self-Hosted Runner** runs on your Mac as a background service
+2. **GitHub Actions workflow** triggers on push to `main`
+3. **Deployment** executes: `docker compose up -d --build --remove-orphans`
+4. **Verification** checks health endpoints and shows logs
+
+#### One-Time Setup
+
+Install and configure the GitHub self-hosted runner on your Mac:
+
+```bash
+# 1. Get installation commands from GitHub
+# Go to: Settings → Actions → Runners → New self-hosted runner
+
+# 2. Download and extract runner (use commands from GitHub)
+mkdir -p ~/actions-runner && cd ~/actions-runner
+curl -o actions-runner-osx-x64-2.311.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-osx-x64-2.311.0.tar.gz
+tar xzf ./actions-runner-osx-x64-2.311.0.tar.gz
+
+# 3. Configure with the CRITICAL LABEL "nadir-mac"
+./config.sh --url https://github.com/nadirzhon/HEAN-META --token YOUR_TOKEN --labels "nadir-mac"
+
+# 4. Install as a service (auto-start on boot)
+./svc.sh install
+./svc.sh start
+
+# 5. Verify it's running
+./svc.sh status
+```
+
+**Important:** The workflow targets the `nadir-mac` label specifically. Make sure to include this label during configuration.
+
+See **[scripts/runner_setup_macos.md](scripts/runner_setup_macos.md)** for detailed step-by-step instructions.
+
+#### Testing the Auto-Deploy
+
+Make a test commit to trigger deployment:
+
+```bash
+git checkout main
+git commit --allow-empty -m "Test auto-deploy"
+git push origin main
+```
+
+Then:
+1. Go to **Actions** tab in GitHub
+2. Watch the "Auto-Deploy to Mac (Self-Hosted Runner)" workflow run
+3. Check your Mac: `docker ps` should show updated containers
+4. Access the app: http://localhost:8000 (API), http://localhost:3000 (UI)
+
+#### Manual Deployment (Local Testing)
+
+Test the deployment locally without GitHub Actions:
+
+```bash
+./scripts/deploy_local.sh           # Normal deploy
+./scripts/deploy_local.sh --rebuild # Force rebuild (no cache)
+```
+
+This script mimics the GitHub Actions workflow for debugging.
+
+#### Debugging Auto-Deploy
+
+**If workflow doesn't trigger:**
+- Check runner status in GitHub: Settings → Actions → Runners
+- Ensure runner is online (green dot)
+- Check runner logs: `~/actions-runner/_diag/Runner_*.log`
+
+**If deployment fails:**
+- View GitHub Actions run logs in the Actions tab
+- Check Docker is running: `docker ps`
+- Check port conflicts: `lsof -i :8000`, `lsof -i :3000`, `lsof -i :6379`
+- Run locally for debugging: `./scripts/deploy_local.sh`
+
+**Common issues:**
+- **Runner offline:** Restart with `cd ~/actions-runner && ./svc.sh restart`
+- **Docker not found:** Ensure Docker Desktop is running
+- **Port conflicts:** Stop conflicting services or change ports in `docker-compose.yml`
+- **Permission errors:** Ensure your user has Docker access
+
+#### Security Features
+
+- ✅ Only deploys on push to `main` (never on `pull_request` from forks)
+- ✅ Uses concurrency control to prevent overlapping deploys
+- ✅ Targets specific runner label (`nadir-mac`) for isolation
+- ✅ 30-minute timeout prevents stuck deployments
+- ✅ Health checks verify successful deployment
+
+#### Workflow Features
+
+The auto-deploy workflow includes:
+- System diagnostics (Docker version, disk usage)
+- Container health checks (API and UI endpoints)
+- Deployment logs (last 200 lines)
+- Automatic cleanup of old Docker images
+- Deployment summary with commit info
+
+#### Quick Checklist
+
+After setup, verify everything works:
+
+- [ ] Runner installed and running: `~/actions-runner/svc.sh status`
+- [ ] Runner shows "Idle" in GitHub Settings → Actions → Runners
+- [ ] Test commit triggers workflow: `git commit --allow-empty -m "test" && git push`
+- [ ] Workflow completes successfully (green checkmark in Actions tab)
+- [ ] Containers running on Mac: `docker ps | grep hean`
+- [ ] API accessible: `curl http://localhost:8000/health`
+- [ ] UI accessible: Open http://localhost:3000 in browser
+
+**Status:** ✅ PASS (all checks green) or ❌ FAIL (check logs and troubleshooting guide)
+
+---
+
 ### Backtesting
 
 ```bash

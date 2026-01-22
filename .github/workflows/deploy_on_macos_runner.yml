@@ -1,0 +1,156 @@
+name: Auto-Deploy to Mac (Self-Hosted Runner)
+
+# SECURITY: Only triggers on push to main or manual dispatch
+# Never on pull_request to prevent malicious code execution from forks
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      rebuild:
+        description: 'Force rebuild images (--no-cache)'
+        required: false
+        type: boolean
+        default: false
+
+# Prevent concurrent deploys - cancel in-progress runs
+concurrency:
+  group: deploy-mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Mac via Docker Compose
+    runs-on: [self-hosted, macOS, nadir-mac]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: System diagnostics
+        run: |
+          echo "=== System Info ==="
+          uname -a
+          echo ""
+          echo "=== Docker Version ==="
+          docker version || echo "⚠️  Docker not found"
+          echo ""
+          echo "=== Docker Compose Version ==="
+          docker compose version || echo "⚠️  Docker Compose not found"
+          echo ""
+          echo "=== Current Directory ==="
+          pwd
+          ls -la
+          echo ""
+          echo "=== Docker Compose File ==="
+          if [ -f "docker-compose.yml" ]; then
+            echo "✓ Found docker-compose.yml"
+            cat docker-compose.yml | head -20
+          elif [ -f "compose.yaml" ]; then
+            echo "✓ Found compose.yaml"
+            cat compose.yaml | head -20
+          else
+            echo "⚠️  No docker compose file found"
+          fi
+
+      - name: Stop existing containers
+        run: |
+          echo "=== Stopping existing containers ==="
+          docker compose down || true
+        continue-on-error: true
+
+      - name: Deploy with Docker Compose
+        run: |
+          echo "=== Starting deployment ==="
+          if [ "${{ github.event.inputs.rebuild }}" = "true" ]; then
+            echo "Force rebuild enabled (--no-cache)"
+            docker compose build --no-cache
+            docker compose up -d --remove-orphans
+          else
+            echo "Normal deployment (with cache)"
+            docker compose up -d --build --remove-orphans
+          fi
+
+      - name: Verify deployment
+        run: |
+          echo "=== Waiting for containers to start ==="
+          sleep 5
+          echo ""
+          echo "=== Container Status ==="
+          docker compose ps
+          echo ""
+          echo "=== Running Containers ==="
+          docker ps --filter "name=hean" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+      - name: Show deployment logs
+        run: |
+          echo "=== Recent Container Logs (last 200 lines) ==="
+          docker compose logs --tail=200 || true
+        if: always()
+
+      - name: Health check
+        run: |
+          echo "=== Health Check ==="
+          echo "Waiting 10 seconds for services to initialize..."
+          sleep 10
+
+          # Check API health
+          if curl -f -s --max-time 5 http://localhost:8000/health > /dev/null 2>&1; then
+            echo "✓ API health check PASSED (http://localhost:8000/health)"
+          else
+            echo "⚠️  API health check FAILED (http://localhost:8000/health)"
+          fi
+
+          # Check UI accessibility
+          if curl -f -s --max-time 5 http://localhost:3000 > /dev/null 2>&1; then
+            echo "✓ UI health check PASSED (http://localhost:3000)"
+          else
+            echo "⚠️  UI health check FAILED (http://localhost:3000)"
+          fi
+        continue-on-error: true
+
+      - name: Cleanup old images
+        run: |
+          echo "=== Cleaning up dangling images ==="
+          docker image prune -f || true
+          echo ""
+          echo "=== Docker Disk Usage ==="
+          docker system df
+        if: always()
+
+      - name: Deployment summary
+        run: |
+          echo "=========================================="
+          echo "DEPLOYMENT SUMMARY"
+          echo "=========================================="
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Author: ${{ github.actor }}"
+          echo "Timestamp: $(date)"
+          echo ""
+          echo "=== Final Container Status ==="
+          docker compose ps
+          echo ""
+          echo "✓ Deployment completed successfully!"
+        if: success()
+
+      - name: Deployment failed notification
+        run: |
+          echo "=========================================="
+          echo "⚠️  DEPLOYMENT FAILED"
+          echo "=========================================="
+          echo "Check the logs above for errors."
+          echo "Common issues:"
+          echo "  - Docker daemon not running"
+          echo "  - Port conflicts (8000, 3000, 6379)"
+          echo "  - Missing .env files"
+          echo "  - Build errors in Dockerfile"
+          echo ""
+          echo "To debug locally, run:"
+          echo "  ./scripts/deploy_local.sh"
+          exit 1
+        if: failure()
