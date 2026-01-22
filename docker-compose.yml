@@ -18,9 +18,11 @@ services:
       - BASIS_ARBITRAGE_ENABLED=true
       - IMPULSE_ENGINE_ENABLED=true
     volumes:
-      - ./src:/app/src:ro
+      - ./src:/app/src
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./README.md:/app/README.md:ro
     command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
     ports:
@@ -49,6 +51,50 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+
+  # Backend API (development with hot-reload)
+  api-dev:
+    image: hean-api-dev:latest
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: api/Dockerfile.dev
+    container_name: hean-api-dev
+    env_file:
+      - backend.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - PYTHONPATH=/app/src
+      - FUNDING_HARVESTER_ENABLED=true
+      - BASIS_ARBITRAGE_ENABLED=true
+      - IMPULSE_ENGINE_ENABLED=true
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./README.md:/app/README.md:ro
+    command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/src
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - hean-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # React/Vite UI (production, served via nginx)
   ui:

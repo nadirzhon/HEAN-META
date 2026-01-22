@@ -33,19 +33,39 @@ pip install -e ".[dev]"
 
 Edit `.env` (template included in repo) and adjust settings.
 
-### Development Mode (Recommended)
+### Development Mode with Live Reload (Recommended)
 
-Start the full development environment (API + Frontend + Monitoring):
+Start the development environment with hot-reload for instant code changes:
 
 ```bash
 make dev
+# or
+./start-dev.sh
+```
+
+This starts with **live reload enabled**:
+- **API**: http://localhost:8000 (auto-reloads on .py changes)
+- **UI**: http://localhost:5173 (Vite HMR on React changes)
+- **API Docs**: http://localhost:8000/docs
+
+**Features:**
+- ✅ Instant code reload - no container rebuild needed
+- ✅ Volume mounting for all source files
+- ✅ Fast iteration cycle
+
+See [LIVE_RELOAD_GUIDE.md](./LIVE_RELOAD_GUIDE.md) for details.
+
+### Production Mode
+
+For testing production build:
+
+```bash
+docker compose up
 ```
 
 This starts:
-- **API**: http://localhost:8000 (FastAPI backend)
-- **Command Center**: http://localhost:3000 (Trading Command Center UI)
-- **Prometheus**: http://localhost:9091 (Metrics)
-- **Grafana**: http://localhost:3001 (Dashboards, admin/admin)
+- **API**: http://localhost:8000 (optimized build)
+- **UI**: http://localhost:3000 (nginx served)
 
 ### Running in Paper Mode (CLI)
 

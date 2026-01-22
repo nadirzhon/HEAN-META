@@ -1,4 +1,4 @@
-.PHONY: install test lint run dev docker-build docker-up docker-down docker-logs docker-restart
+.PHONY: install test lint run dev dev-up dev-down dev-logs docker-build docker-up docker-down docker-logs docker-restart
 
 # Install dependencies
 install:
@@ -17,14 +17,36 @@ lint:
 run:
 	python -m hean.main run
 
-# Development: start API + frontend + monitoring
+# Development: start with hot-reload (API + UI)
 dev:
-	docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d --build
-	@echo "Development environment started:"
-	@echo "  - API: http://localhost:8000"
-	@echo "  - Command Center: http://localhost:3000"
-	@echo "  - Prometheus: http://localhost:9091"
-	@echo "  - Grafana: http://localhost:3001 (admin/admin)"
+	./start-dev.sh
+
+# Alternative: start dev environment with docker compose directly
+dev-up:
+	docker compose --profile dev up --build
+	@echo "🚀 Development environment started with live reload:"
+	@echo "  🔹 API:  http://localhost:8000 (auto-reload on .py changes)"
+	@echo "  🔹 UI:   http://localhost:5173 (HMR on React changes)"
+	@echo "  🔹 Docs: http://localhost:8000/docs"
+	@echo ""
+	@echo "📝 Edit files in ./src or ./apps/ui/src to see instant changes!"
+
+# Stop dev environment
+dev-down:
+	docker compose --profile dev down
+	@echo "✅ Development environment stopped"
+
+# Show dev logs
+dev-logs:
+	docker compose --profile dev logs -f
+
+# Show only API dev logs
+dev-logs-api:
+	docker compose --profile dev logs -f api-dev
+
+# Show only UI dev logs
+dev-logs-ui:
+	docker compose --profile dev logs -f ui-dev
 
 # Docker commands
 docker-build:
