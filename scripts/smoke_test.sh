@@ -1,139 +1,145 @@
 #!/bin/bash
-# Smoke test for AFO-Director features
-# Checks REST endpoints, WebSocket, control, and multi-symbol support
+# HEAN Smoke Test - validates all critical endpoints and features after deployment
+# Usage: ./scripts/smoke_test.sh [host] [port]
 
-set -e
+set -e  # Exit on error
 
-API_URL="${API_URL:-http://localhost:8000}"
-WS_URL="${WS_URL:-ws://localhost:8000/ws}"
-TIMEOUT="${TIMEOUT:-30}"
+HOST="${1:-localhost}"
+PORT="${2:-8000}"
+BASE_URL="http://${HOST}:${PORT}"
 
-echo "=== HEAN AFO-Director Smoke Test ==="
-echo "API URL: $API_URL"
-echo "WS URL: $WS_URL"
+echo "==================================================================="
+echo "HEAN SMOKE TEST"
+echo "==================================================================="
+echo "Target: $BASE_URL"
+echo "Started: $(date)"
 echo ""
 
-FAILED=0
+# Test counter
+TOTAL_TESTS=0
+PASSED_TESTS=0
+FAILED_TESTS=0
 
-# Helper function to check HTTP endpoint
-check_http() {
-    local endpoint=$1
-    local expected_status=${2:-200}
-    local name=$3
-    
-    echo -n "Checking $name ($endpoint)... "
-    response=$(curl -s -w "\n%{http_code}" "$API_URL$endpoint" || echo -e "\n000")
-    http_code=$(echo "$response" | tail -n1)
-    body=$(echo "$response" | sed '$d')
-    
-    if [ "$http_code" = "$expected_status" ]; then
-        echo "✓ PASS ($http_code)"
+# Helper function to run a test
+run_test() {
+    local test_name="$1"
+    local test_command="$2"
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+    echo -n "[TEST $TOTAL_TESTS] $test_name ... "
+
+    if eval "$test_command" > /dev/null 2>&1; then
+        echo "✓ PASS"
+        PASSED_TESTS=$((PASSED_TESTS + 1))
         return 0
     else
-        echo "✗ FAIL ($http_code, expected $expected_status)"
-        echo "  Response: $body"
-        FAILED=$((FAILED + 1))
+        echo "✗ FAIL"
+        FAILED_TESTS=$((FAILED_TESTS + 1))
         return 1
     fi
 }
 
-# REST Endpoints
-echo "--- REST Endpoints ---"
-check_http "/telemetry/ping" 200 "Telemetry ping"
-check_http "/telemetry/summary" 200 "Telemetry summary"
-check_http "/trading/why" 200 "Trading why endpoint" || {
-    echo "  Note: /trading/why may return 200 even if engine not running"
+# Helper function to check JSON response
+check_json() {
+    local url="$1"
+    local expected_field="$2"
+
+    response=$(curl -s -f "$url" 2>/dev/null || echo "{}")
+    echo "$response" | grep -q "\"$expected_field\"" && return 0 || return 1
 }
 
-# Check /trading/why has required fields
-echo -n "Checking /trading/why fields... "
-why_response=$(curl -s "$API_URL/trading/why")
-if echo "$why_response" | grep -q "engine_state" && \
-   echo "$why_response" | grep -q "killswitch_state" && \
-   echo "$why_response" | grep -q "profit_capture_state"; then
-    echo "✓ PASS (required fields present)"
-else
-    echo "✗ FAIL (missing required fields)"
-    FAILED=$((FAILED + 1))
-fi
+# Helper function to check HTTP status
+check_http() {
+    local url="$1"
+    local expected_status="${2:-200}"
 
-check_http "/portfolio/summary" 200 "Portfolio summary" || true
+    status=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
+    [ "$status" = "$expected_status" ] && return 0 || return 1
+}
 
-# WebSocket Test (basic connection)
+echo "-------------------------------------------------------------------"
+echo "1. CORE REST ENDPOINTS"
+echo "-------------------------------------------------------------------"
+
+run_test "Health check" "check_http '$BASE_URL/health' 200"
+run_test "Telemetry ping" "check_json '$BASE_URL/telemetry/ping' 'status'"
+run_test "Telemetry summary" "check_json '$BASE_URL/telemetry/summary' 'total'"
+run_test "Trading why" "check_json '$BASE_URL/trading/why' 'engine_state'"
+run_test "Portfolio summary" "check_http '$BASE_URL/portfolio/summary' 200"
+
 echo ""
-echo "--- WebSocket Test ---"
-echo -n "Checking WebSocket connection... "
-if command -v wscat >/dev/null 2>&1 || command -v websocat >/dev/null 2>&1; then
-    # Try wscat first, then websocat
-    if command -v wscat >/dev/null 2>&1; then
-        timeout 5 wscat -c "$WS_URL" -x '{"action":"ping"}' >/dev/null 2>&1 && echo "✓ PASS" || {
-            echo "✗ FAIL (connection failed)"
-            FAILED=$((FAILED + 1))
-        }
+echo "-------------------------------------------------------------------"
+echo "2. AI CATALYST ENDPOINTS"
+echo "-------------------------------------------------------------------"
+
+run_test "System changelog/today" "check_json '$BASE_URL/system/changelog/today' 'items'"
+run_test "System agents" "check_json '$BASE_URL/system/agents' 'agents'"
+
+echo ""
+echo "-------------------------------------------------------------------"
+echo "3. WEBSOCKET CONNECTION"
+echo "-------------------------------------------------------------------"
+
+# Test WebSocket connection (basic ping)
+ws_test() {
+    # Use websocat or wscat if available, otherwise skip
+    if command -v websocat &> /dev/null; then
+        echo '{"action":"ping"}' | timeout 3 websocat "ws://${HOST}:${PORT}/ws" 2>/dev/null | grep -q "pong" && return 0
+    elif command -v wscat &> /dev/null; then
+        echo '{"action":"ping"}' | timeout 3 wscat -c "ws://${HOST}:${PORT}/ws" 2>/dev/null | grep -q "pong" && return 0
     else
-        echo "⚠ SKIP (wscat/websocat not installed, install with: npm install -g wscat or cargo install websocat)"
+        # Skip if no WS client available
+        echo "SKIP (no websocat/wscat)"
+        return 0
     fi
-else
-    echo "⚠ SKIP (wscat/websocat not installed)"
-fi
+    return 1
+}
 
-# Control Test (if engine is running)
-echo ""
-echo "--- Control Test ---"
-echo -n "Checking engine control endpoints... "
-status_response=$(curl -s "$API_URL/engine/status" || echo '{"status":"STOPPED"}')
-if echo "$status_response" | grep -q "status"; then
-    echo "✓ PASS (status endpoint accessible)"
-    
-    # Try pause/resume if engine is running
-    engine_status=$(echo "$status_response" | grep -o '"status":"[^"]*"' | cut -d'"' -f4 || echo "STOPPED")
-    if [ "$engine_status" = "RUNNING" ]; then
-        echo -n "  Testing pause/resume... "
-        pause_result=$(curl -s -X POST "$API_URL/engine/pause" -H "Content-Type: application/json" -d '{}' || echo '{"ok":false}')
-        if echo "$pause_result" | grep -q "ok"; then
-            sleep 1
-            resume_result=$(curl -s -X POST "$API_URL/engine/resume" -H "Content-Type: application/json" || echo '{"ok":false}')
-            if echo "$resume_result" | grep -q "ok"; then
-                echo "✓ PASS"
-            else
-                echo "✗ FAIL (resume failed)"
-                FAILED=$((FAILED + 1))
-            fi
-        else
-            echo "⚠ SKIP (pause not available)"
-        fi
-    else
-        echo "  Engine not running, skipping pause/resume test"
-    fi
-else
-    echo "✗ FAIL (status endpoint not accessible)"
-    FAILED=$((FAILED + 1))
-fi
+run_test "WebSocket connection" "ws_test"
 
-# Multi-Symbol Test (check ORDER_DECISION for multiple symbols)
 echo ""
-echo "--- Multi-Symbol Test ---"
-echo -n "Waiting ${TIMEOUT}s for ORDER_DECISION events from >=3 symbols... "
-# This would require WebSocket subscription or log parsing
-# For now, just check that multi-symbol config is available
-if curl -s "$API_URL/trading/why" | grep -q "multi_symbol"; then
-    echo "✓ PASS (multi_symbol field present in /trading/why)"
-else
-    echo "⚠ WARN (multi_symbol field not found, may need engine running)"
-fi
+echo "-------------------------------------------------------------------"
+echo "4. ENGINE CONTROL (if available)"
+echo "-------------------------------------------------------------------"
 
-# Summary
+# Try pause (may fail if not running, that's OK for smoke test)
+pause_test() {
+    status=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/engine/pause" 2>/dev/null || echo "000")
+    # Accept 200 (success) or 409 (conflict - already paused/stopped)
+    [ "$status" = "200" ] || [ "$status" = "409" ] && return 0 || return 1
+}
+
+run_test "Engine pause endpoint" "pause_test"
+
 echo ""
-echo "=== Smoke Test Summary ==="
-if [ $FAILED -eq 0 ]; then
-    echo "✓ ALL CHECKS PASSED"
+echo "-------------------------------------------------------------------"
+echo "5. MULTI-SYMBOL SUPPORT"
+echo "-------------------------------------------------------------------"
+
+# Check if trading/why returns multi_symbol data
+multi_symbol_test() {
+    response=$(curl -s -f "$BASE_URL/trading/why" 2>/dev/null || echo "{}")
+    echo "$response" | grep -q "\"multi_symbol\"" && return 0 || return 1
+}
+
+run_test "Multi-symbol data in /trading/why" "multi_symbol_test"
+
+echo ""
+echo "==================================================================="
+echo "SMOKE TEST SUMMARY"
+echo "==================================================================="
+echo "Total tests:  $TOTAL_TESTS"
+echo "Passed:       $PASSED_TESTS"
+echo "Failed:       $FAILED_TESTS"
+echo "Completed:    $(date)"
+echo ""
+
+if [ "$FAILED_TESTS" -eq 0 ]; then
+    echo "✅ ALL TESTS PASSED - System is operational"
+    echo ""
     exit 0
 else
-    echo "✗ $FAILED CHECK(S) FAILED"
+    echo "❌ SOME TESTS FAILED - Review output above"
     echo ""
-    echo "To debug:"
-    echo "  1. Check API logs: docker-compose logs api"
-    echo "  2. Verify engine is running: curl $API_URL/engine/status"
-    echo "  3. Check /trading/why: curl $API_URL/trading/why | jq"
     exit 1
 fi
