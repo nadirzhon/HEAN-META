@@ -1,7 +1,0 @@
-Docker version: Docker version 29.1.3, build f52814d
-Docker Compose version: Docker Compose version 5.0.1
-
-=== Compose Files ===
-
-docker-compose.monitoring.yml
-docker-compose.yml

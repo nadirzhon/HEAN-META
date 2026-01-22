@@ -212,7 +212,7 @@ if not warden.is_master_online():
 ```
 
 ## Dashboard Access
-- Navigate to the Eureka Dashboard
+- Open the Command Center at `http://localhost:3000`
 - View the **Network Map** component
 - See real-time node status, latencies, and execution stats
 - Switch between 3D and 2D views

@@ -25,6 +25,10 @@ venv/
 env/
 ENV/
 
+# Node/Next.js
+node_modules/
+.next/
+
 # IDE
 .vscode/
 .idea/
@@ -67,4 +71,3 @@ Thumbs.db
 backtest_*.log
 *.sh
 examples/
-

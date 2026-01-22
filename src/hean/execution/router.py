@@ -8,11 +8,17 @@ from typing import Any
 
 from hean.config import settings
 from hean.core.bus import EventBus
-from hean.core.execution.iceberg import IcebergOrder
+try:
+    from hean.core.execution.iceberg import IcebergOrder
+except ImportError:  # Optional Phase 3 component
+    IcebergOrder = None  # type: ignore[assignment]
 from hean.core.ofi import OrderFlowImbalance
 from hean.core.regime import RegimeDetector
 from hean.core.types import Event, EventType, Order, OrderRequest, OrderStatus, Tick
-from hean.exchange.bybit.http import BybitHTTPClient
+try:
+    from hean.exchange.bybit.http import BybitHTTPClient
+except ImportError:  # Optional live trading dependency
+    BybitHTTPClient = None  # type: ignore[assignment]
 from hean.exchange.bybit.ws_private import BybitPrivateWebSocket
 from hean.exchange.bybit.ws_public import BybitPublicWebSocket
 from hean.exchange.executor import SmartLimitExecutor
@@ -93,7 +99,7 @@ class ExecutionRouter:
         # Phase 3: Smart Limit Engine, OFI, and Iceberg
         self._smart_executor: SmartLimitExecutor | None = None
         self._ofi: OrderFlowImbalance | None = None
-        self._iceberg: IcebergOrder | None = None
+        self._iceberg: Any | None = None
         self._phase3_enabled = True  # Enable Phase 3 features
 
     async def start(self) -> None:
@@ -105,6 +111,9 @@ class ExecutionRouter:
         # Initialize Bybit clients if in live mode
         if settings.is_live:
             try:
+                if BybitHTTPClient is None:
+                    raise ImportError("BybitHTTPClient not available (httpx or related deps missing)")
+
                 self._bybit_http = BybitHTTPClient()
                 await self._bybit_http.connect()
 
@@ -131,14 +140,23 @@ class ExecutionRouter:
         
         # Initialize Phase 3 components
         if self._phase3_enabled:
-            self._ofi = OrderFlowImbalance(window_size=20)
-            self._iceberg = IcebergOrder(
+            self._ofi = OrderFlowImbalance(
                 bus=self._bus,
-                min_size_usdt=10.0,
-                max_micro_size_usdt=5.0,
-                min_delay_ms=100,
-                max_delay_ms=500,
+                lookback_window=20,
             )
+            await self._ofi.start()
+            if IcebergOrder is not None:
+                self._iceberg = IcebergOrder(
+                    bus=self._bus,
+                    min_size_usdt=10.0,
+                    max_micro_size_usdt=5.0,
+                    min_delay_ms=100,
+                    max_delay_ms=500,
+                )
+            else:
+                self._iceberg = None
+                logger.warning("IcebergOrder module not available - skipping iceberg execution engine")
+
             self._smart_executor = SmartLimitExecutor(
                 bus=self._bus,
                 bybit_http=self._bybit_http,
@@ -184,7 +202,9 @@ class ExecutionRouter:
         # Stop Phase 3 components
         if self._smart_executor:
             await self._smart_executor.stop()
-        
+        if self._ofi:
+            await self._ofi.stop()
+
         self._running = False
         logger.info("Execution router stopped")
 
@@ -202,9 +222,7 @@ class ExecutionRouter:
         if tick.price:
             self._update_volatility_history(tick.symbol, tick.price)
         
-        # Update OFI (Phase 3)
-        if self._phase3_enabled and self._ofi:
-            self._ofi.update(tick)
+        # OFI updates are handled by the OFI monitor's own subscriptions.
 
     async def _handle_order_filled(self, event: Event) -> None:
         """Handle order filled events."""
@@ -980,3 +998,12 @@ class ExecutionRouter:
                 all_presence.append(presence)
         
         return all_presence
+
+    def get_iceberg_detections(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Get recent iceberg detections for UI."""
+        if not self._iceberg:
+            return []
+        getter = getattr(self._iceberg, "get_recent_detections", None)
+        if callable(getter):
+            return getter(limit=limit)
+        return []

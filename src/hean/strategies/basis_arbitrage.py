@@ -75,8 +75,11 @@ class BasisArbitrage(BaseStrategy):
 
     async def on_regime_update(self, event: Event) -> None:
         """Handle regime update events."""
-        symbol = event.data["symbol"]
-        regime = event.data["regime"]
+        symbol = event.data.get("symbol")
+        regime = event.data.get("regime")
+        if symbol is None or regime is None:
+            logger.warning("REGIME_UPDATE missing fields: %s", event.data)
+            return
         self._current_regime[symbol] = regime
 
     async def _evaluate_basis(self, symbol: str, spot_price: float, perp_price: float) -> None:

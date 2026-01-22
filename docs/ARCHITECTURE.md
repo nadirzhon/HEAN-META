@@ -210,20 +210,18 @@ make dev  # Starts API + Frontend + Monitoring
 ### Production
 
 ```bash
-docker-compose up -d  # Starts all services
+docker-compose up -d --build  # Starts all services
 ```
 
 Services:
 - **API**: Port 8000 (FastAPI backend)
-- **Frontend**: Port 3000 (Nginx + Dashboard)
+- **Frontend**: Port 3000 (Next.js Command Center)
 - **Prometheus**: Port 9091 (Metrics)
-- **Grafana**: Port 3000 (Dashboards)
+- **Grafana**: Port 3001 (Dashboards)
 
 ## Future Enhancements
 
-- WebSocket streaming for real-time updates
 - Distributed event bus (Redis)
 - Multi-exchange support
 - Advanced reconciliation with auto-correction
 - Machine learning integration for strategy optimization
-

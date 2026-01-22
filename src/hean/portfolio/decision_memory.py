@@ -457,4 +457,21 @@ class DecisionMemory:
         Returns:
             True if context is blocked, False otherwise
         """
-        return self.is_context_blocked(strategy_id, context_key)
+        stats = self._get_stats(strategy_id, context_key)
+        blocked = self.is_context_blocked(strategy_id, context_key)
+        if blocked:
+            logger.debug(
+                "DecisionMemory BLOCK: strategy=%s context=%s block_until=%s loss_streak=%s trades=%s drawdown=%.2f",
+                strategy_id,
+                context_key,
+                getattr(stats, "block_until", None),
+                getattr(stats, "loss_streak", None) if stats else None,
+                getattr(stats, "trades_count", None) if stats else None,
+                getattr(stats, "max_drawdown_pct", 0.0) if stats else 0.0,
+            )
+        return blocked
+
+    def has_history(self, strategy_id: str, context_key: ContextKey) -> bool:
+        """Return True if we have recorded trades for this (strategy, context)."""
+        stats = self._get_stats(strategy_id, context_key)
+        return bool(stats and getattr(stats, "trades_count", 0) > 0)

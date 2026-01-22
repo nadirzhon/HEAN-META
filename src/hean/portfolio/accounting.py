@@ -45,6 +45,18 @@ class PortfolioAccounting:
         """Update cash balance."""
         self._cash += amount
 
+    def get_cash_balance(self) -> float:
+        """Return current cash balance."""
+        return self._cash
+
+    def get_realized_pnl_total(self) -> float:
+        """Return cumulative realized PnL."""
+        return self._realized_pnl
+
+    def get_total_fees(self) -> float:
+        """Return total fees paid."""
+        return self._total_fees
+
     def add_position(self, position: Position) -> None:
         """Add a new position."""
         self._positions[position.position_id] = position
@@ -174,6 +186,10 @@ class PortfolioAccounting:
     def get_positions(self) -> list[Position]:
         """Get all open positions."""
         return list(self._positions.values())
+
+    def get_unrealized_pnl_total(self) -> float:
+        """Get aggregate unrealized PnL across all open positions."""
+        return sum(pos.unrealized_pnl for pos in self._positions.values())
 
     def update_strategy_equity(self, strategy_id: str, equity: float) -> None:
         """Update equity history for a strategy."""

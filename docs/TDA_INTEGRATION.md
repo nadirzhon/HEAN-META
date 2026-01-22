@@ -54,10 +54,9 @@ Topological Data Analysis (TDA) has been deeply integrated into the HEAN core ex
 - `GET /api/graph-engine/topology/manifold/{symbol}`: 3D manifold data for visualization
 - `GET /api/graph-engine/topology/watchdog`: Watchdog status
 
-#### 3D Visualization (`web/topological_manifold_visualization.html`)
-- **Three.js Integration**: Real-time 3D manifold visualization
-- **Topological Holes Overlay**: Visual representation of persistence barcodes
-- **Orderbook Heatmap Overlay**: Combined with orderbook heatmap for comprehensive view
+#### 3D Visualization (Command Center UI)
+- **Unified UI**: Visualization is served from the Command Center (`http://localhost:3000`)
+- **Component-Based**: Views live under `control-center/components/`
 - **Interactive Controls**: Camera rotation, wireframe toggle, symbol selection
 
 ## Usage

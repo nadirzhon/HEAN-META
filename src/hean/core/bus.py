@@ -15,11 +15,11 @@ logger = get_logger(__name__)
 class EventBus:
     """Async event bus for pub/sub communication."""
 
-    def __init__(self, max_queue_size: int = 10000) -> None:
+    def __init__(self, max_queue_size: int = 50000) -> None:
         """Initialize the event bus.
         
         Args:
-            max_queue_size: Maximum queue size to prevent memory leaks (default 10000)
+            max_queue_size: Maximum queue size to prevent memory leaks (default 50000)
         """
         self._subscribers: dict[EventType, list[Callable[[Event], Any]]] = defaultdict(list)
         # CRITICAL: Limit queue size to prevent memory leaks
@@ -47,26 +47,49 @@ class EventBus:
     async def publish(self, event: Event) -> None:
         """Publish an event to the bus.
         
-        CRITICAL: Uses put_nowait with timeout to prevent blocking while still protecting against memory leaks.
-        If queue is full, waits briefly then raises error.
+        Uses put_nowait for the fast path. If the queue is saturated we apply backpressure for
+        non-price events and gracefully drop the lowest-value traffic (TICK) while emitting telemetry
+        instead of crashing the whole pipeline.
         """
         logger.debug(f"Publishing {event.event_type} event to queue")
         try:
             # Try non-blocking first
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
-            # Queue is full - this is a critical condition
             queue_size = self._queue.qsize()
-            logger.error(
-                f"EventBus queue is full ({queue_size}/{self._queue.maxsize} events). "
-                f"Cannot publish {event.event_type} event. Event processing is severely behind."
-            )
-            # Raise error to prevent silent drops (critical for trading system)
-            raise RuntimeError(
-                f"EventBus queue full ({queue_size}/{self._queue.maxsize}). "
-                "Event processing is falling behind. This indicates a serious performance issue. "
-                "Check handler performance and consider increasing max_queue_size."
-            )
+
+            # Drop low-value events instead of killing the loop
+            if event.event_type == EventType.TICK:
+                logger.warning(
+                    "EventBus queue full (%s/%s). Dropping TICK to relieve pressure.",
+                    queue_size,
+                    self._queue.maxsize,
+                )
+                return
+
+            # For PNL_UPDATE and other critical events, wait briefly before giving up
+            try:
+                await asyncio.wait_for(self._queue.put(event), timeout=1.0)
+                logger.warning(
+                    "EventBus queue was full (%s/%s). Backpressured and enqueued %s after wait.",
+                    queue_size,
+                    self._queue.maxsize,
+                    event.event_type,
+                )
+            except Exception:
+                logger.error(
+                    "EventBus queue is full (%s/%s). Cannot publish %s event. "
+                    "Event processing is severely behind.",
+                    queue_size,
+                    self._queue.maxsize,
+                    event.event_type,
+                    exc_info=True,
+                )
+                raise RuntimeError(
+                    f"EventBus queue full ({queue_size}/{self._queue.maxsize}). "
+                    "Event processing is falling behind. "
+                    "Check handler performance and consider increasing max_queue_size."
+                )
 
     async def _process_events(self) -> None:
         """Process events from the queue with batching for performance."""
@@ -232,7 +255,7 @@ class EventBus:
             logger.debug(f"[EventBus] Drained {drained} remaining events from queue")
 
         # Shutdown thread pool executor
-        self._executor.shutdown(wait=True, timeout=5.0)
+        self._executor.shutdown(wait=True)
 
         logger.info("[EventBus] Stopped")
 

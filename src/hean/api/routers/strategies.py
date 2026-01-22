@@ -1,8 +1,8 @@
 """Strategies management router."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
-from hean.api.app import engine_facade
+import hean.api.state as state
 from hean.api.schemas import StrategyEnableRequest, StrategyParamsRequest
 from hean.logging import get_logger
 
@@ -11,11 +11,17 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/strategies", tags=["strategies"])
 
 
-@router.get("")
-async def get_strategies() -> list[dict]:
-    """Get list of strategies."""
-    if engine_facade is None:
+def _get_facade(request: Request):
+    facade = state.get_engine_facade(request)
+    if facade is None:
         raise HTTPException(status_code=500, detail="Engine facade not initialized")
+    return facade
+
+
+@router.get("")
+async def get_strategies(request: Request) -> list[dict]:
+    """Get list of strategies."""
+    engine_facade = _get_facade(request)
 
     try:
         result = await engine_facade.get_strategies()
@@ -26,13 +32,12 @@ async def get_strategies() -> list[dict]:
 
 
 @router.post("/{strategy_id}/enable")
-async def enable_strategy(strategy_id: str, request: StrategyEnableRequest) -> dict:
+async def enable_strategy(strategy_id: str, request: Request, payload: StrategyEnableRequest) -> dict:
     """Enable or disable a strategy."""
-    if engine_facade is None:
-        raise HTTPException(status_code=500, detail="Engine facade not initialized")
+    engine_facade = _get_facade(request)
 
     try:
-        result = await engine_facade.enable_strategy(strategy_id, request.enabled)
+        result = await engine_facade.enable_strategy(strategy_id, payload.enabled)
         return result
     except Exception as e:
         logger.error(f"Failed to enable/disable strategy: {e}", exc_info=True)
@@ -40,10 +45,9 @@ async def enable_strategy(strategy_id: str, request: StrategyEnableRequest) -> d
 
 
 @router.post("/{strategy_id}/params")
-async def update_strategy_params(strategy_id: str, request: StrategyParamsRequest) -> dict:
+async def update_strategy_params(strategy_id: str, request: Request, payload: StrategyParamsRequest) -> dict:
     """Update strategy parameters."""
-    if engine_facade is None:
-        raise HTTPException(status_code=500, detail="Engine facade not initialized")
+    _ = _get_facade(request)
 
     try:
         # TODO: Implement strategy parameter update
@@ -54,4 +58,3 @@ async def update_strategy_params(strategy_id: str, request: StrategyParamsReques
     except Exception as e:
         logger.error(f"Failed to update strategy params: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-

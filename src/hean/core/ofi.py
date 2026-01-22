@@ -220,6 +220,22 @@ class OrderFlowImbalance:
             imbalance_strength=imbalance_strength,
             price_level_ofi=price_level_ofi
         )
+
+    def get_aggression_factor(self, symbol: str, side: str) -> float:
+        """Return execution aggression factor in [0, 1] based on OFI bias.
+
+        If data is missing or OFI cannot be calculated, return neutral (0.0)
+        to avoid failing execution routing.
+        """
+        try:
+            result = self.calculate_ofi(symbol)
+        except Exception:
+            return 0.0
+
+        bias = result.ofi_value
+        if side.lower() == "buy":
+            return max(0.0, min(1.0, bias))
+        return max(0.0, min(1.0, -bias))
     
     def predict_next_ticks(self, symbol: str, current_price: float) -> PricePrediction:
         """Predict next 3 ticks for a symbol.

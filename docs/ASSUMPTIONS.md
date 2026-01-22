@@ -108,11 +108,11 @@ This document captures key assumptions and design decisions made during the prod
 - More server load
 - Not real-time
 
-**Future Enhancement**: WebSocket or SSE for real-time updates.
+**Current**: WebSocket used for real-time updates; polling remains for dashboard metrics.
 
-### 2. Nginx Proxy
+### 2. Next.js Proxy/Rewrites
 
-**Assumption**: Frontend proxies API requests through Nginx.
+**Assumption**: Frontend connects directly to API/WS via configured public URLs, with optional Next.js rewrites.
 
 **Rationale**:
 - Avoids CORS issues
@@ -120,8 +120,8 @@ This document captures key assumptions and design decisions made during the prod
 - Standard pattern
 
 **Trade-offs**:
-- Additional hop
-- Nginx configuration needed
+- Requires correct public URLs in env
+- Rebuild needed if public endpoints change
 
 ## Observability Assumptions
 
@@ -317,4 +317,3 @@ These assumptions may need revision as the system evolves:
    - Add distributed tracing
    - More detailed metrics
    - Alerting integration
-

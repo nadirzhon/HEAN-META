@@ -85,3 +85,7 @@ class OrderManager:
             )
 
         return filled
+
+    def get_all_orders(self) -> list[Order]:
+        """Return all tracked orders."""
+        return list(self._orders.values())

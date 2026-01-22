@@ -3,6 +3,7 @@
 import asyncio
 import random
 from collections import deque
+from datetime import datetime
 
 from hean.config import settings
 from hean.core.bus import EventBus
@@ -90,6 +91,7 @@ class PaperBroker:
         )
 
         # Publish ORDER_PLACED event
+        self._append_timeline(order, "placed")
         await self._bus.publish(
             Event(
                 event_type=EventType.ORDER_PLACED,
@@ -298,6 +300,7 @@ class PaperBroker:
         if order_id in self._pending_orders:
             order = self._pending_orders.pop(order_id)
             order.status = OrderStatus.CANCELLED
+            self._append_timeline(order, "cancelled")
 
             await self._bus.publish(
                 Event(
@@ -315,6 +318,8 @@ class PaperBroker:
         )
         remaining_size = order.size - order.filled_size
         logger.info(f"[FORCED_FILL] remaining_size={remaining_size}")
+        if order.metadata is None:
+            order.metadata = {}
 
         # Determine if this is a maker or taker fill
         # Maker: limit order with is_maker=True (post-only)
@@ -332,6 +337,7 @@ class PaperBroker:
         fee_rate = self._maker_fee if is_maker else self._taker_fee
         fee = remaining_size * fill_price * fee_rate
         logger.info(f"[FORCED_FILL] fee_rate={fee_rate}, fee={fee:.4f}")
+        order.metadata["fee"] = fee
 
         # Update metrics
         if is_maker:
@@ -371,6 +377,8 @@ class PaperBroker:
                 f"[FORCED_FILL] Order partially filled, remaining: {order.size - order.filled_size}"
             )
 
+        self._append_timeline(order, order.status.value if hasattr(order.status, "value") else str(order.status))
+
         # Publish fill event
         logger.info(f"[FORCED_FILL] Publishing ORDER_FILLED event for order {order.order_id}")
         await self._bus.publish(
@@ -407,3 +415,16 @@ class PaperBroker:
             "total_fills": self._total_fills,
             "maker_fill_rate_pct": self.get_maker_fill_rate(),
         }
+
+    def _append_timeline(self, order: Order, status: str) -> None:
+        """Append a status change to the order timeline."""
+        if order.metadata is None:
+            order.metadata = {}
+        timeline = order.metadata.get("status_timeline") or []
+        timeline.append(
+            {
+                "status": status,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+        order.metadata["status_timeline"] = timeline

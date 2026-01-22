@@ -266,4 +266,3 @@ async def test_evaluate_terminates() -> None:
     assert "passed" in result
     
     # Verify no hanging - if we got here, the function returned
-

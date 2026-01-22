@@ -32,14 +32,17 @@ class BybitPriceFeed(PriceFeed):
 
     async def start(self) -> None:
         """Start the price feed."""
-        if not settings.is_live:
-            logger.warning("BybitPriceFeed: Not in live mode, cannot start")
+        if not settings.is_live and not settings.paper_use_live_feed:
+            logger.warning("BybitPriceFeed: Live feed disabled for paper mode")
             return
 
         try:
-            # Initialize HTTP client for funding rate
-            self._http_client = BybitHTTPClient()
-            await self._http_client.connect()
+            # Initialize HTTP client for funding rate if credentials are available
+            if settings.bybit_api_key and settings.bybit_api_secret:
+                self._http_client = BybitHTTPClient()
+                await self._http_client.connect()
+            else:
+                logger.info("Bybit HTTP client disabled (missing API keys). Funding rates skipped.")
 
             # Initialize and connect WebSocket
             self._ws_public = BybitPublicWebSocket(self._bus)
@@ -49,11 +52,20 @@ class BybitPriceFeed(PriceFeed):
             for symbol in self._symbols:
                 await self._ws_public.subscribe_ticker(symbol)
 
-            # Start funding rate polling
-            self._running = True
-            self._funding_task = asyncio.create_task(self._poll_funding_rates())
+            # Subscribe to a small orderbook set for OFI/iceberg visuals
+            orderbook_symbols = [s for s in self._symbols if s in {"BTCUSDT", "ETHUSDT"}]
+            if not orderbook_symbols:
+                orderbook_symbols = self._symbols[:2]
+            for symbol in orderbook_symbols:
+                await self._ws_public.subscribe_orderbook(symbol, depth=25)
 
-            logger.info(f"Bybit price feed started for symbols: {self._symbols}")
+            # Start funding rate polling if HTTP client is available
+            self._running = True
+            if self._http_client:
+                self._funding_task = asyncio.create_task(self._poll_funding_rates())
+
+            mode_label = "live" if settings.is_live else "paper"
+            logger.info(f"Bybit price feed started for {mode_label} mode: {self._symbols}")
 
         except Exception as e:
             logger.error(f"Failed to start Bybit price feed: {e}", exc_info=True)

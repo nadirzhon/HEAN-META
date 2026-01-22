@@ -37,6 +37,8 @@ class EventType(str, Enum):
     POSITION_CLOSE_REQUEST = "position_close_request"
     EQUITY_UPDATE = "equity_update"
     PNL_UPDATE = "pnl_update"
+    ORDER_DECISION = "order_decision"
+    ORDER_EXIT_DECISION = "order_exit_decision"
 
     # System events
     STOP_TRADING = "stop_trading"

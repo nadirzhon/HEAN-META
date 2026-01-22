@@ -66,6 +66,17 @@ class TestOrderRequest(BaseModel):
     price: float | None = Field(default=None, description="Limit price (optional)")
 
 
+class TestRoundtripRequest(BaseModel):
+    """Request model for end-to-end paper roundtrip test."""
+
+    symbol: str = Field(default="BTCUSDT", description="Trading symbol")
+    side: str = Field(default="buy", description="Order side: buy or sell")
+    size: float = Field(default=0.001, description="Order size")
+    take_profit_pct: float = Field(default=0.3, description="TP distance in percent")
+    stop_loss_pct: float = Field(default=0.3, description="SL distance in percent")
+    hold_timeout_sec: int = Field(default=10, description="TTL seconds for forced exit")
+
+
 class ClosePositionRequest(BaseModel):
     """Request model for closing position."""
 
@@ -174,4 +185,3 @@ class BlockedSignalsAnalytics(BaseModel):
     top_reasons: list[dict[str, Any]] = Field(default_factory=list)
     blocks_by_hour: dict[str, int] = Field(default_factory=dict)
     recent_blocks: list[ReasonCode] = Field(default_factory=list)
-

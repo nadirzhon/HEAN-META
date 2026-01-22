@@ -3,6 +3,7 @@
 import asyncio
 import json
 import ssl
+import time
 
 try:
     import websockets
@@ -33,6 +34,8 @@ class BybitPublicWebSocket:
         self._websocket: websockets.WebSocketClientProtocol | None = None
         self._task: asyncio.Task[None] | None = None
         self._subscribed_symbols: set[str] = set()
+        self._subscribed_orderbooks: dict[str, int] = {}
+        self._missing_price_warned: set[str] = set()
 
         # WebSocket URLs
         if self._testnet:
@@ -45,7 +48,7 @@ class BybitPublicWebSocket:
 
     async def connect(self) -> None:
         """Connect to Bybit public WebSocket."""
-        if not settings.is_live:
+        if not settings.is_live and not settings.paper_use_live_feed:
             logger.info("Bybit public WebSocket: Paper mode - using synthetic feed")
             return
 
@@ -103,10 +106,20 @@ class BybitPublicWebSocket:
         reconnect_delay = 5.0
         max_reconnect_attempts = 10
         reconnect_attempts = 0
+        last_message_time = time.time()
+        PING_INTERVAL = 20.0  # Send ping every 20 seconds
+        CONNECTION_TIMEOUT = 60.0  # Timeout after 60 seconds of no messages
 
         while self._connected:
             try:
-                async for message in self._websocket:
+                # Use asyncio.wait_for to add timeout for receiving messages
+                try:
+                    message = await asyncio.wait_for(
+                        self._websocket.recv(),
+                        timeout=min(PING_INTERVAL, CONNECTION_TIMEOUT)
+                    )
+                    last_message_time = time.time()
+                    
                     try:
                         data = json.loads(message)
                         await self._handle_message(data)
@@ -115,6 +128,43 @@ class BybitPublicWebSocket:
                         logger.error(f"Failed to parse WebSocket message: {e}")
                     except Exception as e:
                         logger.error(f"Error handling WebSocket message: {e}")
+                except asyncio.TimeoutError:
+                    # Check if we need to send ping or if connection is dead
+                    time_since_last = time.time() - last_message_time
+                    if time_since_last >= CONNECTION_TIMEOUT:
+                        logger.warning(f"WebSocket connection timeout ({time_since_last:.1f}s), reconnecting...")
+                        raise ConnectionError("Connection timeout")
+                    # Send ping to keep connection alive
+                    try:
+                        ping_msg = {"op": "ping"}
+                        await self._websocket.send(json.dumps(ping_msg))
+                        logger.debug("Sent ping to keep connection alive")
+                    except Exception as e:
+                        logger.warning(f"Failed to send ping: {e}")
+                        raise ConnectionError("Failed to send ping")
+            except (ConnectionError, asyncio.TimeoutError) as e:
+                # Connection timeout or error - try to reconnect
+                if self._connected and reconnect_attempts < max_reconnect_attempts:
+                    reconnect_attempts += 1
+                    logger.warning(
+                        f"WebSocket connection issue ({type(e).__name__}), reconnecting (attempt {reconnect_attempts}/{max_reconnect_attempts})..."
+                    )
+                    await asyncio.sleep(reconnect_delay)
+                    try:
+                        await self.connect()
+                        # Re-subscribe to all symbols
+                        for symbol in self._subscribed_symbols.copy():
+                            await self.subscribe_ticker(symbol)
+                        for symbol, depth in self._subscribed_orderbooks.items():
+                            await self.subscribe_orderbook(symbol, depth=depth)
+                        reconnect_delay = 5.0  # Reset delay on successful reconnect
+                    except Exception as reconnect_err:
+                        logger.error(f"Reconnection failed: {reconnect_err}")
+                        reconnect_delay = min(reconnect_delay * 1.5, 60.0)
+                else:
+                    logger.error("Max reconnection attempts reached or connection disabled")
+                    self._connected = False
+                    break
             except Exception as e:
                 error_name = type(e).__name__
                 if "ConnectionClosed" in error_name or "ConnectionClosed" in str(e):
@@ -129,8 +179,11 @@ class BybitPublicWebSocket:
                             # Re-subscribe to all symbols
                             for symbol in self._subscribed_symbols.copy():
                                 await self.subscribe_ticker(symbol)
-                        except Exception as e:
-                            logger.error(f"Reconnection failed: {e}")
+                            for symbol, depth in self._subscribed_orderbooks.items():
+                                await self.subscribe_orderbook(symbol, depth=depth)
+                            reconnect_delay = 5.0  # Reset delay on successful reconnect
+                        except Exception as reconnect_err:
+                            logger.error(f"Reconnection failed: {reconnect_err}")
                             reconnect_delay = min(reconnect_delay * 1.5, 60.0)
                     else:
                         logger.error("Max reconnection attempts reached or connection disabled")
@@ -139,18 +192,6 @@ class BybitPublicWebSocket:
             except asyncio.CancelledError:
                 logger.debug("WebSocket listen task cancelled")
                 break
-            except Exception as e:
-                logger.error(f"WebSocket listen error: {e}")
-                if self._connected and reconnect_attempts < max_reconnect_attempts:
-                    reconnect_attempts += 1
-                    await asyncio.sleep(reconnect_delay)
-                    try:
-                        await self.connect()
-                    except Exception:
-                        pass
-                else:
-                    self._connected = False
-                    break
 
     async def _handle_message(self, data: dict) -> None:
         """Handle incoming WebSocket message.
@@ -184,19 +225,40 @@ class BybitPublicWebSocket:
         try:
             # Safely convert price - handle empty strings, None, and invalid values
             last_price_raw = ticker_data.get("lastPrice")
-            if last_price_raw is None or last_price_raw == "":
-                logger.warning(f"Invalid lastPrice for {symbol}: {last_price_raw}, skipping tick")
-                return
-            
+            price = None
+            if last_price_raw not in (None, ""):
+                try:
+                    price = float(last_price_raw)
+                except (ValueError, TypeError):
+                    price = None
+
+            # Fallback to mid price if lastPrice missing
+            bid_fallback = ticker_data.get("bid1Price")
+            ask_fallback = ticker_data.get("ask1Price")
+            bid_val = None
+            ask_val = None
             try:
-                price = float(last_price_raw)
+                bid_val = float(bid_fallback) if bid_fallback not in (None, "") else None
             except (ValueError, TypeError):
-                logger.warning(f"Failed to convert lastPrice to float for {symbol}: {last_price_raw}, skipping tick")
-                return
+                bid_val = None
+            try:
+                ask_val = float(ask_fallback) if ask_fallback not in (None, "") else None
+            except (ValueError, TypeError):
+                ask_val = None
+
+            if price is None:
+                if bid_val and ask_val:
+                    price = (bid_val + ask_val) / 2
+                elif bid_val:
+                    price = bid_val
+                elif ask_val:
+                    price = ask_val
 
             # Skip ticks with zero or negative price
-            if price <= 0:
-                logger.warning(f"Invalid price (<=0) for {symbol}: {price}, skipping tick")
+            if price is None or price <= 0:
+                if symbol not in self._missing_price_warned:
+                    logger.warning(f"Invalid price for {symbol}: lastPrice={last_price_raw}, bid={bid_fallback}, ask={ask_fallback}, skipping tick")
+                    self._missing_price_warned.add(symbol)
                 return
 
             bid = None
@@ -254,10 +316,14 @@ class BybitPublicWebSocket:
 
         orderbook = {
             "symbol": symbol,
-            "b": bids,
-            "a": asks,
+            "bids": bids,
+            "asks": asks,
+            "b": bids,  # Backward compatibility
+            "a": asks,  # Backward compatibility
+            "timestamp_ns": orderbook_data.get("ts", 0),
+            "update_id": orderbook_data.get("u", 0),
             "ts": orderbook_data.get("ts", 0),
-            "u": orderbook_data.get("u", 0),  # Update ID
+            "u": orderbook_data.get("u", 0),
         }
 
         # Publish orderbook update event
@@ -319,6 +385,7 @@ class BybitPublicWebSocket:
 
         try:
             await self._websocket.send(json.dumps(subscribe_msg))
+            self._subscribed_orderbooks[symbol] = depth
             logger.info(f"Subscribed to orderbook for {symbol} (depth: {depth})")
         except Exception as e:
             logger.error(f"Failed to subscribe to orderbook for {symbol}: {e}")

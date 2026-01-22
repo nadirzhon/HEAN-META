@@ -10,7 +10,7 @@ test:
 
 # Lint and type check
 lint:
-	ruff check src/ web/
+	ruff check src/
 	mypy src/
 
 # Run the system (CLI)
@@ -19,12 +19,12 @@ run:
 
 # Development: start API + frontend + monitoring
 dev:
-	docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+	docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d --build
 	@echo "Development environment started:"
 	@echo "  - API: http://localhost:8000"
-	@echo "  - Dashboard: http://localhost:3000/dashboard.html"
+	@echo "  - Command Center: http://localhost:3000"
 	@echo "  - Prometheus: http://localhost:9091"
-	@echo "  - Grafana: http://localhost:3000 (admin/admin)"
+	@echo "  - Grafana: http://localhost:3001 (admin/admin)"
 
 # Docker commands
 docker-build:
@@ -55,7 +55,7 @@ monitoring-up:
 	docker-compose -f docker-compose.monitoring.yml up -d
 	@echo "Monitoring stack started:"
 	@echo "  - Prometheus: http://localhost:9091"
-	@echo "  - Grafana: http://localhost:3000 (admin/admin)"
+	@echo "  - Grafana: http://localhost:3001 (admin/admin)"
 
 monitoring-down:
 	docker-compose -f docker-compose.monitoring.yml down

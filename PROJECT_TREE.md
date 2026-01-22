@@ -3,18 +3,48 @@
 ```
 
 📁 HEAN/
+    ├── 📁 .cursor/
+    ├── 📁 .vscode/
+    │   └── 📋 settings.json
     ├── 📁 control-center/
+    │   ├── 📁 app/
+    │   │   ├── 🎨 globals.css
+    │   │   ├── 📄 layout.tsx
+    │   │   └── 📄 page.tsx
+    │   ├── 📁 components/
+    │   │   ├── 📄 IcebergOrders.tsx
+    │   │   ├── 📄 LiveArbChains.tsx
+    │   │   ├── 📄 MarketPulse.tsx
+    │   │   ├── 📄 NetworkMap.tsx
+    │   │   ├── 📄 OrderFeed.tsx
+    │   │   ├── 📄 PanicButton.tsx
+    │   │   ├── 📄 ReconnectingOverlay.tsx
+    │   │   ├── 📄 SwarmVisualization.tsx
+    │   │   ├── 📄 SystemStatus.tsx
+    │   │   └── 📄 TradingMetrics.tsx
     │   ├── 📁 lib/
     │   │   ├── 📘 api.ts
     │   │   ├── 📘 event-stream.ts
+    │   │   ├── 📘 hooks.ts
     │   │   ├── 📘 store.ts
     │   │   ├── 📄 toast.tsx
-    │   │   └── 📘 utils.ts
-    │   └── 📘 next-env.d.ts
+    │   │   ├── 📘 utils.ts
+    │   │   └── 📘 websocket.ts
+    │   ├── 📁 public/
+    │   ├── 📄 .dockerignore
+    │   ├── 📄 Dockerfile
+    │   ├── 📘 next-env.d.ts
+    │   ├── 📜 next.config.js
+    │   ├── 📋 package.json
+    │   ├── 📜 postcss.config.js
+    │   ├── 📝 README.md
+    │   ├── 📜 tailwind.config.js
+    │   └── 📋 tsconfig.json
     ├── 📁 docs/
     │   ├── 📝 API.md
     │   ├── 📝 ARCHITECTURE.md
     │   ├── 📝 ASSUMPTIONS.md
+    │   ├── 📝 TDA_INTEGRATION.md
     │   └── 📝 UI.md
     ├── 📁 examples/
     │   └── 🐍 generate_agent_example.py
@@ -216,6 +246,9 @@
     │   ├── 📋 dashboard.json
     │   ├── ⚙️ grafana-datasources.yml
     │   └── ⚙️ prometheus.yml
+    ├── 📁 scripts/
+    │   ├── 🔧 integration_test.sh
+    │   └── 🔧 optimize_os.sh
     ├── 📁 src/
     │   ├── 📁 hean/
     │   │   ├── 📁 afo_core/
@@ -233,22 +266,32 @@
     │   │   │   ├── 🐍 __init__.py
     │   │   │   ├── 🐍 app.py
     │   │   │   ├── 🐍 engine_facade.py
+    │   │   │   ├── 🐍 main.py
     │   │   │   ├── 🐍 reconcile.py
     │   │   │   ├── 🐍 schemas.py
-    │   │   │   └── 🐍 server.py
+    │   │   │   ├── 🐍 server.py
+    │   │   │   └── 🐍 state.py
     │   │   ├── 📁 backtest/
     │   │   │   ├── 🐍 __init__.py
     │   │   │   ├── 🐍 event_sim.py
     │   │   │   └── 🐍 metrics.py
     │   │   ├── 📁 core/
+    │   │   │   ├── 📁 arb/
+    │   │   │   ├── 📁 cpp/
+    │   │   │   ├── 📁 evolution/
     │   │   │   ├── 📁 intelligence/
+    │   │   │   ├── 📁 network/
+    │   │   │   ├── 📁 python/
     │   │   │   ├── 📁 speed_engine/
+    │   │   │   ├── 📁 system/
     │   │   │   ├── 🐍 __init__.py
     │   │   │   ├── 🐍 bus.py
     │   │   │   ├── 🐍 clock.py
     │   │   │   ├── 🐍 context.py
     │   │   │   ├── 🐍 contracts.py
     │   │   │   ├── 🐍 density.py
+    │   │   │   ├── 🐍 feedback_agent.py
+    │   │   │   ├── 🐍 ofi.py
     │   │   │   ├── 🐍 regime.py
     │   │   │   ├── 🐍 timeframes.py
     │   │   │   ├── 🐍 trade_density.py
@@ -260,10 +303,13 @@
     │   │   ├── 📁 exchange/
     │   │   │   ├── 📁 bybit/
     │   │   │   ├── 🐍 __init__.py
+    │   │   │   ├── 🐍 bybit_tensorized.py
+    │   │   │   ├── 🐍 executor.py
     │   │   │   ├── 🐍 models.py
     │   │   │   └── 🐍 synthetic_feed.py
     │   │   ├── 📁 execution/
     │   │   │   ├── 🐍 __init__.py
+    │   │   │   ├── 🐍 atomic_executor.py
     │   │   │   ├── 🐍 edge_estimator.py
     │   │   │   ├── 🐍 execution_diagnostics.py
     │   │   │   ├── 🐍 maker_retry_queue.py
@@ -336,6 +382,7 @@
     │   │   │   ├── 🐍 impulse_filters.py
     │   │   │   └── 🐍 momentum_trader.py
     │   │   ├── 🐍 __init__.py
+    │   │   ├── 🐍 absolute_plus.py
     │   │   ├── 🐍 config.py
     │   │   ├── 🐍 logging.py
     │   │   ├── 🐍 main.py
@@ -350,6 +397,7 @@
     │   └── 📄 openai_process_factory_prompt.txt
     ├── 📁 tests/
     │   ├── 🐍 __init__.py
+    │   ├── 🐍 stress_test_all.py
     │   ├── 🐍 test_adaptive_allocator.py
     │   ├── 🐍 test_adaptive_maker_router.py
     │   ├── 🐍 test_api.py
@@ -399,30 +447,9 @@
     │   ├── 🐍 test_trade_diagnostics.py
     │   ├── 🐍 test_truth_layer.py
     │   └── 🐍 test_truth_layer_invariants.py
-    ├── 📁 web/
-    │   ├── 📁 eureka_interface/
-    │   │   └── 📁 dist/
-    │   │       ├── 📁 assets/
-    │   │       ├── 🌐 index.html
-    │   │       └── 📄 vite.svg
-    │   ├── 📄 .dockerignore
-    │   ├── 📜 api-client.js
-    │   ├── 🎨 command-center.css
-    │   ├── 🌐 command-center.html
-    │   ├── 📜 command-center.js
-    │   ├── 🎨 dashboard.css
-    │   ├── 🌐 dashboard.html
-    │   ├── 📜 dashboard.js
-    │   ├── ⚙️ docker-compose.yml
-    │   ├── 📄 Dockerfile
-    │   ├── 🌐 index.html
-    │   ├── 📄 nginx.conf
-    │   ├── 📝 QUICK_START.md
-    │   ├── 📝 README.md
-    │   ├── 📜 script.js
-    │   ├── 🔧 start.sh
-    │   └── 🎨 styles.css
     ├── 📄 .dockerignore
+    ├── 📝 ABSOLUTE_PLUS_IMPLEMENTATION.md
+    ├── 📝 ABSOLUTE_PLUS_QUICKSTART.md
     ├── 📝 AGENT_GENERATION.md
     ├── 📝 AGENT_GENERATION_QUICKSTART.md
     ├── 📝 AGGRESSIVE_MODE_FIXES.md
@@ -434,6 +461,7 @@
     ├── 📝 BACKTEST_30DAYS_STATUS.md
     ├── 📝 BACKTEST_FIXES.md
     ├── 📝 BACKTEST_PROGRESS.md
+    ├── 🔧 build_cpp.sh
     ├── 📝 BYBIT_API_SETUP.md
     ├── 📝 BYBIT_CONNECTION_FIXED.md
     ├── 📝 BYBIT_INTEGRATION_COMPLETE.md
@@ -469,36 +497,54 @@
     ├── 🐍 get_bybit_results.py
     ├── 🐍 get_real_profit.py
     ├── 🐍 get_trading_report.py
+    ├── 🐍 health_check_absolute_plus.py
     ├── 📄 HEAN-project.zip
     ├── 📄 HEAN_FULL_EXPORT_20260103_044327.zip
+    ├── 📝 HFT_IMPLEMENTATION.md
     ├── 📝 IMPLEMENTATION_SUMMARY.md
+    ├── 📝 IMPLEMENTATION_SUMMARY_QUANTUM.md
     ├── 📝 IMPROVEMENTS_ANALYSIS.md
     ├── 📝 IMPROVEMENTS_COMPLETED.md
     ├── 📝 IMPROVEMENTS_SUMMARY.md
+    ├── 📝 INTEGRATION_SYSTEM_COMPLETE.md
     ├── 📄 Makefile
     ├── 📝 OPTIMIZATION_REPORT.md
+    ├── 📝 ORACLE_IMPLEMENTATION.md
     ├── 📝 PAPER_TRADE_ASSIST_IMPLEMENTATION.md
     ├── 📝 PERFORMANCE_IMPROVEMENTS.md
+    ├── 📝 PHASE_16_IMPLEMENTATION.md
+    ├── 📝 PHASE_19_IMPLEMENTATION.md
+    ├── 📝 PHASE_5_IMPLEMENTATION.md
     ├── 📝 PRODUCTION_COMPLETE_PR.md
     ├── 📝 PRODUCTION_COMPLETE_SUMMARY.md
     ├── 📝 PRODUCTION_READY_SUMMARY.md
     ├── 📝 PROJECT_ANALYSIS_30DAYS.md
     ├── 📄 PROJECT_STRUCTURE_TREE.txt
+    ├── 📝 PROJECT_TREE.md
     ├── 📄 PROJECT_TREE.txt
     ├── ⚙️ pyproject.toml
+    ├── 📝 PYTHON_BINDINGS_ADDITION.md
+    ├── 📝 QUANTUM_GRAPH_ENGINE.md
     ├── 📝 QUICK_START_DOCKER.md
     ├── 📝 QUICK_START_IMPROVEMENTS.md
     ├── 📝 README.md
+    ├── 📄 requirements_absolute_plus.txt
     ├── 📝 SETUP_CHECKLIST.md
     ├── 🔧 show_results.sh
     ├── 📝 SMART_AGGRESSIVE_SYSTEM.md
     ├── 🔧 start_real_trading.sh
     ├── 🔧 start_trading.sh
     ├── 📝 STARVATION_FIX_SUMMARY.md
+    ├── 📝 SWARM_AND_OFI_IMPLEMENTATION.md
     ├── 🐍 test_500_orders.py
     ├── 🐍 test_500_orders_backtest.py
     ├── 🐍 test_bybit_connection.py
     ├── 📄 trading.log
+    ├── 📝 TRANSCENDENT_ENTITY.md
+    ├── 📝 TRIANGULAR_ARBITRAGE_IMPLEMENTATION.md
+    ├── 📝 ULTRA_LOW_LATENCY_IMPLEMENTATION.md
+    ├── 📝 UNIFIED_SYSTEM_COMPLETE.md
+    ├── 📝 UNIFIED_SYSTEM_SETUP.md
     ├── 🔧 wait_and_show_results.sh
     ├── 📝 WEB_DOCKER_SETUP.md
     ├── 📝 БЫСТРЫЙ_СТАРТ_РЕАЛЬНОЙ_ТОРГОВЛИ.md

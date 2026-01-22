@@ -29,12 +29,18 @@ class AgentGenerator:
         import os
         from pathlib import Path
 
-        # Try to load .env file if it exists
+        # First, try to load from config (Pydantic settings loads from env automatically)
+        try:
+            from hean.config import settings
+            gemini_key_from_config = settings.gemini_api_key
+        except Exception:
+            gemini_key_from_config = None
+
+        # Try to load .env file if it exists (for local development)
         env_file = Path(".env")
         if env_file.exists():
             try:
                 from dotenv import load_dotenv
-
                 load_dotenv(env_file)
             except ImportError:
                 # If python-dotenv not installed, try manual parsing
@@ -51,7 +57,6 @@ class AgentGenerator:
         # Try to import OpenAI first
         try:
             import openai  # type: ignore
-
             api_key = os.getenv("OPENAI_API_KEY")
             if api_key:
                 self.llm_client = openai.OpenAI(api_key=api_key)
@@ -63,7 +68,6 @@ class AgentGenerator:
         # Try Anthropic
         try:
             import anthropic  # type: ignore
-
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if api_key:
                 self.llm_client = anthropic.Anthropic(api_key=api_key)
@@ -72,7 +76,26 @@ class AgentGenerator:
         except ImportError:
             pass
 
-        logger.warning("No LLM client configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY")
+        # Try Google Gemini (priority: env var > config > None)
+        try:
+            import google.generativeai as genai  # type: ignore
+
+            # Try environment variable first, then config
+            api_key = os.getenv("GEMINI_API_KEY") or gemini_key_from_config
+
+            if api_key and api_key.strip():
+                genai.configure(api_key=api_key)
+                # Store genai module as client, but also store a flag
+                self.llm_client = genai
+                self._is_gemini = True
+                logger.info("Using Google Gemini client")
+                return
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to configure Gemini: {e}")
+
+        logger.warning("No LLM client configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY")
 
     def generate_agent(
         self, prompt_type: str, output_path: Path | str | None = None, **prompt_kwargs: Any
@@ -121,12 +144,19 @@ class AgentGenerator:
             LLM response
         """
         # Determine client type
+        # Check if Gemini was set
+        if hasattr(self, "_is_gemini") and self._is_gemini:
+            return self._call_gemini(user_prompt)
+        
         client_type = type(self.llm_client).__name__
+        client_module = type(self.llm_client).__module__
 
         if "OpenAI" in client_type:
             return self._call_openai(user_prompt)
         elif "Anthropic" in client_type:
             return self._call_anthropic(user_prompt)
+        elif "generativeai" in client_module or "genai" in str(client_module):
+            return self._call_gemini(user_prompt)
         else:
             raise RuntimeError(f"Unsupported LLM client: {client_type}")
 
@@ -174,6 +204,38 @@ class AgentGenerator:
         if not text_content:
             raise RuntimeError("Anthropic returned empty text")
         return text_content
+
+    def _call_gemini(self, user_prompt: str) -> str:
+        """Call Google Gemini API."""
+        import google.generativeai as genai  # type: ignore
+
+        # Combine system prompt and user prompt
+        full_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
+
+        # Try different models in order of preference
+        models = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"]
+
+        for model_name in models:
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(
+                    full_prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.7,
+                        max_output_tokens=4096,
+                    ),
+                )
+                if not response.text:
+                    raise RuntimeError("Gemini returned empty response")
+                logger.info(f"Successfully used Gemini model: {model_name}")
+                return response.text
+            except Exception as e:
+                if "not found" in str(e).lower() or "404" in str(e):
+                    logger.debug(f"Gemini model {model_name} not available, trying next...")
+                    continue
+                raise
+
+        raise RuntimeError(f"None of the Gemini models {models} are available")
 
     def _extract_code(self, text: str) -> str:
         """Extract Python code from LLM response.

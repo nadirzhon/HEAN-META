@@ -90,7 +90,7 @@ public:
     // Get current data snapshot
     TranscendentEntityData get_data_snapshot() const;
     
-    // Set HTML content path (default: web/transcendent_entity.html)
+    // Set HTML content path (default: src/hean/core/cpp/transcendent_entity.html)
     void set_html_path(const std::string& path) { html_path_ = path; }
     
 private:

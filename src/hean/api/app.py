@@ -9,111 +9,47 @@ from fastapi.responses import JSONResponse
 
 from hean.api.engine_facade import EngineFacade
 from hean.api.reconcile import ReconcileService
-from hean.api.routers import (
-    analytics,
-    causal_inference,
-    engine,
-    graph_engine,
-    meta_learning,
-    multimodal_swarm,
-    risk,
-    strategies,
-    system,
-    trading,
-    singularity,
-)
+from hean.api.routers import analytics, engine, risk, strategies, system, telemetry, trading
 from hean.api.services.event_stream import event_stream_service
 from hean.api.services.log_stream import log_stream_service
-from hean.api.services.websocket_service import get_websocket_service
 from hean.config import settings
-from hean.core.bus import EventBus
 from hean.exchange.bybit.http import BybitHTTPClient
 from hean.logging import get_logger
 from hean.observability.metrics import metrics
 
 logger = get_logger(__name__)
 
-# Global instances (will be initialized in lifespan)
-engine_facade: EngineFacade | None = None
-reconcile_service: ReconcileService | None = None
-bybit_client: BybitHTTPClient | None = None
-websocket_service = None
-bus: EventBus | None = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI app."""
-    global engine_facade, reconcile_service, bybit_client, websocket_service, bus
-
-    # Initialize event bus
-    bus = EventBus()
-    await bus.start()
-
     # Initialize services
-    engine_facade = EngineFacade()
+    engine_facade_inst = EngineFacade()
+    # Update state module
+    import hean.api.state as state
+    state.engine_facade = engine_facade_inst
 
     # Initialize Bybit client if credentials are available
     if settings.bybit_api_key and settings.bybit_api_secret:
         try:
-            bybit_client = BybitHTTPClient()
-            reconcile_service = ReconcileService(bybit_client)
+            bybit_client_inst = BybitHTTPClient()
+            state.bybit_client = bybit_client_inst
+            state.reconcile_service = ReconcileService(bybit_client_inst)
         except Exception as e:
             logger.warning(f"Failed to initialize Bybit client: {e}")
-            reconcile_service = ReconcileService()
+            state.reconcile_service = ReconcileService()
     else:
-        reconcile_service = ReconcileService()
+        state.reconcile_service = ReconcileService()
 
     # Setup log stream
     log_stream_service.setup()
-
-    # Initialize WebSocket service
-    try:
-        global websocket_service
-        websocket_service = await get_websocket_service(bus=bus)
-        
-        # Register command handlers
-        async def handle_start(params: dict[str, Any]) -> dict[str, Any]:
-            """Handle start command from UI."""
-            if engine_facade:
-                await engine_facade.start()
-                return {"status": "started"}
-            return {"status": "error", "message": "Engine facade not available"}
-        
-        async def handle_stop(params: dict[str, Any]) -> dict[str, Any]:
-            """Handle stop command from UI."""
-            if engine_facade and engine_facade.is_running:
-                await engine_facade.stop()
-                return {"status": "stopped"}
-            return {"status": "error", "message": "Engine not running"}
-        
-        async def handle_risk_adjust(params: dict[str, Any]) -> dict[str, Any]:
-            """Handle risk adjustment command from UI."""
-            # This would integrate with the risk management system
-            logger.info(f"Risk adjustment requested: {params}")
-            return {"status": "adjusted", "params": params}
-        
-        websocket_service.register_command_handler("start", handle_start)
-        websocket_service.register_command_handler("stop", handle_stop)
-        websocket_service.register_command_handler("risk_adjust", handle_risk_adjust)
-        
-        # Mount WebSocket app at /socket.io
-        app.mount("/socket.io", websocket_service.get_app())
-        
-        logger.info("WebSocket service initialized and mounted at /socket.io")
-    except Exception as e:
-        logger.warning(f"Failed to initialize WebSocket service: {e}", exc_info=True)
 
     yield
 
     # Cleanup
     await event_stream_service.stop()
-    if websocket_service:
-        await websocket_service.stop()
-    if engine_facade and engine_facade.is_running:
-        await engine_facade.stop()
-    if bus:
-        await bus.stop()
+    if state.engine_facade and state.engine_facade.is_running:
+        await state.engine_facade.stop()
 
 
 app = FastAPI(
@@ -152,19 +88,16 @@ app.include_router(strategies.router)
 app.include_router(risk.router)
 app.include_router(analytics.router)
 app.include_router(system.router)
-app.include_router(graph_engine.router)
-app.include_router(meta_learning.router)
-app.include_router(causal_inference.router)
-app.include_router(multimodal_swarm.router)
-app.include_router(singularity.router)
+app.include_router(telemetry.router)
 
 
 # Make engine_facade available to routers
 @app.middleware("http")
 async def inject_engine_facade(request: Request, call_next):
     """Inject engine_facade into request state."""
-    request.state.engine_facade = engine_facade
-    request.state.reconcile_service = reconcile_service
+    import hean.api.state as state
+    request.state.engine_facade = state.engine_facade
+    request.state.reconcile_service = state.reconcile_service
     return await call_next(request)
 
 

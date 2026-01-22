@@ -2,7 +2,7 @@
 
 ## Overview
 
-Полноценный Trading Command Center уровня production для трейдинг-платформы HEAN. Реализован backend API с SSE streams, job queue, и полнофункциональный frontend с realtime обновлениями.
+Полноценный Trading Command Center уровня production для трейдинг-платформы HEAN. Реализован backend API (REST + WebSocket), job queue, и фронтенд с realtime обновлениями через WebSocket и polling.
 
 ## Выполненные задачи
 
@@ -20,8 +20,9 @@
   - `analytics.py` - Аналитика и backtest
   - `system.py` - Системные endpoints
 - `src/hean/api/services/` - Сервисы:
-  - `event_stream.py` - SSE stream для событий
-  - `log_stream.py` - SSE stream для логов
+  - `websocket_service.py` - WebSocket Pub/Sub для realtime
+  - `event_stream.py` - SSE stream для событий (legacy)
+  - `log_stream.py` - SSE stream для логов (legacy)
   - `job_queue.py` - Очередь задач для async операций
 
 #### Endpoints
@@ -65,8 +66,9 @@
 **System:**
 - `POST /reconcile/now` - Ручная реконсиляция
 - `POST /smoke-test/run` - Запуск smoke test
-- `GET /events/stream` - SSE stream событий
-- `GET /logs/stream` - SSE stream логов
+- `WS /ws` - WebSocket Pub/Sub
+- `GET /events/stream` - SSE stream событий (legacy)
+- `GET /logs/stream` - SSE stream логов (legacy)
 - `GET /metrics` - Prometheus метрики
 
 #### Безопасность Live Trading
@@ -81,16 +83,15 @@
 ### ✅ Frontend (Trading Command Center)
 
 #### Структура
-- `web/command-center.html` - Главная страница UI
-- `web/command-center.css` - Стили (light/dark theme)
-- `web/command-center.js` - Логика приложения
-- `web/api-client.js` - Typed API client с SSE support
+- `control-center/app/` - Next.js app router
+- `control-center/components/` - UI компоненты
+- `control-center/lib/` - API + WebSocket hooks
 
 #### Страницы
 
 1. **Dashboard**
    - Ключевые метрики (Equity, Daily PnL, Positions, Orders, Drawdown, Win Rate)
-   - Event Feed (realtime через SSE)
+   - Event Feed (realtime через WebSocket)
    - Health Panel
 
 2. **Trading**
@@ -114,7 +115,7 @@
    - Gate Inspector
 
 6. **Logs**
-   - Realtime log stream (SSE)
+   - Realtime log stream (WebSocket)
    - Фильтр по уровню
    - Поиск
    - Auto-scroll
@@ -125,11 +126,11 @@
 
 #### Features
 
-- **Realtime Updates**: SSE streams для events и logs с auto-reconnect
+- **Realtime Updates**: WebSocket streams для events и logs с auto-reconnect
 - **Command Palette**: Ctrl+K для быстрых действий
 - **Theme Toggle**: Light/Dark темы
 - **Confirm Danger Modal**: Двойное подтверждение для live действий
-- **Polling**: Автоматическое обновление статуса каждые 5 секунд
+- **Polling**: Автоматическое обновление статуса каждые 2 секунды
 - **Hotkeys**: Горячие клавиши для основных действий
 - **Status Indicators**: Top bar с режимом, статусом движка, WS, latency, risk
 
@@ -142,7 +143,7 @@
 ### ✅ Тесты
 
 - `tests/test_api_routers.py` - Тесты для всех новых endpoints
-- Тесты для SSE streams
+- Тесты для WebSocket streams
 - Тесты безопасности live trading
 
 ### ✅ Документация
@@ -170,11 +171,10 @@
 - `src/hean/api/services/job_queue.py` - Новый
 
 ### Frontend
-- `web/command-center.html` - Новый (полноценный UI)
-- `web/command-center.css` - Новый (стили)
-- `web/command-center.js` - Новый (логика)
-- `web/api-client.js` - Новый (API client)
-- `web/nginx.conf` - Обновлен (прокси для command-center.html)
+- `control-center/app/` - Новый (Next.js UI)
+- `control-center/components/` - UI компоненты
+- `control-center/lib/` - API + WebSocket hooks
+- `control-center/next.config.js` - API rewrites
 
 ### Тесты
 - `tests/test_api_routers.py` - Новый
@@ -196,16 +196,15 @@ make dev
 # Backend API
 make api
 # или
-uvicorn hean.api.app:app --reload --host 0.0.0.0 --port 8000
+uvicorn hean.api.main:app --reload --host 0.0.0.0 --port 8000
 
-# Frontend (через nginx в docker)
-docker-compose up web
+# Frontend (Docker)
+docker-compose up -d --build web
 ```
 
 ### Доступ
 
 - **Command Center**: http://localhost:3000
-- **Legacy Dashboard**: http://localhost:3000/dashboard.html
 - **API**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs (Swagger UI)
 - **Prometheus**: http://localhost:9091
@@ -247,15 +246,15 @@ curl http://localhost:8000/engine/status
 # Get positions
 curl http://localhost:8000/orders/positions
 
-# Stream events (SSE)
-curl -N http://localhost:8000/events/stream
+# WebSocket (requires WS client)
+# wscat -c ws://localhost:8000/ws
 ```
 
 ### 3. Realtime Events
 
 Открыть Command Center и наблюдать:
-- События в Event Feed (SSE)
-- Логи в Logs page (SSE)
+- События в Event Feed (WebSocket)
+- Логи в Logs page (WebSocket)
 - Автоматическое обновление метрик
 - Статус индикаторы в top bar
 
@@ -268,7 +267,6 @@ curl -N http://localhost:8000/events/stream
 
 ## Что осталось (опционально)
 
-- [ ] WebSocket вместо SSE для lower latency
 - [ ] Advanced filtering и search
 - [ ] Export functionality (CSV, PDF)
 - [ ] Customizable dashboards
@@ -291,11 +289,10 @@ curl -N http://localhost:8000/events/stream
 
 Создан полноценный Trading Command Center уровня production с:
 - ✅ Полным backend API (FastAPI)
-- ✅ Realtime frontend (SSE streams)
+- ✅ Realtime frontend (WebSocket + polling)
 - ✅ Все необходимые страницы и функции
 - ✅ Безопасность для live trading
 - ✅ Мониторинг и метрики
 - ✅ Тесты и документация
 
 Система готова к использованию в development и может быть легко адаптирована для production с добавлением authentication и rate limiting.
-

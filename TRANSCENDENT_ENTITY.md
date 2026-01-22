@@ -22,53 +22,25 @@ The Transcendent Entity interface provides a real-time visualization of the AI s
 
 ### Components
 
-1. **TranscendentEntityServer** (`src/hean/ui/transcendent_entity_server.py`)
-   - Python WebSocket server using aiohttp
-   - Serves the HTML dashboard
-   - Handles WebSocket connections for real-time data
+1. **TranscendentEntityServer** (optional C++ component)
+   - See `src/hean/core/cpp/TranscendentEntityServer.cpp`
+   - Can serve a standalone HTML dashboard if built and wired
 
-2. **TranscendentEntityBridge** (`src/hean/ui/transcendent_entity_bridge.py`)
-   - Bridges the trading system to the dashboard server
-   - Extracts data from PortfolioAccounting, RegimeDetector, and CausalMesh
-   - Updates the server with real-time data
-
-3. **Dashboard** (`web/transcendent_entity.html`)
-   - HTML5/WebGL dashboard
-   - Three.js for 3D Singularity visualization
-   - Canvas-based force-directed graph for Causal Mesh
-   - WebSocket client for real-time updates
+2. **Dashboard** (Command Center)
+   - Unified UI at `http://localhost:3000`
+   - Visualization components live under `control-center/components/`
 
 ## Usage
 
 ### Standalone Server (Testing)
 
-```bash
-# Run the server standalone for testing
-python -m hean.ui.transcendent_entity_server
-```
-
-Then open http://localhost:8888 in your browser.
+The standalone UI server is not wired in this repo. Use the Command Center at
+`http://localhost:3000`.
 
 ### Integration with Trading System
 
-To integrate with the main trading system, add to `src/hean/main.py`:
-
-```python
-from hean.ui.transcendent_entity_server import TranscendentEntityServer
-from hean.ui.transcendent_entity_bridge import TranscendentEntityBridge
-
-# In TradingSystem.__init__ or start():
-self._transcendent_server = TranscendentEntityServer(port=8888)
-self._transcendent_bridge = TranscendentEntityBridge(
-    server=self._transcendent_server,
-    accounting=self._accounting,
-    regime_detector=self._regime_detector,
-    causal_mesh=self._causal_mesh,  # If available
-)
-
-await self._transcendent_server.start()
-await self._transcendent_bridge.start()
-```
+If you enable the optional C++ server, wire it explicitly in your runtime
+startup. The default setup uses the Command Center only.
 
 ## Features
 

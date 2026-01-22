@@ -119,6 +119,9 @@ class MultimodalSwarm:
         
         # Tensor storage
         self._tensor_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=window_size))
+
+        # Latest swarm state per symbol (for dashboards)
+        self._latest_state: Dict[str, Dict[str, Any]] = {}
         
         # Modality weights (learned from performance)
         self._modality_weights: Dict[str, float] = {
@@ -492,6 +495,25 @@ class MultimodalSwarm:
                     avg_confidence = total_confidence / total_votes
                     buy_percentage = buy_votes / total_votes
                     sell_percentage = sell_votes / total_votes
+
+                    consensus_percentage = max(buy_percentage, sell_percentage) * 100.0
+                    execution_signal_strength = avg_confidence * max(buy_percentage, sell_percentage)
+                    consensus_reached = (
+                        (buy_percentage > 0.6 or sell_percentage > 0.6)
+                        and avg_confidence > 0.6
+                    )
+
+                    self._latest_state[symbol] = {
+                        "symbol": symbol,
+                        "consensus_percentage": consensus_percentage,
+                        "buy_votes": buy_votes,
+                        "sell_votes": sell_votes,
+                        "total_agents": len(self._agents),
+                        "average_confidence": avg_confidence,
+                        "execution_signal_strength": execution_signal_strength,
+                        "consensus_reached": consensus_reached,
+                        "timestamp": datetime.utcnow(),
+                    }
                     
                     if buy_percentage > 0.6 and avg_confidence > 0.6:
                         # Generate buy signal
@@ -574,8 +596,18 @@ class MultimodalSwarm:
         confidence = min(1.0, abs(signal_strength) / 2.0)
         
         signal = "buy" if signal_strength > 0 else "sell"
-        
+
         return signal, confidence
+
+    def get_latest_state(self, symbol: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Return latest swarm state for a symbol (or any symbol)."""
+        if not self._latest_state:
+            return None
+        if symbol and symbol in self._latest_state:
+            return self._latest_state[symbol]
+        # Return most recent by timestamp
+        latest = max(self._latest_state.values(), key=lambda item: item.get("timestamp"))
+        return latest
     
     def get_tensor_history(self, symbol: str, limit: int = 10) -> List[MultimodalTensor]:
         """Get recent tensor history for a symbol."""

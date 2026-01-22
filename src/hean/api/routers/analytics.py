@@ -3,9 +3,9 @@
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
-from hean.api.app import engine_facade
+import hean.api.state as state
 from hean.api.schemas import AnalyticsSummary, BlockedSignalsAnalytics
 from hean.api.services.job_queue import job_queue_service
 from hean.api.schemas import BacktestRequest, EvaluateRequest
@@ -17,11 +17,17 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
-@router.get("/summary")
-async def get_analytics_summary() -> AnalyticsSummary:
-    """Get analytics summary."""
-    if engine_facade is None:
+def _get_facade(request: Request):
+    facade = state.get_engine_facade(request)
+    if facade is None:
         raise HTTPException(status_code=500, detail="Engine facade not initialized")
+    return facade
+
+
+@router.get("/summary")
+async def get_analytics_summary(request: Request) -> AnalyticsSummary:
+    """Get analytics summary."""
+    engine_facade = _get_facade(request)
 
     try:
         if not engine_facade.is_running:
@@ -63,31 +69,29 @@ async def get_blocked_signals_analytics() -> BlockedSignalsAnalytics:
 
 
 @router.post("/backtest")
-async def run_backtest(request: BacktestRequest) -> dict:
+async def run_backtest(request: Request, payload: BacktestRequest) -> dict:
     """Run a backtest."""
-    if engine_facade is None:
-        raise HTTPException(status_code=500, detail="Engine facade not initialized")
+    engine_facade = _get_facade(request)
 
     async def backtest_task(job) -> dict:
         """Backtest task function."""
         # TODO: Implement actual backtest
         await asyncio.sleep(1)  # Simulate work
         return {
-            "symbol": request.symbol,
-            "start_date": request.start_date,
-            "end_date": request.end_date,
+            "symbol": payload.symbol,
+            "start_date": payload.start_date,
+            "end_date": payload.end_date,
             "result": "success",
         }
 
-    job_id = await job_queue_service.submit_job("backtest", request.model_dump(), backtest_task)
+    job_id = await job_queue_service.submit_job("backtest", payload.model_dump(), backtest_task)
     return {"job_id": job_id, "status": "pending"}
 
 
 @router.post("/evaluate")
-async def run_evaluate(request: EvaluateRequest) -> dict:
+async def run_evaluate(request: Request, payload: EvaluateRequest) -> dict:
     """Run an evaluation."""
-    if engine_facade is None:
-        raise HTTPException(status_code=500, detail="Engine facade not initialized")
+    engine_facade = _get_facade(request)
 
     async def evaluate_task(job) -> dict:
         """Evaluate task function."""
@@ -95,24 +99,25 @@ async def run_evaluate(request: EvaluateRequest) -> dict:
         import asyncio
         await asyncio.sleep(1)  # Simulate work
         return {
-            "symbol": request.symbol,
-            "days": request.days,
+            "symbol": payload.symbol,
+            "days": payload.days,
             "result": "success",
         }
 
-    job_id = await job_queue_service.submit_job("evaluate", request.model_dump(), evaluate_task)
+    job_id = await job_queue_service.submit_job("evaluate", payload.model_dump(), evaluate_task)
     return {"job_id": job_id, "status": "pending"}
 
 
 # Phase 5: Statistical Arbitrage & Anti-Fragile Architecture endpoints
 @router.get("/phase5/correlation-matrix")
-async def get_correlation_matrix() -> dict[str, Any]:
+async def get_correlation_matrix(request: Request) -> dict[str, Any]:
     """Get correlation matrix for Phase 5 pair trading.
     
     Returns:
         Dictionary with correlation matrix data for visualization
     """
-    if engine_facade is None or not engine_facade.is_running:
+    engine_facade = _get_facade(request)
+    if not engine_facade.is_running:
         raise HTTPException(status_code=500, detail="Engine not running")
     
     try:
@@ -150,13 +155,14 @@ async def get_correlation_matrix() -> dict[str, Any]:
 
 
 @router.get("/phase5/profit-probability-curve")
-async def get_profit_probability_curve() -> dict[str, Any]:
+async def get_profit_probability_curve(request: Request) -> dict[str, Any]:
     """Get profit probability curve based on Kelly Criterion (Phase 5).
     
     Returns:
         Dictionary with profit probability data for visualization
     """
-    if engine_facade is None or not engine_facade.is_running:
+    engine_facade = _get_facade(request)
+    if not engine_facade.is_running:
         raise HTTPException(status_code=500, detail="Engine not running")
     
     try:
@@ -224,13 +230,14 @@ async def get_profit_probability_curve() -> dict[str, Any]:
 
 
 @router.get("/phase5/safety-net-status")
-async def get_safety_net_status() -> dict[str, Any]:
+async def get_safety_net_status(request: Request) -> dict[str, Any]:
     """Get Global Safety Net (Black Swan Protection) status (Phase 5).
     
     Returns:
         Dictionary with safety net status and entropy metrics
     """
-    if engine_facade is None or not engine_facade.is_running:
+    engine_facade = _get_facade(request)
+    if not engine_facade.is_running:
         raise HTTPException(status_code=500, detail="Engine not running")
     
     try:
@@ -264,13 +271,14 @@ async def get_safety_net_status() -> dict[str, Any]:
 
 
 @router.get("/phase5/system-health")
-async def get_system_health() -> dict[str, Any]:
+async def get_system_health(request: Request) -> dict[str, Any]:
     """Get Self-Healing Middleware system health status (Phase 5).
     
     Returns:
         Dictionary with system health metrics
     """
-    if engine_facade is None or not engine_facade.is_running:
+    engine_facade = _get_facade(request)
+    if not engine_facade.is_running:
         raise HTTPException(status_code=500, detail="Engine not running")
     
     try:
@@ -292,4 +300,3 @@ async def get_system_health() -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to get system health: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-

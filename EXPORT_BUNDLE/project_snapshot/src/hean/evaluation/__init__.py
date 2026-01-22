@@ -1,1 +1,0 @@
-"""Readiness evaluation module."""

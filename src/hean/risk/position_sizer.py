@@ -27,6 +27,7 @@ class PositionSizer:
         self._dynamic_risk = DynamicRiskManager()
         self._leverage_manager = SmartLeverageManager()
         self._capital_preservation: CapitalPreservationMode | None = None
+        self._last_calculation: dict[str, float] | None = None
 
     def calculate_size(
         self,
@@ -178,7 +179,20 @@ class PositionSizer:
             )
             position_size = min_size
 
+        # Cache calculation context for downstream telemetry
+        self._last_calculation = {
+            "leverage": leverage,
+            "risk_pct": risk_pct,
+            "stop_distance_pct": stop_distance_pct,
+            "regime_multiplier": regime_multiplier,
+            "edge_bps": edge_bps or 0.0,
+        }
+
         return position_size
+
+    def get_last_calculation(self) -> dict[str, float] | None:
+        """Return details from the most recent sizing calculation."""
+        return self._last_calculation
 
     def set_capital_preservation(self, capital_preservation: CapitalPreservationMode) -> None:
         """Set capital preservation mode instance.

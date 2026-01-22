@@ -7,7 +7,8 @@ The HEAN Trading Command Center is a production-grade web interface for monitori
 ## Access
 
 - **URL**: `http://localhost:3000` (when running via `make dev`)
-- **API Base**: `/api` (proxied through nginx to backend on port 8000)
+- **API Base**: `http://localhost:8000` (configurable via `NEXT_PUBLIC_API_URL`)
+- **WebSocket**: `ws://localhost:8000/ws` (configurable via `NEXT_PUBLIC_WS_URL`)
 
 ## Pages
 
@@ -80,9 +81,8 @@ System configuration:
 
 ### Real-time Updates
 
-- **SSE Event Stream**: Real-time events from the trading system
-- **SSE Log Stream**: Real-time logs
-- **Polling**: Status updates every 5 seconds
+- **WebSocket**: Real-time topics (system status, orders, signals)
+- **Polling**: Dashboard metrics refresh every 2 seconds
 
 ### Command Palette
 
@@ -111,13 +111,10 @@ For live trading actions, a confirmation modal appears requiring:
 
 ## API Client
 
-The frontend uses a typed API client (`api-client.js`) that provides:
+The frontend uses a small hook-based client:
 
-- Type-safe API methods
-- Automatic error handling
-- Request/response logging
-- Latency tracking
-- SSE stream management with auto-reconnect
+- `control-center/lib/hooks.ts`: polling data (`/v1/dashboard`, `/health`)
+- `control-center/lib/websocket.ts`: WebSocket subscriptions and reconnects
 
 ## Event Schema
 
@@ -157,60 +154,54 @@ Logs from `/api/logs/stream` follow this structure:
 ### File Structure
 
 ```
-web/
-├── command-center.html    # Main UI
-├── command-center.css      # Styles
-├── command-center.js       # Application logic
-├── api-client.js           # API client
-├── dashboard.html          # Legacy dashboard
-├── dashboard.css           # Legacy styles
-├── dashboard.js            # Legacy JS
-└── nginx.conf              # Nginx configuration
+control-center/
+├── app/                    # Next.js app router
+├── components/             # UI components
+├── lib/                    # API + WebSocket hooks
+├── public/                 # Static assets
+├── next.config.js
+├── tailwind.config.js
+└── tsconfig.json
 ```
 
 ### Running Locally
 
-1. Start backend: `make api` or `uvicorn hean.api.app:app --reload`
-2. Start frontend: Serve `web/` directory with nginx or any static server
+1. Start backend: `uvicorn hean.api.main:app --reload --host 0.0.0.0 --port 8000`
+2. Start frontend: `cd control-center && npm install && npm run dev`
 3. Access: `http://localhost:3000`
 
 ### Building
 
-The frontend is served via nginx in Docker. To rebuild:
+The frontend is served via Next.js in Docker. To rebuild:
 
 ```bash
-docker-compose build web
-docker-compose up web
+docker-compose up -d --build web
 ```
 
 ## Troubleshooting
 
 ### Events not showing
 
-- Check browser console for SSE connection errors
-- Verify backend is running and `/api/events/stream` is accessible
-- Check nginx proxy configuration
+- Check browser console for WebSocket connection errors
+- Verify backend is running and `/ws` is accessible
 
 ### API calls failing
 
 - Verify backend is running on port 8000
-- Check nginx proxy configuration
 - Check CORS settings
 - Check browser console for errors
 
 ### Logs not streaming
 
-- Check browser console for SSE connection errors
-- Verify `/api/logs/stream` endpoint is accessible
+- Check browser console for WebSocket connection errors
+- Verify `/ws` endpoint is accessible
 - Check backend logs for errors
 
 ## Future Enhancements
 
-- [ ] WebSocket support for lower latency
 - [ ] Advanced filtering and search
 - [ ] Export functionality (CSV, PDF)
 - [ ] Customizable dashboards
 - [ ] Alert system
 - [ ] Multi-user support with RBAC
 - [ ] Mobile responsive design improvements
-

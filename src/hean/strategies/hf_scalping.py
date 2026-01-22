@@ -45,8 +45,11 @@ class HFScalpingStrategy(BaseStrategy):
 
     async def on_regime_update(self, event: Event) -> None:
         """Handle regime update."""
-        symbol = event.data["symbol"]
-        regime = event.data["regime"]
+        symbol = event.data.get("symbol")
+        regime = event.data.get("regime")
+        if symbol is None or regime is None:
+            logger.warning("REGIME_UPDATE missing fields: %s", event.data)
+            return
         self._current_regime[symbol] = regime
 
     async def on_tick(self, event: Event) -> None:

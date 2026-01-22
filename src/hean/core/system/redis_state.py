@@ -52,33 +52,57 @@ class RedisStateManager:
         self._subscribers: dict[str, list[asyncio.Queue]] = {}
         
     async def connect(self) -> None:
-        """Connect to Redis."""
+        """Connect to Redis with retry logic."""
         if self._client:
             return
-            
-        try:
-            self._client = aioredis.from_url(
-                self._redis_url,
-                encoding="utf-8",
-                decode_responses=True,
-                socket_connect_timeout=5.0,
-                socket_timeout=5.0,
-            )
-            
-            # Test connection
-            await self._client.ping()
-            logger.info(f"Connected to Redis at {self._redis_url}")
-            
-            # Initialize pubsub
-            self._pubsub = self._client.pubsub()
-            
-            # Start pubsub listener
-            self._running = True
-            asyncio.create_task(self._listen_pubsub())
-            
-        except Exception as e:
-            logger.error(f"Failed to connect to Redis: {e}", exc_info=True)
-            raise
+        
+        # Retry connection with exponential backoff
+        max_retries = 5
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                # Ensure we use redis:6379 for Docker (service name)
+                redis_url = self._redis_url
+                if not redis_url.startswith("redis://"):
+                    redis_url = f"redis://{redis_url}"
+                if "redis:6379" not in redis_url and ":6379" not in redis_url:
+                    # Default to Docker service name if not specified
+                    redis_url = "redis://redis:6379/0"
+                
+                self._client = aioredis.from_url(
+                    redis_url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                    socket_connect_timeout=5.0,
+                    socket_timeout=5.0,
+                    retry_on_timeout=True,
+                    health_check_interval=30,
+                )
+                
+                # Test connection
+                await self._client.ping()
+                logger.info(f"✅ Connected to Redis at {redis_url}")
+                
+                # Initialize pubsub
+                self._pubsub = self._client.pubsub()
+                
+                # Start pubsub listener
+                self._running = True
+                asyncio.create_task(self._listen_pubsub())
+                return
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Redis connection attempt {attempt + 1}/{max_retries} failed: {e}. "
+                        f"Retrying in {retry_delay}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"❌ Failed to connect to Redis after {max_retries} attempts: {e}", exc_info=True)
+                    raise
     
     async def disconnect(self) -> None:
         """Disconnect from Redis."""
@@ -342,10 +366,16 @@ class RedisStateManager:
         
         while self._running:
             try:
-                message = await self._pubsub.get_message(
-                    ignore_subscribe_messages=True,
-                    timeout=1.0,
-                )
+                try:
+                    message = await self._pubsub.get_message(
+                        ignore_subscribe_messages=True,
+                        timeout=1.0,
+                    )
+                except RuntimeError as e:
+                    # Happens if pubsub has no subscriptions yet; skip quietly
+                    logger.debug(f"Redis pubsub not subscribed yet: {e}")
+                    await asyncio.sleep(0.1)
+                    continue
                 
                 if message is None:
                     continue

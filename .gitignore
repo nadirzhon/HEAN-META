@@ -70,9 +70,7 @@ node_modules/
 out/
 build/
 dist/
-*.tsbuildinfo
-
-# Web interface builds
+*.tsbuildinfo# Web interface builds
 web/eureka_interface/node_modules/
 web/eureka_interface/.next/
 web/eureka_interface/dist/

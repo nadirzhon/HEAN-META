@@ -99,7 +99,7 @@ await codegen.start()
 
 ### 4. Visual Singularity (Eureka UI)
 
-**Location**: `web/eureka.html`, `web/eureka.js`
+**Location**: `control-center` (integrated UI)
 
 3D force-directed graph visualization featuring:
 - **Force-Directed Layout**: Assets as nodes, correlations as edges
@@ -114,7 +114,7 @@ await codegen.start()
 - D3.js-based price chart with current vs. future shadow
 - Real-time API integration with graph engine
 
-**Access**: Navigate to `http://localhost:3000/eureka.html` (after starting web server)
+**Access**: Navigate to `http://localhost:3000` (Command Center)
 
 ## Building
 

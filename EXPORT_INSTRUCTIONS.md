@@ -33,7 +33,7 @@ EXPORT_BUNDLE/
 │   ├── src/                   # Исходный код
 │   ├── tests/                 # Тесты
 │   ├── docs/                  # Документация
-│   ├── web/                   # Веб-интерфейс
+│   ├── control-center/        # Веб-интерфейс (Next.js)
 │   ├── monitoring/            # Мониторинг
 │   ├── *.md                   # Вся документация
 │   ├── pyproject.toml         # Конфигурация проекта
@@ -187,4 +187,3 @@ cat EXPORT_BUNDLE/manifests/export_meta.json
 **Экспорт создан:** 2026-01-03 04:43:27  
 **Автор скрипта:** DevOps/Release Engineer  
 **Версия:** 1.0
-

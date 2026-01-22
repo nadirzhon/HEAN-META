@@ -16,7 +16,7 @@
 
 TranscendentEntityServer::TranscendentEntityServer(int port)
     : port_(port)
-    , html_path_("web/transcendent_entity.html")
+    , html_path_("src/hean/core/cpp/transcendent_entity.html")
     , running_(false)
     , should_stop_(false)
     , listen_socket_(nullptr)

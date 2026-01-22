@@ -1,20 +1,27 @@
 services:
   # Backend API
   api:
+    image: hean-api:latest
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: api/Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
     container_name: hean-api
     env_file:
-      - .env
+      - backend.env
     environment:
       - PYTHONUNBUFFERED=1
       - TZ=UTC
+      - PYTHONPATH=/app/src
+      - FUNDING_HARVESTER_ENABLED=true
+      - BASIS_ARBITRAGE_ENABLED=true
+      - IMPULSE_ENGINE_ENABLED=true
     volumes:
       - ./src:/app/src:ro
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
-    command: uvicorn hean.api.app:app --host 0.0.0.0 --port 8000
+    command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
     ports:
       - "8000:8000"  # API endpoint
@@ -23,78 +30,75 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     networks:
       - hean-network
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
-  # Legacy CLI service (optional, for backward compatibility)
-  hean:
+  # React/Vite UI (production, served via nginx)
+  ui:
+    image: hean-ui:latest
     build:
-      context: .
+      context: ./apps/ui
       dockerfile: Dockerfile
-    container_name: hean-trading-system
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+        VITE_WS_URL: ${VITE_WS_URL:-/ws}
+    container_name: hean-ui
     env_file:
-      - .env
-    environment:
-      - PYTHONUNBUFFERED=1
-      - TZ=UTC
-    volumes:
-      - ./src:/app/src:ro
-      - ./logs:/app/logs
-      - ./.env:/app/.env:ro
-    command: python -m hean.main run
-    restart: "no"  # Don't auto-start, use API instead
+      - ui.env
     ports:
-      - "8080:8080"  # Health check endpoint
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      - "3000:80"
     networks:
       - hean-network
     depends_on:
-      - redis
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    profiles:
-      - cli  # Only start with --profile cli
-
-  # Frontend Web UI
-  web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-    container_name: hean-website
+      - api
     restart: unless-stopped
-    ports:
-      - "3000:80"  # Website on port 3000
-    volumes:
-      - ./web:/usr/share/nginx/html:ro
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+
+  # React/Vite UI (hot-reload dev profile)
+  ui-dev:
+    image: hean-ui-dev:latest
+    profiles: ["dev"]
+    build:
+      context: ./apps/ui
+      dockerfile: Dockerfile.dev
+    container_name: hean-ui-dev
+    environment:
+      - VITE_API_BASE=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000/ws
+    ports:
+      - "5173:5173"
     networks:
       - hean-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    depends_on:
+      - api
+    restart: unless-stopped
+    volumes:
+      - ./apps/ui/src:/app/src
+      - ./apps/ui/index.html:/app/index.html
+      - ./apps/ui/vite.config.ts:/app/vite.config.ts
+      - ./apps/ui/postcss.config.mjs:/app/postcss.config.mjs
 
   # Redis for atomic state sharing between C++ and Python
   redis:
@@ -107,17 +111,26 @@ services:
     networks:
       - hean-network
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 3s
-      retries: 3
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
 networks:
   hean-network:
@@ -125,5 +138,3 @@ networks:
 
 volumes:
   redis-data:
-
-

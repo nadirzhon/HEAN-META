@@ -1,136 +1,66 @@
-# Запуск веб-сайта через Docker
+# Запуск нового веб-интерфейса (apps/ui)
 
 ## Быстрый старт
 
-### Из корня проекта
+```bash
+# Собрать и запустить API + UI + Redis
+docker-compose up -d --build
+
+# Или только UI (если API уже запущен)
+docker-compose up -d --build ui
+```
+
+Интерфейс доступен на **http://localhost:3000**.
+
+## Режим разработки (hot reload)
 
 ```bash
-# Запустить только веб-сайт
-docker-compose up -d web
-
-# Или запустить все сервисы (HEAN + веб-сайт)
-docker-compose up -d
+# Поднять API + UI-dev (порт 5173) с профилем dev
+docker-compose --profile dev up -d --build api ui-dev
 ```
 
-Сайт будет доступен на **http://localhost:3000**
+UI-dev использует `Dockerfile.dev` и монтирует исходники из `apps/ui` для живой перезагрузки.
 
-### Из папки web/
+## Ручная сборка без Compose
 
 ```bash
-cd web
+cd apps/ui
 
-# Используя docker-compose
-docker-compose up -d
+# Сборка статического бандла с нужными API/WS адресами
+docker build \
+  --build-arg VITE_API_BASE=http://localhost:8000 \
+  --build-arg VITE_WS_URL=ws://localhost:8000/ws \
+  -t hean-ui .
 
-# Или используя скрипт
-./start.sh
-
-# Или вручную
-docker build -t hean-website .
-docker run -d -p 3000:80 --name hean-website hean-website
+# Запуск
+docker run -d -p 3000:80 --name hean-ui hean-ui
 ```
 
-## Проверка работы
+## Проверка и управление
 
 ```bash
-# Проверить статус контейнера
-docker ps | grep hean-website
-
-# Просмотреть логи
-docker logs -f hean-website
-
-# Проверить health check
-curl http://localhost:3000/health
-```
-
-## Управление
-
-```bash
-# Остановить
-docker stop hean-website
-
-# Запустить
-docker start hean-website
-
-# Перезапустить
-docker restart hean-website
-
-# Удалить контейнер
-docker rm -f hean-website
-
-# Удалить образ
-docker rmi hean-website
-```
-
-## Структура Docker файлов
-
-```
-web/
-├── Dockerfile          # Docker образ на базе nginx:alpine
-├── nginx.conf          # Конфигурация nginx
-├── docker-compose.yml  # Docker Compose для веб-сайта
-├── start.sh            # Скрипт быстрого запуска
-└── .dockerignore       # Исключения для сборки
+docker ps | grep hean-ui        # статус
+docker logs -f hean-ui          # логи
+docker stop hean-ui             # остановить
+docker start hean-ui            # запустить
+docker rm -f hean-ui            # удалить контейнер
+docker rmi hean-ui              # удалить образ
 ```
 
 ## Порт
 
-По умолчанию веб-сайт доступен на порту **3000**. 
-
-Чтобы изменить порт, отредактируйте `docker-compose.yml`:
+Меняем внешний порт через `docker-compose.yml`:
 
 ```yaml
 ports:
-  - "8080:80"  # Измените 8080 на нужный порт
+  - "8080:80"   # 8080 снаружи -> 80 внутри контейнера nginx
 ```
 
-## Особенности
+## Если изменения не видны
 
-- ✅ Легковесный образ на базе nginx:alpine
-- ✅ Gzip сжатие для лучшей производительности
-- ✅ Кэширование статических файлов
-- ✅ Security headers
-- ✅ Health check endpoint
-- ✅ Автоматический перезапуск при сбоях
-
-## Troubleshooting
-
-### Порт уже занят
-
-Если порт 3000 занят, измените его в `docker-compose.yml`:
-
-```yaml
-ports:
-  - "8080:80"  # Используйте другой порт
-```
-
-### Контейнер не запускается
-
-```bash
-# Проверьте логи
-docker logs hean-website
-
-# Проверьте, что порт свободен
-lsof -i :3000
-
-# Пересоберите образ
-docker-compose build --no-cache web
-docker-compose up -d web
-```
-
-### Изменения не отображаются
-
-После изменения файлов сайта нужно пересобрать образ:
-
-```bash
-docker-compose build web
-docker-compose up -d web
-```
-
-Или для разработки можно использовать volume mount (добавить в docker-compose.yml):
-
-```yaml
-volumes:
-  - ./web:/usr/share/nginx/html:ro
-```
-
+1. Очистите кэш браузера (Cmd/Ctrl + Shift + R).
+2. Пересоберите образ без кэша:
+   ```bash
+   docker-compose build --no-cache ui
+   docker-compose up -d ui
+   ```

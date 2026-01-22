@@ -90,9 +90,9 @@ initialize_security(authorized_hwids)
 - Publishes `POSITION_CLOSE_REQUEST` when exit signals triggered
 - Publishes `SIGNAL` events for position flips
 
-### 6. Oracle View UI (`eureka.html` + `eureka.js`)
+### 6. Oracle View UI (Command Center)
 
-**Location**: `web/eureka.html`, `web/eureka.js`
+**Location**: `control-center` (integrated UI)
 
 **Visualization**:
 - Predictive wave overlay showing price predictions at 500ms, 1s, 5s

@@ -18,11 +18,11 @@ The system will automatically initialize:
 - 🔮 **Causal Inference Engine**: Granger Causality + Transfer Entropy
 - 🌐 **Multimodal Swarm**: Unified Tensor Processing (Price + Sentiment + On-Chain + Macro)
 
-### 2. Access God-Mode Dashboard
+### 2. Access Command Center
 
 Open your browser to:
 ```
-http://localhost:3000/god-mode-dashboard.html
+http://localhost:3000
 ```
 
 The dashboard shows:

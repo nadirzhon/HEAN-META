@@ -11,6 +11,7 @@ from hean.api.routers import (
     strategies,
     system,
     trading,
+    telemetry,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "strategies",
     "system",
     "trading",
+    "telemetry",
 ]

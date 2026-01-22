@@ -366,7 +366,11 @@ class SelfHealingMiddleware:
         # For now, implement Python fallback:
         if self._order_manager:
             # Cancel pending orders to reduce load
-            pending_orders = self._order_manager.get_pending_orders()
+            pending_orders = (
+                self._order_manager.get_open_orders()
+                if hasattr(self._order_manager, "get_open_orders")
+                else []
+            )
             if pending_orders:
                 logger.warning(f"Cancelling {len(pending_orders)} pending orders")
                 # Would cancel orders here
@@ -376,6 +380,7 @@ class SelfHealingMiddleware:
             Event(
                 event_type=EventType.REGIME_UPDATE,
                 data={
+                    "symbol": "GLOBAL",
                     "health_event": "emergency_takeover",
                     "reason": reason,
                     "status": "critical",

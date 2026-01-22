@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import random
 import signal
 import sys
 import uuid
@@ -28,6 +29,7 @@ from hean.core.types import (
     OrderStatus,
     Position,
     Signal,
+    Tick,
 )
 from hean.evaluation.truth_layer import analyze_truth, print_truth
 from hean.exchange.synthetic_feed import SyntheticPriceFeed
@@ -51,6 +53,7 @@ from hean.paper_trade_assist import (
 from hean.portfolio.accounting import PortfolioAccounting
 from hean.portfolio.allocator import CapitalAllocator
 from hean.portfolio.decision_memory import DecisionMemory
+from hean.portfolio.profit_capture import ProfitCapture
 from hean.portfolio.profit_target_tracker import ProfitTargetTracker
 from hean.portfolio.smart_reinvestor import SmartReinvestor
 from hean.risk.capital_preservation import CapitalPreservationMode
@@ -63,21 +66,16 @@ from hean.strategies.base import BaseStrategy
 from hean.strategies.basis_arbitrage import BasisArbitrage
 from hean.strategies.funding_harvester import FundingHarvester
 from hean.strategies.impulse_engine import ImpulseEngine
-
-        # Phase 5: Statistical Arbitrage & Anti-Fragile Architecture
-        from hean.core.intelligence.correlation_engine import CorrelationEngine
-        from hean.risk.tail_risk import GlobalSafetyNet
-        from hean.observability.monitoring.self_healing import SelfHealingMiddleware
-        
-        # Absolute+: Post-Singularity Systems
-        from hean.core.intelligence.meta_learning_engine import MetaLearningEngine
-        from hean.core.intelligence.causal_inference_engine import CausalInferenceEngine
-        from hean.core.intelligence.multimodal_swarm import MultimodalSwarm
-        
-        # Singularity: Metamorphic Engine, Causal Discovery, Atomic Execution
-        from hean.core.intelligence.metamorphic_integration import MetamorphicIntegration
-        from hean.core.intelligence.causal_discovery import CausalDiscoveryEngine
-        from hean.execution.atomic_executor import AtomicExecutor
+from hean.core.intelligence.correlation_engine import CorrelationEngine
+from hean.risk.tail_risk import GlobalSafetyNet
+from hean.observability.monitoring.self_healing import SelfHealingMiddleware
+from hean.core.intelligence.meta_learning_engine import MetaLearningEngine
+from hean.core.intelligence.causal_inference_engine import CausalInferenceEngine
+from hean.core.intelligence.multimodal_swarm import MultimodalSwarm
+from hean.core.intelligence.metamorphic_integration import MetamorphicIntegration
+from hean.core.intelligence.causal_discovery import CausalDiscoveryEngine
+from hean.execution.atomic_executor import AtomicExecutor
+from hean.core.arb.triangular_scanner import TriangularScanner
 
 logger = get_logger(__name__)
 
@@ -85,15 +83,20 @@ logger = get_logger(__name__)
 class TradingSystem:
     """Main trading system orchestrator."""
 
-    def __init__(self, mode: Literal["run", "evaluate"] = "run") -> None:
+    def __init__(
+        self,
+        mode: Literal["run", "evaluate"] = "run",
+        bus: EventBus | None = None,
+    ) -> None:
         """Initialize the trading system.
 
         Args:
             mode: Operation mode. "run" for live/paper trading, "evaluate" for evaluation.
                   In evaluate mode, HealthCheck is disabled and periodic status is skipped.
+            bus: Optional shared EventBus instance for external subscribers.
         """
         self._mode = mode
-        self._bus = EventBus()
+        self._bus = bus or EventBus()
         self._clock = Clock()
 
         # Use backtest capital in evaluate mode
@@ -105,6 +108,7 @@ class TradingSystem:
         # Deposit protection and profit tracking
         self._deposit_protector = DepositProtector(self._bus, initial_capital)
         self._profit_tracker = ProfitTargetTracker()
+        self._profit_capture = ProfitCapture(self._bus, initial_capital)
 
         self._allocator = CapitalAllocator()
         self._decision_memory = DecisionMemory()
@@ -147,12 +151,208 @@ class TradingSystem:
         self._last_micro_trade_time: dict[str, datetime] = {}
         self._micro_trade_task: asyncio.Task[None] | None = None
         self._impulse_engine: ImpulseEngine | None = None
+        self._triangular_scanner: TriangularScanner | None = None
 
         # Debug metrics for forced order flow
         self._signals_generated = 0
         self._signals_after_filters = 0
         self._orders_sent = 0
         self._orders_filled = 0
+        self._order_decision_history: list[dict[str, Any]] = []
+        self._order_exit_decision_history: list[dict[str, Any]] = []
+
+        # Exit management / heartbeat tracking
+        self._last_exit_decision_ts: dict[str, datetime] = {}
+        self._last_tick_at: dict[str, datetime] = {}
+
+    async def _emit_order_decision(
+        self,
+        signal: Signal,
+        decision: str,
+        reason_code: str,
+        computed_qty: float | None,
+        context: dict[str, Any],
+    ) -> None:
+        """Emit structured order decision telemetry for observability.
+        
+        Includes gating flags, reason_codes array, market_regime, and advisory fields per AFO-Director spec.
+        """
+        # Collect gating flags for diagnostics
+        equity = self._accounting.get_equity()
+        drawdown_amount, drawdown_pct = self._accounting.get_drawdown(equity)
+        open_positions = len(self._accounting.get_positions())
+        open_orders = len(self._order_manager.get_open_orders())
+        
+        # Build reason_codes array (reason_code + any additional reasons from context)
+        reason_codes = [reason_code]
+        if "additional_reasons" in context:
+            reason_codes.extend(context["additional_reasons"])
+        
+        # Get current regime for symbol
+        market_regime = None
+        market_metrics_short = {}
+        if hasattr(self, "_regime_detector"):
+            current_regime = self._regime_detector.get_regime(signal.symbol) if hasattr(self._regime_detector, "get_regime") else None
+            if current_regime:
+                # Map existing regime to spec regime types
+                regime_map = {
+                    "impulse": "TREND",
+                    "normal": "RANGE",
+                    "range": "RANGE",
+                }
+                market_regime = regime_map.get(current_regime.value if hasattr(current_regime, "value") else str(current_regime), "RANGE")
+        
+        # Check for stale data
+        last_tick_age_sec = None
+        if hasattr(self, "_last_tick_at") and signal.symbol in self._last_tick_at:
+            last_tick_age_sec = (datetime.utcnow() - self._last_tick_at[signal.symbol]).total_seconds()
+            if last_tick_age_sec > 30:
+                market_regime = "STALE_DATA"
+                reason_codes.append("STALE_MARKET_DATA")
+        
+        # Check liquidity (simple heuristic: if spread is too wide, mark as LOW_LIQ)
+        if hasattr(self, "_execution_router") and hasattr(self._execution_router, "_current_bids") and hasattr(self._execution_router, "_current_asks"):
+            bid = self._execution_router._current_bids.get(signal.symbol)
+            ask = self._execution_router._current_asks.get(signal.symbol)
+            if bid and ask and bid > 0:
+                spread_pct = ((ask - bid) / bid) * 100
+                market_metrics_short["spread_pct"] = spread_pct
+                if spread_pct > 0.5:  # 0.5% spread threshold
+                    if market_regime != "STALE_DATA":
+                        market_regime = "LOW_LIQ"
+                    reason_codes.append("LOW_LIQUIDITY")
+        
+        # Build comprehensive gating flags
+        gating_flags = {
+            "risk_ok": not self._stop_trading and not (self._killswitch.is_triggered() if hasattr(self, "_killswitch") else False),
+            "data_fresh_ok": last_tick_age_sec is None or last_tick_age_sec < 30,
+            "profit_lock_ok": True,  # Will be set by profit capture in B2
+            "engine_running_ok": not self._stop_trading,
+            "symbol_enabled_ok": signal.symbol in (settings.trading_symbols if hasattr(settings, "trading_symbols") else []),
+            "liquidity_ok": market_regime != "LOW_LIQ",
+            "execution_ok": True,  # Will be enhanced by execution quality checks
+            "stop_trading": self._stop_trading,
+            "killswitch_triggered": self._killswitch.is_triggered() if hasattr(self, "_killswitch") else False,
+            "max_positions": open_positions >= settings.max_open_positions,
+            "max_orders": open_orders >= settings.max_open_orders,
+            "drawdown_pct": drawdown_pct,
+            "equity": equity,
+        }
+        
+        # Add killswitch reason if triggered
+        if gating_flags["killswitch_triggered"] and hasattr(self, "_killswitch"):
+            gating_flags["killswitch_reason"] = self._killswitch.get_reason()
+        
+        # Build advisory (how to continue)
+        advisory = None
+        if decision in ("SKIP", "BLOCK"):
+            hints = []
+            how_to_continue = None
+            
+            if not gating_flags["risk_ok"]:
+                if gating_flags["killswitch_triggered"]:
+                    how_to_continue = "check_killswitch"
+                    hints.append("Review killswitch reasons and thresholds")
+                elif self._stop_trading:
+                    how_to_continue = "resume"
+                    hints.append("Resume trading if conditions are safe")
+            elif not gating_flags["data_fresh_ok"]:
+                how_to_continue = "check_data_feed"
+                hints.append("Verify market data connection")
+            elif not gating_flags["liquidity_ok"]:
+                how_to_continue = "wait_for_liquidity"
+                hints.append("Wait for better liquidity conditions")
+            elif gating_flags["max_positions"] or gating_flags["max_orders"]:
+                how_to_continue = "reduce_positions"
+                hints.append("Close some positions or orders to free capacity")
+            elif drawdown_pct > 10:
+                how_to_continue = "reduce_risk"
+                hints.append("Reduce risk exposure due to drawdown")
+            else:
+                how_to_continue = "resume"
+                hints.append("System should resume automatically")
+            
+            advisory = {
+                "how_to_continue": how_to_continue,
+                "hints": hints,
+            }
+        
+        # Get score/confidence from context if available
+        score = context.get("score") or context.get("confidence")
+        
+        payload = {
+            "type": "ORDER_DECISION",
+            "decision": decision,  # CREATE|SKIP|BLOCK
+            "reason_codes": reason_codes,  # Array of reason codes
+            "reason_code": reason_code,  # Keep for backward compatibility
+            "signal_id": signal.strategy_id + ":" + signal.symbol + ":" + signal.side,
+            "strategy_id": signal.strategy_id,
+            "symbol": signal.symbol,
+            "side": signal.side,
+            "timestamp": datetime.utcnow().isoformat(),
+            "computed_qty": computed_qty,
+            "gating_flags": gating_flags,
+            "score": score,  # nullable
+            "confidence": score,  # nullable, alias
+            "market_regime": market_regime,  # TREND|RANGE|LOW_LIQ|STALE_DATA
+            "market_metrics_short": market_metrics_short,  # spread_pct, etc.
+            "advisory": advisory,  # nullable
+            **{k: v for k, v in context.items() if k not in ("additional_reasons", "score", "confidence")},
+        }
+        # Keep short history for diagnostics
+        self._order_decision_history.append(payload)
+        self._order_decision_history = self._order_decision_history[-100:]
+        logger.info(f"[ORDER_DECISION] {payload}")
+        try:
+            await self._bus.publish(
+                Event(event_type=EventType.ORDER_DECISION, data=payload)
+            )
+        except Exception as e:
+            logger.debug(f"Failed to publish ORDER_DECISION event: {e}")
+
+    async def _emit_order_exit_decision(
+        self,
+        position: Position,
+        decision: str,
+        reason_code: str,
+        tick_price: float | None,
+        thresholds: dict[str, Any],
+        hold_seconds: float | None = None,
+        note: str | None = None,
+    ) -> None:
+        """Emit structured exit decision telemetry (TP/SL/TTL/HOLD)."""
+        payload = {
+            "type": "ORDER_EXIT_DECISION",
+            "decision": decision,
+            "reason_code": reason_code,
+            "position_id": position.position_id,
+            "order_id": position.metadata.get("entry_order_id") if position.metadata else None,
+            "symbol": position.symbol,
+            "side": position.side,
+            "timestamp": datetime.utcnow().isoformat(),
+            "last_price": tick_price,
+            "entry_price": position.entry_price,
+            "unrealized_pnl": position.unrealized_pnl,
+            "realized_pnl": position.realized_pnl,
+            "qty": position.size,
+            "strategy_id": position.strategy_id,
+            "hold_seconds": hold_seconds,
+            "thresholds": thresholds,
+            "metadata": position.metadata or {},
+        }
+        if note:
+            payload["note"] = note
+
+        self._order_exit_decision_history.append(payload)
+        self._order_exit_decision_history = self._order_exit_decision_history[-200:]
+        self._last_exit_decision_ts[position.position_id] = datetime.utcnow()
+        logger.info(f"[ORDER_EXIT_DECISION] {payload}")
+        try:
+            await self._bus.publish(
+                Event(event_type=EventType.ORDER_EXIT_DECISION, data=payload)
+            )
+        except Exception as e:
+            logger.debug(f"Failed to publish ORDER_EXIT_DECISION event: {e}")
 
     async def start(self, price_feed=None) -> None:
         """Start the trading system.
@@ -200,20 +400,25 @@ class TradingSystem:
         self._bus.subscribe(EventType.REGIME_UPDATE, self._handle_regime_update)
         
         # Phase: Oracle Engine Integration (Algorithmic Fingerprinting + TCN)
-        if mode == "run" and getattr(settings, 'oracle_engine_enabled', True):
-            from hean.core.intelligence.oracle_integration import OracleIntegration
-            self._oracle_integration = OracleIntegration(self._bus, symbols=settings.trading_symbols)
-            await self._oracle_integration.start()
-            logger.info("Oracle Engine Integration started (Fingerprinting + TCN)")
+        if self._mode == "run" and getattr(settings, 'oracle_engine_enabled', True):
+            try:
+                from hean.core.intelligence.oracle_integration import OracleIntegration
+                self._oracle_integration = OracleIntegration(self._bus, symbols=settings.trading_symbols)
+                await self._oracle_integration.start()
+                logger.info("Oracle Engine Integration started (Fingerprinting + TCN)")
+            except ModuleNotFoundError as e:
+                logger.warning(f"Oracle Engine disabled (missing dependency): {e}")
+            except Exception as e:
+                logger.warning(f"Oracle Engine failed to start: {e}")
 
         # Phase 5: Initialize Statistical Arbitrage & Anti-Fragile Architecture
-        if mode == "run" and settings.phase5_correlation_engine_enabled:
+        if self._mode == "run" and settings.phase5_correlation_engine_enabled:
             # 1. Correlation Engine for pair trading
             self._correlation_engine = CorrelationEngine(self._bus, symbols=settings.trading_symbols)
             await self._correlation_engine.start()
             logger.info("Phase 5: Correlation Engine started")
 
-        if mode == "run" and settings.phase5_safety_net_enabled:
+        if self._mode == "run" and settings.phase5_safety_net_enabled:
             # 2. Global Safety Net (Black Swan Protection)
             self._safety_net = GlobalSafetyNet(
                 bus=self._bus,
@@ -224,7 +429,7 @@ class TradingSystem:
             await self._safety_net.start()
             logger.info("Phase 5: Global Safety Net activated")
 
-        if mode == "run" and settings.phase5_self_healing_enabled:
+        if self._mode == "run" and settings.phase5_self_healing_enabled:
             # 3. Self-Healing Middleware
             self._self_healing = SelfHealingMiddleware(
                 bus=self._bus,
@@ -233,7 +438,7 @@ class TradingSystem:
             await self._self_healing.start()
             logger.info("Phase 5: Self-Healing Middleware started")
 
-        if mode == "run" and settings.phase5_kelly_criterion_enabled:
+        if self._mode == "run" and settings.phase5_kelly_criterion_enabled:
             # 4. Enable Kelly Criterion for Position Sizer
             try:
                 from hean.risk.kelly_criterion import KellyCriterion
@@ -247,7 +452,7 @@ class TradingSystem:
                 logger.warning(f"Could not enable Kelly Criterion: {e}")
 
         # Absolute+: Initialize Post-Singularity Systems
-        if mode == "run" and getattr(settings, 'absolute_plus_enabled', True):
+        if self._mode == "run" and getattr(settings, 'absolute_plus_enabled', True):
             # 1. Meta-Learning Engine (Recursive Intelligence Core)
             try:
                 cpp_source_dir = Path(__file__).parent.parent.parent / "src" / "hean" / "core" / "cpp"
@@ -307,54 +512,75 @@ class TradingSystem:
                 await price_feed.start(bus=self._bus)
             else:
                 await price_feed.start()
-        elif settings.is_live:
-            # Use Bybit price feed for live trading
-            from hean.exchange.bybit.price_feed import BybitPriceFeed
-
-            self._price_feed = BybitPriceFeed(self._bus, symbols)
-            await self._price_feed.start()
-            logger.info(f"Using Bybit price feed for live trading: {symbols}")
-            
-            # Auto-detect balance from exchange in live mode
-            # System works with any amount - no need to specify INITIAL_CAPITAL
+        elif settings.is_live or settings.paper_use_live_feed:
+            # Use Bybit price feed for live or paper mode (public data)
             try:
-                from hean.exchange.bybit.http import BybitHTTPClient
-                http_client = BybitHTTPClient()
-                await http_client.connect()
-                account_info = await http_client.get_account_info()
-                await http_client.disconnect()
+                from hean.exchange.bybit.price_feed import BybitPriceFeed
+
+                self._price_feed = BybitPriceFeed(self._bus, symbols)
+                await self._price_feed.start()
+                mode_label = "live" if settings.is_live else "paper"
+                logger.info(f"MARKET_STREAM_STARTED: Bybit price feed ({mode_label}) for symbols {symbols}")
                 
-                # Parse balance from Bybit API response
-                # Bybit returns: {"result": {"list": [{"coin": [{"walletBalance": "...", "coin": "USDT"}]}]}}
-                balance = 0.0
-                if account_info.get("retCode") == 0:
-                    result = account_info.get("result", {})
-                    account_list = result.get("list", [])
-                    if account_list:
-                        coins = account_list[0].get("coin", [])
-                        for coin in coins:
-                            if coin.get("coin") == "USDT":
-                                balance = float(coin.get("walletBalance", 0))
-                                break
-                
-                if balance > 0:
-                    # Update accounting with real exchange balance
-                    self._accounting.set_balance_from_exchange(balance)
-                    # Update deposit protector with real balance
-                    self._deposit_protector.update_initial_capital(balance)
-                    # Update killswitch with real balance
-                    self._killswitch.set_initial_capital(balance)
-                    logger.info(f"✅ Synced with exchange balance: ${balance:,.2f} USDT")
-                    logger.info("📊 System ready to trade with any capital amount")
-                else:
-                    logger.warning(f"⚠️ Could not get balance from exchange, using config: ${initial_capital:,.2f}")
+                # Auto-detect balance from exchange in live mode
+                # System works with any amount - no need to specify INITIAL_CAPITAL
+                try:
+                    from hean.exchange.bybit.http import BybitHTTPClient
+                    http_client = BybitHTTPClient()
+                    await http_client.connect()
+                    account_info = await http_client.get_account_info()
+                    await http_client.disconnect()
+                    
+                    # Parse balance from Bybit API response
+                    # Bybit returns: {"result": {"list": [{"coin": [{"walletBalance": "...", "coin": "USDT"}]}]}}
+                    balance = 0.0
+                    if account_info.get("retCode") == 0:
+                        result = account_info.get("result", {})
+                        account_list = result.get("list", [])
+                        if account_list:
+                            coins = account_list[0].get("coin", [])
+                            for coin in coins:
+                                if coin.get("coin") == "USDT":
+                                    balance = float(coin.get("walletBalance", 0))
+                                    break
+                    
+                    if balance > 0:
+                        # Update accounting with real exchange balance
+                        self._accounting.set_balance_from_exchange(balance)
+                        # Update deposit protector with real balance
+                        self._deposit_protector.update_initial_capital(balance)
+                        # Update killswitch with real balance
+                        self._killswitch.set_initial_capital(balance)
+                        logger.info(f"✅ Synced with exchange balance: ${balance:,.2f} USDT")
+                        logger.info("📊 System ready to trade with any capital amount")
+                    else:
+                        logger.warning(f"⚠️ Could not get balance from exchange, using config: ${initial_capital:,.2f}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not sync with exchange balance: {e}")
+                    logger.info(f"Using configured initial capital: ${initial_capital:,.2f}")
             except Exception as e:
-                logger.warning(f"⚠️ Could not sync with exchange balance: {e}")
-                logger.info(f"Using configured initial capital: ${initial_capital:,.2f}")
+                logger.warning(f"MARKET_STREAM_FALLBACK: Bybit price feed failed, switching to synthetic. Error: {e}", exc_info=True)
+                self._price_feed = SyntheticPriceFeed(self._bus, symbols)
+                await self._price_feed.start()
+                logger.info(f"MARKET_STREAM_STARTED: Synthetic price feed for symbols {symbols}")
         else:
             # Create default synthetic price feed for paper trading
             self._price_feed = SyntheticPriceFeed(self._bus, symbols)
             await self._price_feed.start()
+            logger.info(f"MARKET_STREAM_STARTED: Synthetic price feed for symbols {symbols}")
+
+        # Start triangular arbitrage scanner (paper + live)
+        if self._mode == "run" and settings.triangular_arb_enabled:
+            try:
+                self._triangular_scanner = TriangularScanner(
+                    self._bus,
+                    fee_buffer=settings.triangular_fee_buffer,
+                    min_profit_bps=settings.triangular_min_profit_bps,
+                )
+                await self._triangular_scanner.start()
+                logger.info("Triangular Arbitrage Scanner started")
+            except Exception as e:
+                logger.warning(f"Failed to start Triangular Arbitrage Scanner: {e}")
 
         # Start strategies
         if settings.funding_harvester_enabled:
@@ -402,14 +628,14 @@ class TradingSystem:
         self._bus.subscribe(EventType.POSITION_CLOSED, self._handle_position_closed)
         self._bus.subscribe(EventType.STOP_TRADING, self._handle_stop_trading)
         self._bus.subscribe(EventType.KILLSWITCH_TRIGGERED, self._handle_killswitch)
-        # Subscribe to ticks for TP/SL checks and micro-trade time-based exit
-        # Always subscribe if paper assist enabled, or if debug mode
-        if settings.debug_mode or is_paper_assist_enabled():
-            self._bus.subscribe(EventType.TICK, self._handle_tick_forced_exit)
+        # Subscribe to ticks for TP/SL checks, TTL, and mark-to-market updates
+        self._bus.subscribe(EventType.TICK, self._handle_tick_forced_exit)
 
         # Schedule periodic status updates (skip in evaluate mode)
         if self._mode == "run":
             self._clock.schedule_periodic(self._print_status, timedelta(seconds=10))
+            # Anti-stuck: periodic TTL/NO_TICKS checks even if feed stalls
+            self._clock.schedule_periodic(self._check_position_timeouts, timedelta(seconds=5))
             
             # Start fallback micro-trade task if paper assist enabled
             if is_paper_assist_enabled():
@@ -458,6 +684,10 @@ class TradingSystem:
         if hasattr(self, "_bybit_ws_public") and self._bybit_ws_public:
             await self._bybit_ws_public.disconnect()
 
+        # Stop triangular arbitrage scanner
+        if self._triangular_scanner:
+            await self._triangular_scanner.stop()
+
         # Stop candle aggregation
         if self._candle_aggregator:
             await self._candle_aggregator.stop()
@@ -495,6 +725,18 @@ class TradingSystem:
         """Handle trading signal from strategy."""
         if self._stop_trading:
             logger.debug("Trading stopped, ignoring signal")
+            signal: Signal = event.data["signal"]
+            await self._emit_order_decision(
+                signal=signal,
+                decision="SKIP",
+                reason_code="TRADING_DISABLED",
+                computed_qty=None,
+                context={
+                    "note": "stop_trading flag set",
+                    "open_orders": len(self._order_manager.get_open_orders()),
+                    "open_positions": len(self._accounting.get_positions()),
+                },
+            )
             return
 
         signal: Signal = event.data["signal"]
@@ -502,6 +744,35 @@ class TradingSystem:
         
         # Track signal attempt for diagnostics
         signal_attempt_key = f"{signal.strategy_id}:{signal.symbol}"
+
+        # Hard guards against runaway state (anti-stuck)
+        open_positions = len(self._accounting.get_positions())
+        open_orders = len(self._order_manager.get_open_orders())
+        if open_positions >= settings.max_open_positions or open_orders >= settings.max_open_orders:
+            await self._emit_order_decision(
+                signal=signal,
+                decision="SKIP",
+                reason_code="LIMIT_REACHED",
+                computed_qty=None,
+                context={
+                    "note": "risk guard: max positions/orders reached",
+                    "open_positions": open_positions,
+                    "open_orders": open_orders,
+                    "max_open_positions": settings.max_open_positions,
+                    "max_open_orders": settings.max_open_orders,
+                },
+            )
+            log_block_reason(
+                reason_code="max_positions_orders",
+                symbol=signal.symbol,
+                strategy_id=signal.strategy_id,
+                reasons=["max_open_positions/orders reached"],
+                suggested_fix=[
+                    f"Close positions below {settings.max_open_positions}",
+                    f"Reduce open orders below {settings.max_open_orders}",
+                ],
+            )
+            return
 
         # WHY NOT TRADING: Check basic execution gates first
         if settings.process_factory_enabled:
@@ -552,6 +823,19 @@ class TradingSystem:
                 no_trade_report.increment(
                     "deposit_protection_block", signal.symbol, signal.strategy_id
                 )
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="REJECT",
+                    reason_code="DEPOSIT_PROTECTION",
+                    computed_qty=None,
+                    context={
+                        "reason": reason,
+                        "equity": equity,
+                        "available_cash": self._accounting.get_cash_balance(),
+                        "open_orders": len(self._order_manager.get_open_orders()),
+                        "open_positions": len(self._accounting.get_positions()),
+                    },
+                )
                 if settings.process_factory_enabled:
                     log_trade_blocked(
                         symbol=signal.symbol,
@@ -581,6 +865,19 @@ class TradingSystem:
                 metrics.increment("signals_blocked_protection")
                 no_trade_report.increment("protection_block", signal.symbol, signal.strategy_id)
                 no_trade_report.increment_pipeline("signals_blocked_protection", signal.strategy_id)
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="REJECT",
+                    reason_code="PROTECTION_BLOCK",
+                    computed_qty=None,
+                    context={
+                        "reason": reason,
+                        "equity": equity,
+                        "initial_capital": initial_capital,
+                        "open_orders": len(self._order_manager.get_open_orders()),
+                        "open_positions": len(self._accounting.get_positions()),
+                    },
+                )
                 return
         else:
             logger.debug(f"[DEBUG] Protection bypassed for {signal.symbol} {signal.strategy_id}")
@@ -605,7 +902,7 @@ class TradingSystem:
                 if signal.metadata is None:
                     signal.metadata = {}
                 signal.metadata["preservation_mode"] = True
-                signal.metadata["risk_multiplier"] = preservation_mode.get_risk_multiplier()
+                signal.metadata["risk_multiplier"] = preservation_mode.get_risk_pct(1.0)
                 logger.warning(
                     f"Capital Preservation Mode active: drawdown={drawdown_pct:.1f}%, "
                     f"PF={rolling_pf:.2f}, consecutive_losses={consecutive_losses}"
@@ -622,6 +919,17 @@ class TradingSystem:
         current_price = signal.entry_price or self._regime_detector.get_price(signal.symbol)
         if not current_price or current_price <= 0:
             logger.warning(f"No valid price for {signal.symbol}, skipping signal")
+            await self._emit_order_decision(
+                signal=signal,
+                decision="SKIP",
+                reason_code="VALIDATION_FAIL",
+                computed_qty=None,
+                context={
+                    "reason": "missing_price",
+                    "open_orders": len(self._order_manager.get_open_orders()),
+                    "open_positions": len(self._accounting.get_positions()),
+                },
+            )
             return
         
         # Get regime first (needed for size calculation)
@@ -715,6 +1023,11 @@ class TradingSystem:
 
             if not allowed:
                 logger.debug(f"Signal rejected by risk limits: {reason}")
+                reason_code = "RISK_BLOCKED"
+                if "Position already exists" in reason:
+                    reason_code = "POSITION_EXISTS"
+                elif "Max open positions" in reason:
+                    reason_code = "RISK_BLOCKED"
                 metrics.increment("signals_rejected")
                 no_trade_report.increment("risk_limits_reject", signal.symbol, signal.strategy_id)
                 no_trade_report.increment_pipeline("signals_rejected_risk", signal.strategy_id)
@@ -727,6 +1040,19 @@ class TradingSystem:
                     measured_value=None,
                 )
                 log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"risk_limits: {reason}")
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="REJECT",
+                    reason_code=reason_code,
+                    computed_qty=base_size,
+                    context={
+                        "equity": equity,
+                        "price": current_price,
+                        "reason": reason,
+                        "open_orders": len(self._order_manager.get_open_orders()),
+                        "open_positions": len(self._accounting.get_positions()),
+                    },
+                )
                 return
         else:
             logger.debug(f"[DEBUG] Risk limits bypassed for {signal.symbol} {signal.strategy_id}")
@@ -751,6 +1077,19 @@ class TradingSystem:
                     agent_name=signal.strategy_id,
                 )
                 log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"daily_attempts: {reason}")
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="SKIP",
+                    reason_code="DAILY_LIMIT",
+                    computed_qty=base_size,
+                    context={
+                        "reason": reason,
+                        "attempts": self._risk_limits._daily_attempts.get(signal.strategy_id, 0),
+                        "regime": regime.value if hasattr(regime, "value") else str(regime),
+                        "open_orders": len(self._order_manager.get_open_orders()),
+                        "open_positions": len(self._accounting.get_positions()),
+                    },
+                )
                 return
 
             # Check cooldown (bypassed in DEBUG_MODE / Aggressive Mode)
@@ -767,6 +1106,18 @@ class TradingSystem:
                     agent_name=signal.strategy_id,
                 )
                 log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"cooldown: {reason}")
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="SKIP",
+                    reason_code="COOLDOWN",
+                    computed_qty=base_size,
+                    context={
+                        "reason": reason,
+                        "consecutive_losses": self._risk_limits.get_consecutive_losses(signal.strategy_id),
+                        "open_orders": len(self._order_manager.get_open_orders()),
+                        "open_positions": len(self._accounting.get_positions()),
+                    },
+                )
                 return
         else:
             logger.debug(
@@ -793,7 +1144,8 @@ class TradingSystem:
         )
 
         # Check if context is blocked
-        if not settings.debug_mode:
+        has_dm_history = self._decision_memory.has_history(signal.strategy_id, context)
+        if not settings.debug_mode and has_dm_history:
             if self._decision_memory.blocked(signal.strategy_id, context):
                 logger.debug(
                     "Signal rejected by decision memory: strategy=%s context=%s",
@@ -813,7 +1165,25 @@ class TradingSystem:
                     strategy_id=signal.strategy_id,
                     agent_name=signal.strategy_id,
                 )
-                log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note="decision_memory")
+                log_allow_reason(
+                    "BLOCK",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    note="decision_memory",
+                )
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="SKIP",
+                    reason_code="DECISION_MEMORY",
+                    computed_qty=base_size,
+                    context={
+                        "reason": "decision_memory_block",
+                        "context": context,
+                        "has_history": has_dm_history,
+                        "open_orders": len(self._order_manager.get_open_orders()),
+                        "open_positions": len(self._accounting.get_positions()),
+                    },
+                )
                 return
         else:
             logger.debug(
@@ -889,9 +1259,48 @@ class TradingSystem:
                 f"(equity=${equity:.2f}, price=${current_price:.2f})"
             )
 
+        if signal.metadata is None:
+            signal.metadata = {}
+
+        sizing_details = self._position_sizer.get_last_calculation() or {}
+        applied_leverage = max(1.0, float(sizing_details.get("leverage", 1.0)))
+        exit_plan = {
+            "tp": signal.take_profit,
+            "sl": signal.stop_loss,
+            "trailing": signal.metadata.get("trailing"),
+            "time_stop_seconds": signal.metadata.get("time_stop_seconds")
+            or signal.metadata.get("max_time_sec"),
+            "invalidation_rule": signal.metadata.get("invalidation_rule"),
+        }
+        expected_pnl = self._calculate_expected_pnl(
+            side=signal.side,
+            entry_price=signal.entry_price,
+            qty=size,
+            take_profit=signal.take_profit,
+            stop_loss=signal.stop_loss,
+        )
+        rationale = {
+            "strategy_name": signal.strategy_id,
+            "entry_reason": signal.metadata.get("entry_reason")
+            or signal.metadata.get("reason")
+            or "Strategy signal",
+            "confidence": signal.metadata.get("confidence")
+            or signal.metadata.get("edge_bps")
+            or sizing_details.get("edge_bps"),
+        }
+
+        order_metadata = {
+            **(signal.metadata or {}),
+            "exit_plan": exit_plan,
+            "expected_pnl": expected_pnl,
+            "rationale": rationale,
+            "applied_leverage": applied_leverage,
+        }
+
         # Create order request
+        signal_id = str(uuid.uuid4())
         order_request = OrderRequest(
-            signal_id=str(uuid.uuid4()),
+            signal_id=signal_id,
             strategy_id=signal.strategy_id,
             symbol=signal.symbol,
             side=signal.side,
@@ -900,8 +1309,9 @@ class TradingSystem:
             order_type="market",
             stop_loss=signal.stop_loss,
             take_profit=signal.take_profit,
-            metadata=signal.metadata,
+            metadata=order_metadata,
         )
+        order_request.metadata["signal_id"] = signal_id
 
         # Track order creation
         no_trade_report.increment_pipeline("orders_created", signal.strategy_id)
@@ -927,6 +1337,26 @@ class TradingSystem:
         logger.debug(
             f"Order created: signal_id={order_request.signal_id} strategy={signal.strategy_id} "
             f"symbol={signal.symbol} side={signal.side} size={size:.6f} penalties=[{penalty_str}]"
+        )
+
+        # Emit ORDER_DECISION with full sizing context before publishing
+        await self._emit_order_decision(
+            signal=signal,
+            decision="CREATE",
+            reason_code="ACCEPTED",
+            computed_qty=size,
+            context={
+                "price": current_price,
+                "notional": size * current_price,
+                "applied_leverage": applied_leverage,
+                "equity": equity,
+                "cash": self._accounting.get_cash_balance(),
+                "open_orders": len(self._order_manager.get_open_orders()),
+                "open_positions": len(self._accounting.get_positions()),
+                "exit_plan": exit_plan,
+                "expected_pnl": expected_pnl,
+                "penalties": penalties,
+            },
         )
 
         # Publish order request
@@ -1030,6 +1460,7 @@ class TradingSystem:
                 f"[ORDER_FILLED_HANDLER] Order {order.order_id} not fully filled or missing avg_fill_price: "
                 f"status={order.status}, avg_fill_price={order.avg_fill_price}"
             )
+        await self._emit_account_state()
 
     async def _handle_position_closed(self, event: Event) -> None:
         """Handle position closed event."""
@@ -1113,6 +1544,7 @@ class TradingSystem:
 
         metrics.increment("positions_closed")
         no_trade_report.increment_pipeline("positions_closed", position.strategy_id)
+        await self._emit_account_state()
 
     async def _handle_stop_trading(self, event: Event) -> None:
         """Handle stop trading event."""
@@ -1126,90 +1558,525 @@ class TradingSystem:
         logger.critical(f"Killswitch triggered: {reason}")
         self._stop_trading = True
 
+    async def panic_close_all(self, reason: str = "panic_close_all") -> dict[str, Any]:
+        """Force-close all positions and cancel open orders (paper-safe)."""
+        closed_positions: list[str] = []
+        for position in list(self._accounting.get_positions()):
+            price = (
+                self._execution_router._current_prices.get(position.symbol)
+                if hasattr(self._execution_router, "_current_prices")
+                else None
+            )
+            price = price or position.current_price or position.entry_price
+            await self._emit_order_exit_decision(
+                position=position,
+                decision="FORCE_CLOSE",
+                reason_code="RISK_EXIT",
+                tick_price=price,
+                thresholds={
+                    "tp": position.take_profit,
+                    "sl": position.stop_loss,
+                    "time_stop_seconds": position.max_time_sec or settings.max_hold_seconds,
+                },
+                hold_seconds=(datetime.utcnow() - position.opened_at).total_seconds()
+                if position.opened_at
+                else None,
+                note=reason,
+            )
+            await self._close_position_at_price(position, price, reason=reason)
+            closed_positions.append(position.position_id)
+
+        # Cancel open orders
+        for order in self._order_manager.get_open_orders():
+            order.status = OrderStatus.CANCELLED
+            await self._bus.publish(
+                Event(
+                    event_type=EventType.ORDER_CANCELLED,
+                    data={"order": order},
+                )
+            )
+
+        await self._emit_account_state()
+        return {"closed_positions": len(closed_positions), "cancelled_orders": len(self._order_manager.get_open_orders())}
+
+    async def reset_paper_state(self) -> dict[str, Any]:
+        """Clear paper-trading state (positions, orders, cached decisions)."""
+        # Remove positions
+        for pos in list(self._accounting.get_positions()):
+            self._accounting.remove_position(pos.position_id)
+
+        # Reset orders
+        self._order_manager._orders.clear()
+        self._order_manager._orders_by_strategy.clear()
+        self._order_manager._orders_by_symbol.clear()
+
+        # Reset diagnostics / histories
+        self._order_exit_decision_history.clear()
+        self._order_decision_history.clear()
+        self._last_exit_decision_ts.clear()
+        self._last_tick_at.clear()
+
+        # Reset killswitch and stop_trading
+        if hasattr(self, "_killswitch"):
+            self._killswitch.reset()
+            logger.info("Killswitch reset via reset_paper_state")
+        self._stop_trading = False
+        logger.info("Stop trading flag reset via reset_paper_state")
+
+        await self._emit_account_state()
+        return {"status": "reset", "positions": 0, "orders": 0}
+
+    def _calculate_expected_pnl(
+        self,
+        side: str,
+        entry_price: float,
+        qty: float,
+        take_profit: float | None,
+        stop_loss: float | None,
+    ) -> dict[str, float | None]:
+        """Calculate expected PnL at TP/SL for telemetry."""
+        if entry_price is None or qty <= 0:
+            return {"at_tp": None, "at_sl": None, "breakeven_price": None, "rr_ratio": None}
+
+        at_tp = None
+        at_sl = None
+
+        if take_profit is not None:
+            if side == "buy":
+                at_tp = (take_profit - entry_price) * qty
+            else:
+                at_tp = (entry_price - take_profit) * qty
+
+        if stop_loss is not None:
+            if side == "buy":
+                at_sl = (stop_loss - entry_price) * qty
+            else:
+                at_sl = (entry_price - stop_loss) * qty
+
+        rr_ratio = None
+        if at_tp is not None and at_sl not in (None, 0):
+            try:
+                rr_ratio = abs(at_tp / abs(at_sl))
+            except ZeroDivisionError:
+                rr_ratio = None
+
+        fee_rate = settings.backtest_taker_fee or 0.0
+        direction = 1 if side == "buy" else -1
+        breakeven_price = entry_price + (entry_price * fee_rate * 2 * direction)
+
+        return {
+            "at_tp": at_tp,
+            "at_sl": at_sl,
+            "breakeven_price": breakeven_price,
+            "rr_ratio": rr_ratio,
+        }
+
+    def _build_trading_state(self) -> dict[str, Any]:
+        """Build unified trading state snapshot for UI/telemetry."""
+        mark_prices = getattr(self._execution_router, "_current_prices", {})
+        positions_payload: list[dict[str, Any]] = []
+        orders_payload: list[dict[str, Any]] = []
+        used_margin = 0.0
+        reserved_margin = 0.0
+
+        # Positions
+        for pos in self._accounting.get_positions():
+            mark_price = mark_prices.get(pos.symbol, pos.current_price)
+            if mark_price:
+                self._accounting.update_position_price(pos.position_id, mark_price)
+            metadata = pos.metadata or {}
+            try:
+                leverage = max(1.0, float(metadata.get("applied_leverage", 1.0)))
+            except (TypeError, ValueError):
+                leverage = 1.0
+            notional = (mark_price or pos.entry_price) * pos.size
+            margin_used = notional / leverage if leverage else notional
+            used_margin += margin_used
+            exit_plan = metadata.get("exit_plan") or {
+                "tp": pos.take_profit,
+                "sl": pos.stop_loss,
+                "trailing": metadata.get("trailing"),
+                "time_stop_seconds": metadata.get("max_time_sec"),
+                "invalidation_rule": metadata.get("invalidation_rule"),
+            }
+            positions_payload.append(
+                {
+                    "position_id": pos.position_id,
+                    "symbol": pos.symbol,
+                    "side": pos.side,
+                    "qty": pos.size,
+                    "entry_price": pos.entry_price,
+                    "mark_price": mark_price,
+                    "unrealized_pnl": pos.unrealized_pnl,
+                    "realized_pnl": pos.realized_pnl,
+                    "leverage": leverage,
+                    "margin_used": margin_used,
+                    "opened_at": pos.opened_at.isoformat() if pos.opened_at else None,
+                    "exit_plan": exit_plan,
+                    "expected_pnl": metadata.get("expected_pnl"),
+                    "strategy_id": pos.strategy_id,
+                    "status": "open",
+                    "rationale": metadata.get("rationale"),
+                }
+            )
+
+        # Orders (all known states)
+        all_orders = self._order_manager.get_all_orders()
+        for order in all_orders:
+            metadata = order.metadata or {}
+            status_value = order.status.value if hasattr(order.status, "value") else str(
+                order.status
+            )
+            mark_price = mark_prices.get(order.symbol, order.price)
+            notional = (mark_price or order.price or 0.0) * order.size
+            try:
+                leverage = max(1.0, float(metadata.get("applied_leverage", 1.0)))
+            except (TypeError, ValueError):
+                leverage = 1.0
+            if order.status in {
+                OrderStatus.PENDING,
+                OrderStatus.PLACED,
+                OrderStatus.PARTIALLY_FILLED,
+            }:
+                reserved_margin += notional / leverage if leverage else notional
+
+            orders_payload.append(
+                {
+                    "order_id": order.order_id,
+                    "symbol": order.symbol,
+                    "side": order.side,
+                    "type": order.order_type,
+                    "qty": order.size,
+                    "price": order.price,
+                    "status": status_value,
+                    "created_at": order.timestamp.isoformat(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                    "filled_qty": order.filled_size,
+                    "avg_fill_price": order.avg_fill_price,
+                    "fee": metadata.get("fee"),
+                    "strategy_id": order.strategy_id,
+                    "signal_id": metadata.get("signal_id"),
+                    "rationale": metadata.get("rationale"),
+                    "exit_plan": metadata.get("exit_plan"),
+                    "expected_pnl": metadata.get("expected_pnl"),
+                    "status_timeline": metadata.get("status_timeline", []),
+                }
+            )
+
+        unrealized_total = self._accounting.get_unrealized_pnl_total()
+        equity_value = self._accounting.get_equity(mark_prices)
+        wallet_balance = self._accounting.get_cash_balance() + used_margin
+        available_balance = wallet_balance - used_margin - reserved_margin
+
+        account_state = {
+            "wallet_balance": wallet_balance,
+            "available_balance": available_balance,
+            "equity": equity_value,
+            "used_margin": used_margin,
+            "reserved_margin": reserved_margin,
+            "unrealized_pnl": unrealized_total,
+            "realized_pnl": self._accounting.get_realized_pnl_total(),
+            "fees": self._accounting.get_total_fees(),
+            "fees_24h": self._accounting.get_total_fees(),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        return {
+            "account_state": account_state,
+            "positions": positions_payload,
+            "orders": orders_payload,
+        }
+
+    async def _emit_account_state(self) -> None:
+        """Publish account/position state for UI and monitoring."""
+        snapshot = self._build_trading_state()
+        await self._bus.publish(
+            Event(
+                event_type=EventType.PNL_UPDATE,
+                data=snapshot,
+            )
+        )
+
     async def _handle_tick_forced_exit(self, event: Event) -> None:
-        """Check positions on every tick and close at TP (only in debug mode).
-        
-        Also handles time-based exit for micro-trades in paper assist mode.
-        """
+        """Mark-to-market on every tick and evaluate exit plans/TTL."""
         tick = event.data["tick"]
         symbol = tick.symbol
+        now = datetime.utcnow()
+        self._last_tick_at[symbol] = now
 
-        # Get all open positions for this symbol
-        positions = self._accounting.get_positions()
-        for position in positions:
+        # Mark-to-market update for open positions on this symbol
+        for position in self._accounting.get_positions():
+            if position.symbol == symbol:
+                self._accounting.update_position_price(position.position_id, tick.price)
+
+        # Broadcast fresh account snapshot (PnL_UPDATE for UI/exit triggers)
+        await self._emit_account_state()
+
+        # Evaluate exits for positions on this symbol
+        for position in list(self._accounting.get_positions()):
             if position.symbol != symbol:
                 continue
+            await self._evaluate_exit_for_position(position, tick, now)
 
-            # Check for micro-trade time-based exit
-            if position.metadata and position.metadata.get("micro_trade"):
-                created_at_str = position.metadata.get("created_at")
-                max_time_min = position.metadata.get("max_time_min", settings.paper_trade_assist_micro_trade_max_time_min)
-                
-                if created_at_str:
-                    from datetime import datetime
-                    try:
-                        created_at = datetime.fromisoformat(created_at_str)
-                        time_elapsed_min = (datetime.utcnow() - created_at).total_seconds() / 60.0
-                        
-                        if time_elapsed_min >= max_time_min:
-                            logger.info(
-                                f"[PAPER_ASSIST] Micro-trade {position.position_id} time limit reached "
-                                f"({time_elapsed_min:.1f}min >= {max_time_min}min), closing at market"
-                            )
-                            await self._close_position_at_price(position, tick.price)
-                            continue
-                    except Exception as e:
-                        logger.debug(f"Error parsing micro-trade created_at: {e}")
+    async def _evaluate_exit_for_position(
+        self,
+        position: Position,
+        tick: Tick,
+        now: datetime | None = None,
+    ) -> None:
+        """Evaluate TP/SL/TTL for a position and emit exit telemetry."""
+        now = now or datetime.utcnow()
+        metadata = position.metadata or {}
+        exit_plan = metadata.get("exit_plan") or {
+            "tp": position.take_profit,
+            "sl": position.stop_loss,
+            "trailing": metadata.get("trailing"),
+            "time_stop_seconds": metadata.get("max_time_sec"),
+            "invalidation_rule": metadata.get("invalidation_rule"),
+        }
 
-            # DEBUG: Close at TP on next tick after entry (only in debug mode)
-            if settings.debug_mode and position.take_profit:
-                # Check if price hit TP
-                if position.side == "long" and tick.price >= position.take_profit:
-                    # Close at TP
-                    close_price = position.take_profit
-                    logger.debug(f"[DEBUG] Closing {position.position_id} at TP {close_price:.2f}")
-                    await self._close_position_at_price(position, close_price)
-                elif position.side == "short" and tick.price <= position.take_profit:
-                    # Close at TP
-                    close_price = position.take_profit
-                    logger.debug(f"[DEBUG] Closing {position.position_id} at TP {close_price:.2f}")
-                    await self._close_position_at_price(position, close_price)
-            
-            # Paper assist: Check TP/SL for micro-trades
-            if is_paper_assist_enabled() and position.metadata and position.metadata.get("micro_trade"):
-                if position.take_profit:
-                    if position.side == "long" and tick.price >= position.take_profit:
-                        logger.info(
-                            f"[PAPER_ASSIST] Micro-trade {position.position_id} hit TP "
-                            f"${position.take_profit:.2f}, closing"
-                        )
-                        await self._close_position_at_price(position, position.take_profit)
-                        continue
-                    elif position.side == "short" and tick.price <= position.take_profit:
-                        logger.info(
-                            f"[PAPER_ASSIST] Micro-trade {position.position_id} hit TP "
-                            f"${position.take_profit:.2f}, closing"
-                        )
-                        await self._close_position_at_price(position, position.take_profit)
-                        continue
-                
-                if position.stop_loss:
-                    if position.side == "long" and tick.price <= position.stop_loss:
-                        logger.info(
-                            f"[PAPER_ASSIST] Micro-trade {position.position_id} hit SL "
-                            f"${position.stop_loss:.2f}, closing"
-                        )
-                        await self._close_position_at_price(position, position.stop_loss)
-                        continue
-                    elif position.side == "short" and tick.price >= position.stop_loss:
-                        logger.info(
-                            f"[PAPER_ASSIST] Micro-trade {position.position_id} hit SL "
-                            f"${position.stop_loss:.2f}, closing"
-                        )
-                        await self._close_position_at_price(position, position.stop_loss)
-                        continue
+        tp = exit_plan.get("tp") or position.take_profit
+        sl = exit_plan.get("sl") or position.stop_loss
+        time_stop = exit_plan.get("time_stop_seconds") or position.max_time_sec
 
-    async def _close_position_at_price(self, position: Position, close_price: float) -> None:
+        # Paper-assist micro trades may specify max_time_min (minutes)
+        if metadata.get("micro_trade"):
+            if time_stop is None:
+                max_time_min = metadata.get(
+                    "max_time_min", settings.paper_trade_assist_micro_trade_max_time_min
+                )
+                time_stop = max_time_min * 60
+
+        # Global anti-stuck TTL
+        if time_stop is None:
+            time_stop = settings.max_hold_seconds
+
+        hold_seconds = None
+        if position.opened_at:
+            hold_seconds = (now - position.opened_at).total_seconds()
+
+        # Use best available price
+        price = (
+            tick.price
+            or self._execution_router._current_prices.get(position.symbol)
+            or position.current_price
+            or position.entry_price
+        )
+
+        thresholds = {
+            "tp": tp,
+            "sl": sl,
+            "time_stop_seconds": time_stop,
+        }
+
+        # Exit plan missing guard
+        if tp is None and sl is None and time_stop is None:
+            await self._emit_order_exit_decision(
+                position=position,
+                decision="HOLD",
+                reason_code="EXIT_PLAN_MISSING",
+                tick_price=price,
+                thresholds=thresholds,
+                hold_seconds=hold_seconds,
+                note="No TP/SL/TTL configured",
+            )
+            return
+
+        # TTL enforcement
+        if time_stop and hold_seconds is not None and hold_seconds >= time_stop:
+            await self._emit_order_exit_decision(
+                position=position,
+                decision="FORCE_CLOSE",
+                reason_code="TIMEOUT_TTL",
+                tick_price=price,
+                thresholds=thresholds,
+                hold_seconds=hold_seconds,
+            )
+            await self._close_position_at_price(position, price, reason="timeout_ttl")
+            return
+
+        # Take-profit checks
+        if tp is not None:
+            if position.side == "long" and price >= tp:
+                await self._emit_order_exit_decision(
+                    position=position,
+                    decision="CLOSE",
+                    reason_code="TP_HIT",
+                    tick_price=price,
+                    thresholds=thresholds,
+                    hold_seconds=hold_seconds,
+                )
+                await self._close_position_at_price(position, tp, reason="take_profit")
+                return
+            if position.side == "short" and price <= tp:
+                await self._emit_order_exit_decision(
+                    position=position,
+                    decision="CLOSE",
+                    reason_code="TP_HIT",
+                    tick_price=price,
+                    thresholds=thresholds,
+                    hold_seconds=hold_seconds,
+                )
+                await self._close_position_at_price(position, tp, reason="take_profit")
+                return
+
+        # Stop-loss checks
+        if sl is not None:
+            if position.side == "long" and price <= sl:
+                await self._emit_order_exit_decision(
+                    position=position,
+                    decision="CLOSE",
+                    reason_code="SL_HIT",
+                    tick_price=price,
+                    thresholds=thresholds,
+                    hold_seconds=hold_seconds,
+                )
+                await self._close_position_at_price(position, sl, reason="stop_loss")
+                return
+            if position.side == "short" and price >= sl:
+                await self._emit_order_exit_decision(
+                    position=position,
+                    decision="CLOSE",
+                    reason_code="SL_HIT",
+                    tick_price=price,
+                    thresholds=thresholds,
+                    hold_seconds=hold_seconds,
+                )
+                await self._close_position_at_price(position, sl, reason="stop_loss")
+                return
+
+        # Nothing to do -> emit throttled HOLD
+        last_ts = self._last_exit_decision_ts.get(position.position_id)
+        if not last_ts or (now - last_ts).total_seconds() >= 2:
+            await self._emit_order_exit_decision(
+                position=position,
+                decision="HOLD",
+                reason_code="HOLD",
+                tick_price=price,
+                thresholds=thresholds,
+                hold_seconds=hold_seconds,
+            )
+            self._last_exit_decision_ts[position.position_id] = now
+
+    async def _micro_trade_fallback_loop(self) -> None:
+        """Emit periodic micro-trade signals for paper assist mode."""
+        interval_sec = settings.paper_trade_assist_micro_trade_interval_sec
+        notional_usd = settings.paper_trade_assist_micro_trade_notional_usd
+        tp_pct = settings.paper_trade_assist_micro_trade_tp_pct / 100.0
+        sl_pct = settings.paper_trade_assist_micro_trade_sl_pct / 100.0
+
+        while self._running and is_paper_assist_enabled():
+            try:
+                await asyncio.sleep(interval_sec)
+
+                if self._stop_trading:
+                    continue
+
+                prices = getattr(self._execution_router, "_current_prices", {})
+                if not prices:
+                    continue
+
+                symbol = random.choice(list(prices.keys()))
+                price = prices.get(symbol)
+                if not price:
+                    continue
+
+                last_time = self._last_micro_trade_time.get(symbol)
+                now = datetime.utcnow()
+                if last_time and (now - last_time).total_seconds() < interval_sec:
+                    continue
+
+                side = random.choice(["buy", "sell"])
+                size = max(0.000001, notional_usd / price)
+
+                if side == "buy":
+                    take_profit = price * (1 + tp_pct)
+                    stop_loss = price * (1 - sl_pct)
+                else:
+                    take_profit = price * (1 - tp_pct)
+                    stop_loss = price * (1 + sl_pct)
+
+                signal = Signal(
+                    strategy_id="paper_assist_micro",
+                    symbol=symbol,
+                    side=side,
+                    entry_price=price,
+                    size=size,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    metadata={
+                        "micro_trade": True,
+                        "created_at": now.isoformat(),
+                        "max_time_min": settings.paper_trade_assist_micro_trade_max_time_min,
+                    },
+                )
+
+                await self._bus.publish(Event(event_type=EventType.SIGNAL, data={"signal": signal}))
+                self._last_micro_trade_time[symbol] = now
+                logger.info(
+                    "[PAPER_ASSIST] Micro-trade signal: %s %s size=%.6f",
+                    symbol,
+                    side,
+                    size,
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Micro-trade fallback loop error: {e}", exc_info=True)
+                await asyncio.sleep(1.0)
+
+    async def _check_position_timeouts(self) -> None:
+        """Periodic safety check for stale ticks and TTL enforcement."""
+        if not self._running:
+            return
+
+        now = datetime.utcnow()
+        positions = list(self._accounting.get_positions())
+        for position in positions:
+            last_tick = self._last_tick_at.get(position.symbol)
+            stale = last_tick is None or (now - last_tick).total_seconds() > 3
+            if stale:
+                price = (
+                    self._execution_router._current_prices.get(position.symbol)
+                    if hasattr(self._execution_router, "_current_prices")
+                    else None
+                )
+                price = price or position.current_price or position.entry_price
+                thresholds = {
+                    "tp": position.take_profit,
+                    "sl": position.stop_loss,
+                    "time_stop_seconds": position.max_time_sec or settings.max_hold_seconds,
+                }
+                # Emit NO_TICKS hold event (throttled via _evaluate_exit_for_position)
+                synthetic_tick = Tick(
+                    symbol=position.symbol,
+                    price=price,
+                    timestamp=now,
+                    volume=0.0,
+                )
+                await self._emit_order_exit_decision(
+                    position=position,
+                    decision="HOLD",
+                    reason_code="NO_TICKS",
+                    tick_price=price,
+                    thresholds=thresholds,
+                    hold_seconds=(now - position.opened_at).total_seconds()
+                    if position.opened_at
+                    else None,
+                    note="No recent market ticks; using last known price",
+                )
+                # Re-evaluate exits/TTL using synthetic tick to prevent stuck positions
+                await self._evaluate_exit_for_position(position, synthetic_tick, now)
+
+        # Emit refreshed account state so UI sees updated unrealized PnL
+        await self._emit_account_state()
+
+    async def _close_position_at_price(
+        self,
+        position: Position,
+        close_price: float,
+        reason: str = "forced_exit",
+    ) -> None:
         """Close a position at a specific price."""
         # Update position price first
         self._accounting.update_position_price(position.position_id, close_price)
@@ -1234,15 +2101,18 @@ class TradingSystem:
                 event_type=EventType.POSITION_CLOSED,
                 data={
                     "position": position,
-                    "close_reason": "forced_tp",
+                    "close_reason": reason,
                 },
             )
         )
 
     async def _handle_regime_update(self, event: Event) -> None:
         """Handle regime update event."""
-        symbol = event.data["symbol"]
-        regime = event.data["regime"]
+        symbol = event.data.get("symbol")
+        regime = event.data.get("regime")
+        if symbol is None or regime is None:
+            logger.warning("REGIME_UPDATE missing symbol/regime: %s", event.data)
+            return
         self._current_regime[symbol] = regime
         logger.debug(f"Regime updated: {symbol} -> {regime.value}")
 
@@ -1343,6 +2213,13 @@ class TradingSystem:
 
         # Get profit target progress
         progress = self._profit_tracker.get_progress()
+        
+        # Check profit capture (if enabled)
+        if self._profit_capture and self._profit_capture._enabled:
+            try:
+                await self._profit_capture.check_and_trigger(equity, self)
+            except Exception as e:
+                logger.debug(f"Profit capture check error: {e}")
 
         # Generate daily report (once per day)
         if self._report_generator:

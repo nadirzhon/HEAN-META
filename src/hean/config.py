@@ -8,6 +8,24 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def parse_list_env(value: Any) -> Any:
+    """Parse list values from env (JSON array, comma-separated, or single item)."""
+    if value is None:
+        return value
+    if isinstance(value, str):
+        if value.strip() == "":
+            return value
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        items = [item.strip() for item in value.split(",") if item.strip()]
+        return items if items else value
+    return value
+
+
 class HEANSettings(BaseSettings):
     """Main configuration for HEAN system."""
 
@@ -16,14 +34,34 @@ class HEANSettings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        enable_decoding=False,
+        env_ignore_empty=True,
+    )
+
+    # Absolute+ / Meta-Learning controls (disabled by default for safety in containerized runs)
+    absolute_plus_enabled: bool = Field(
+        default=False,
+        description="Enable Absolute+ meta-learning / patching systems",
+    )
+    meta_learning_auto_patch: bool = Field(
+        default=False,
+        description="Allow meta-learning engine to patch source code (requires writable volume)",
+    )
+    meta_learning_rate: int = Field(
+        default=0,
+        description="Simulation rate hint for meta-learning engine",
+    )
+    meta_learning_max_workers: int = Field(
+        default=0,
+        description="Max concurrent simulations for meta-learning",
     )
 
     # Trading Mode
     live_confirm: str = Field(default="YES", description="Must be 'YES' to enable live trading")
-    trading_mode: Literal["paper", "live"] = Field(default="live", description="Trading mode")
+    trading_mode: Literal["paper", "live"] = Field(default="paper", description="Trading mode")
 
     # Capital Management
-    initial_capital: float = Field(default=400.0, gt=0, description="Initial capital in USDT")
+    initial_capital: float = Field(default=300.0, gt=0, description="Initial capital in USDT")
     reinvest_rate: float = Field(
         default=0.5,
         ge=0,
@@ -70,7 +108,17 @@ class HEANSettings(BaseSettings):
         description="Maximum risk per trade percentage (default 2% for aggressive trading)",
     )
     max_open_positions: int = Field(
-        default=100, gt=0, description="Maximum number of open positions (for multi-pair trading)"
+        default=10, gt=0, description="Maximum number of open positions (anti-runaway guard)"
+    )
+    max_open_orders: int = Field(
+        default=20,
+        gt=0,
+        description="Maximum number of open orders (prevents runaway order creation)",
+    )
+    max_hold_seconds: int = Field(
+        default=900,
+        gt=0,
+        description="Maximum time to hold a position before force-closing (anti-stuck TTL, default 15m)",
     )
     max_concurrent_risk_pct: float = Field(
         default=20.0,
@@ -158,8 +206,41 @@ class HEANSettings(BaseSettings):
 
     # Trading Symbols
     trading_symbols: list[str] = Field(
-        default=["BTCUSDT", "ETHUSDT"],
+        default=[
+            "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT",
+            "DOGEUSDT", "DOTUSDT", "LTCUSDT", "AVAXUSDT", "LINKUSDT",
+            "BCHUSDT", "MATICUSDT", "ATOMUSDT", "ETCUSDT", "BNBUSDT",
+            "FILUSDT", "NEARUSDT", "OPUSDT", "ARBUSDT", "APTUSDT",
+            "SUIUSDT", "TRXUSDT", "XLMUSDT", "UNIUSDT", "AAVEUSDT",
+            "MKRUSDT", "INJUSDT", "RNDRUSDT", "SEIUSDT", "RUNEUSDT",
+            "ICPUSDT", "ALGOUSDT", "EOSUSDT", "FTMUSDT", "GALAUSDT",
+            "SANDUSDT", "AXSUSDT", "CHZUSDT", "CRVUSDT", "KAVAUSDT",
+            "GMXUSDT", "SNXUSDT", "ZILUSDT", "DYDXUSDT", "COMPUSDT",
+            "1INCHUSDT", "LDOUSDT", "NEOUSDT", "XTZUSDT", "APEUSDT",
+        ],
         description="List of trading symbols to monitor and trade (e.g., ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'])",
+    )
+
+    # Paper mode data source
+    paper_use_live_feed: bool = Field(
+        default=False,
+        description="Use Bybit public market data in paper mode (instead of synthetic feed). Default False to guarantee ticks in PAPER.",
+    )
+
+    # Triangular arbitrage
+    triangular_arb_enabled: bool = Field(
+        default=True,
+        description="Enable triangular arbitrage scanner",
+    )
+    triangular_fee_buffer: float = Field(
+        default=0.001,
+        ge=0,
+        description="Fee buffer ratio for triangular arbitrage scanning",
+    )
+    triangular_min_profit_bps: float = Field(
+        default=5.0,
+        ge=0,
+        description="Minimum profit in bps required for triangular arbitrage",
     )
 
     @field_validator("trading_symbols", mode="before")
@@ -168,18 +249,15 @@ class HEANSettings(BaseSettings):
         """Parse trading_symbols from env, handling empty strings and JSON."""
         if v is None or v == "":
             return ["BTCUSDT", "ETHUSDT"]  # Default value
-        if isinstance(v, str):
-            # Try to parse as JSON first
-            try:
-                parsed = json.loads(v)
-                if isinstance(parsed, list):
-                    return parsed
-            except (json.JSONDecodeError, ValueError):
-                pass
-            # If not JSON, try comma-separated
-            if "," in v:
-                return [s.strip() for s in v.split(",") if s.strip()]
-        return v
+        return parse_list_env(v)
+
+    @field_validator("impulse_allowed_hours", mode="before")
+    @classmethod
+    def parse_impulse_allowed_hours(cls, v: Any) -> Any:
+        """Parse impulse_allowed_hours from env values."""
+        if v == "":
+            return None
+        return parse_list_env(v)
 
     # Impulse Engine Specific
     impulse_max_attempts_per_day: int = Field(
@@ -246,6 +324,9 @@ class HEANSettings(BaseSettings):
     bybit_api_key: str = Field(default="", description="Bybit API key")
     bybit_api_secret: str = Field(default="", description="Bybit API secret")
     bybit_testnet: bool = Field(default=False, description="Use Bybit testnet")
+
+    # LLM API Keys (for agent generation and catalyst)
+    gemini_api_key: str = Field(default="", description="Google Gemini API key for agent generation and catalyst")
 
     # Observability
     log_level: str = Field(default="INFO", description="Logging level")
@@ -457,6 +538,36 @@ class HEANSettings(BaseSettings):
         default=False,
         description="Enable paper trade assist mode - softens filters/limits in paper/dry_run mode only. "
         "FORBIDDEN in live trading (DRY_RUN=false && LIVE_CONFIRM=YES).",
+    )
+
+    # Profit Capture (AFO-Director feature)
+    profit_capture_enabled: bool = Field(
+        default=False,
+        description="Enable profit capture feature (default OFF). Automatically locks profits when target is reached.",
+    )
+    profit_capture_target_pct: float = Field(
+        default=20.0,
+        gt=0,
+        description="Profit capture target percentage (default 20%). Triggers when equity grows by this % from start.",
+    )
+    profit_capture_trail_pct: float = Field(
+        default=10.0,
+        gt=0,
+        description="Profit capture trail percentage (default 10%). Triggers when drawdown from peak reaches this %.",
+    )
+    profit_capture_mode: Literal["partial", "full"] = Field(
+        default="full",
+        description="Profit capture mode: 'full' closes all positions and cancels orders, 'partial' reduces exposure.",
+    )
+    profit_capture_after_action: Literal["pause", "continue"] = Field(
+        default="pause",
+        description="Action after profit capture: 'pause' stops trading, 'continue' continues with reduced risk.",
+    )
+    profit_capture_continue_risk_mult: float = Field(
+        default=0.25,
+        ge=0,
+        le=1,
+        description="Risk multiplier when continuing after profit capture (default 0.25 = 25% of normal risk).",
     )
     paper_trade_assist_micro_trade_interval_sec: int = Field(
         default=60,

@@ -92,7 +92,7 @@ class SyntheticPriceFeed(PriceFeed):
                     )
                 )
 
-                await asyncio.sleep(1.0)  # 1 tick per second
+                await asyncio.sleep(0.1)  # 100ms ticks for Market Pulse (10 ticks per second)
             except asyncio.CancelledError:
                 break
             except Exception as e:

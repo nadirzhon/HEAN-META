@@ -141,6 +141,8 @@ def log_block_reason(
     symbol: str = "",
     strategy_id: str = "",
     agent_name: str = "",
+    reasons: list[str] | None = None,
+    suggested_fix: list[str] | None = None,
 ) -> None:
     """Log a block reason with diagnostic information.
     
@@ -163,6 +165,10 @@ def log_block_reason(
         msg_parts.append(f"| Threshold: {threshold:.6f}")
     if symbol:
         msg_parts.append(f"| Symbol: {symbol}")
+    if reasons:
+        msg_parts.append(f"| Reasons: {', '.join(reasons)}")
+    if suggested_fix:
+        msg_parts.append(f"| Fix: {', '.join(suggested_fix)}")
     
     # Always log at INFO level for visibility in docker-compose logs
     logger.info(" ".join(msg_parts))
@@ -177,6 +183,10 @@ def log_block_reason(
         debug_parts.append(f"measured={measured_value:.6f}")
     if threshold is not None:
         debug_parts.append(f"threshold={threshold:.6f}")
+    if reasons:
+        debug_parts.append(f"reasons={reasons}")
+    if suggested_fix:
+        debug_parts.append(f"fix={suggested_fix}")
     logger.debug(" ".join(debug_parts))
 
 
@@ -203,4 +213,3 @@ def log_allow_reason(
         msg_parts.append(f"note={note}")
     
     logger.info(" ".join(msg_parts))
-

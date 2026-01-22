@@ -21,7 +21,10 @@ except ImportError:
 
 from hean.config import settings
 from hean.core.system.redis_state import get_redis_state_manager
-from hean.core.intelligence.graph_engine import GraphEngine as GraphEnginePython
+try:
+    from hean.core.intelligence.graph_engine import GraphEngineWrapper as GraphEnginePython
+except ImportError:
+    GraphEnginePython = None
 from hean.logging import get_logger
 
 logger = get_logger(__name__)
@@ -340,7 +343,7 @@ class HealthMonitor:
                 f"Stack trace:\n{traceback.format_exc()}"
             )
     
-    def get_health_status(self) -> dict[str, Any]:
+    async def get_health_status(self) -> dict[str, Any]:
         """Get current health status of all modules."""
         async with self._lock:
             return {

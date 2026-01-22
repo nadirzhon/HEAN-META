@@ -31,11 +31,7 @@ pip install -e ".[dev]"
 
 ### Configuration
 
-Copy `.env.example` to `.env` and adjust settings:
-
-```bash
-cp .env.example .env
-```
+Edit `.env` (template included in repo) and adjust settings.
 
 ### Development Mode (Recommended)
 
@@ -48,9 +44,8 @@ make dev
 This starts:
 - **API**: http://localhost:8000 (FastAPI backend)
 - **Command Center**: http://localhost:3000 (Trading Command Center UI)
-- **Legacy Dashboard**: http://localhost:3000/dashboard.html (Legacy UI)
 - **Prometheus**: http://localhost:9091 (Metrics)
-- **Grafana**: http://localhost:3000 (Dashboards, admin/admin)
+- **Grafana**: http://localhost:3001 (Dashboards, admin/admin)
 
 ### Running in Paper Mode (CLI)
 
@@ -68,6 +63,13 @@ The system will:
 - Print status every 10 seconds (equity, daily PnL, drawdown)
 - Simulate fills, fees, and slippage
 
+### Order decision telemetry (debugging zero trades)
+
+- WS topic `order_decisions` + Redis key `hean:state:state:order_decisions` carry CREATE/SKIP/REJECT with `reason_code`.
+- Fire a smoke signal: `POST /orders/test` (paper only) to verify orders/positions populate and metrics update.
+- Inspect DecisionMemory blocks: `GET /risk/decision-memory/blocks` (empty = not blocking).
+- Logs include `[ORDER_DECISION] …` for quick grep when diagnosing why a signal was skipped/rejected.
+
 ### Trading Command Center
 
 Access the full-featured Trading Command Center at http://localhost:3000 (after running `make dev`).
@@ -82,9 +84,8 @@ Access the full-featured Trading Command Center at http://localhost:3000 (after 
 - **Settings**: System configuration (secrets masked), live trading checklist
 
 **Real-time Features**:
-- SSE event stream for live trading events
-- SSE log stream for system logs
-- Auto-updating metrics and status
+- WebSocket topics for live updates
+- Auto-updating metrics and status (polling)
 - Command palette (Ctrl+K) for quick actions
 - Theme toggle (light/dark)
 
@@ -121,7 +122,7 @@ See [docs/API.md](docs/API.md) for complete API documentation.
 
 ```bash
 # Build and start
-docker-compose up -d
+docker-compose up -d --build
 
 # View logs
 docker-compose logs -f
@@ -544,5 +545,3 @@ make dev
 ## License
 
 MIT
-
-

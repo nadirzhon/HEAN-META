@@ -56,12 +56,13 @@ This document summarizes the changes made to bring HEAN to production-ready stat
 
 **Usage:** Called automatically when accessing `/positions` or `/orders` in live mode
 
-### 4. Frontend Dashboard (`web/dashboard.*`)
+### 4. Command Center (Next.js UI)
 
 **Created:**
-- `web/dashboard.html` - Full-featured dashboard UI
-- `web/dashboard.css` - Modern, responsive styling
-- `web/dashboard.js` - API integration and real-time updates
+- `control-center/app/page.tsx` - Main dashboard UI
+- `control-center/components/` - UI components
+- `control-center/lib/` - API + WebSocket hooks
+- `control-center/Dockerfile` - Production build
 
 **Pages:**
 - Dashboard - Metrics, events, health checks
@@ -73,7 +74,7 @@ This document summarizes the changes made to bring HEAN to production-ready stat
 - Settings - System configuration
 
 **Features:**
-- Real-time polling (5s interval)
+- Real-time polling (2s interval)
 - Engine start/stop controls
 - Test order placement
 - Smoke test execution
@@ -118,7 +119,7 @@ logger.info("Message")  # Includes request_id in log
 
 **Services:**
 - `api` - FastAPI backend (port 8000)
-- `web` - Frontend with Nginx (port 3000)
+- `web` - Next.js Command Center (port 3000)
 - `hean` - Legacy CLI service (optional, profile: cli)
 
 **Features:**
@@ -127,15 +128,13 @@ logger.info("Message")  # Includes request_id in log
 - Network isolation
 - Volume mounts for development
 
-### 8. Nginx Configuration
+### 8. Next.js Configuration
 
-**Updated:** `web/nginx.conf`
+**Updated:** `control-center/next.config.js`
 
 **Features:**
-- API proxy (`/api/` → `http://api:8000/`)
-- CORS headers
-- Static file serving
-- Health check endpoint
+- API rewrites for `/api/*`
+- Public env for API/WS endpoints
 
 ### 9. Makefile
 
@@ -143,7 +142,7 @@ logger.info("Message")  # Includes request_id in log
 
 **New Targets:**
 - `make dev` - Start full development environment (API + Frontend + Monitoring)
-- `make lint` - Lint code (includes web/)
+- `make lint` - Lint Python code
 
 **Existing Targets:**
 - `make install` - Install dependencies
@@ -192,9 +191,9 @@ logger.info("Message")  # Includes request_id in log
 - `src/hean/api/server.py`
 - `src/hean/api/engine_facade.py`
 - `src/hean/api/reconcile.py`
-- `web/dashboard.html`
-- `web/dashboard.css`
-- `web/dashboard.js`
+- `control-center/app/page.tsx`
+- `control-center/components/*`
+- `control-center/lib/*`
 - `tests/test_api.py`
 - `tests/test_api_e2e.py`
 - `docs/ARCHITECTURE.md`
@@ -206,8 +205,7 @@ logger.info("Message")  # Includes request_id in log
 - `pyproject.toml` - Added FastAPI dependencies
 - `src/hean/logging.py` - Added request_id/trace_id support
 - `docker-compose.yml` - Added API service, updated web service
-- `web/nginx.conf` - Added API proxy
-- `web/dashboard.js` - Updated API base URL
+- `control-center/next.config.js` - API rewrites
 - `Makefile` - Added `make dev` and updated `make lint`
 - `monitoring/prometheus.yml` - Updated scrape config
 - `README.md` - Added API and dashboard sections
@@ -222,9 +220,9 @@ make dev
 
 # Access:
 # - API: http://localhost:8000
-# - Dashboard: http://localhost:3000/dashboard.html
+# - Command Center: http://localhost:3000
 # - Prometheus: http://localhost:9091
-# - Grafana: http://localhost:3000 (admin/admin)
+# - Grafana: http://localhost:3001 (admin/admin)
 ```
 
 ### CLI (Backward Compatible)
@@ -262,7 +260,7 @@ make lint
 - [x] `make test` - all tests pass
 - [x] `make lint` - no linting errors
 - [x] `make run` - CLI still works
-- [x] Dashboard accessible at http://localhost:3000/dashboard.html
+- [x] Command Center accessible at http://localhost:3000
 - [x] API accessible at http://localhost:8000
 - [x] Health endpoint returns 200
 - [x] Engine start/stop works via API
@@ -337,4 +335,3 @@ See `docs/API.md` for complete API reference with examples.
 ## Assumptions
 
 See `docs/ASSUMPTIONS.md` for design decisions and assumptions.
-

@@ -25,6 +25,8 @@ class KillSwitch:
         self._bus = bus
         self._triggered = False
         self._trigger_reason = ""
+        self._triggered_at: datetime | None = None
+        self._reasons: list[str] = []  # List of all trigger reasons
         self._daily_high_equity: float | None = None
         self._daily_reset_time = datetime.utcnow().replace(
             hour=0, minute=0, second=0, microsecond=0
@@ -119,6 +121,25 @@ class KillSwitch:
         if self._daily_high_equity is not None and self._daily_high_equity > 0:
             drawdown_pct = ((self._daily_high_equity - equity) / self._daily_high_equity) * 100
 
+            # CRITICAL FIX: Don't block trading on drawdown from daily high if:
+            # 1. Equity is still above initial capital (we're in profit)
+            # 2. The drawdown is just normal market fluctuations after profit
+            # This prevents "freezing" after reaching profit goals
+            profit_above_initial = False
+            if self._initial_capital is not None and self._initial_capital > 0:
+                profit_pct = ((equity - self._initial_capital) / self._initial_capital) * 100
+                profit_above_initial = equity > self._initial_capital * 1.05  # At least 5% above initial
+                
+                # If we have significant profit (>50%), allow larger drawdown from daily high
+                if profit_pct > 50.0:
+                    logger.debug(
+                        f"Equity ${equity:.2f} is {profit_pct:.1f}% above initial ${self._initial_capital:.2f}, "
+                        f"allowing drawdown from daily high ${self._daily_high_equity:.2f}"
+                    )
+                    # Skip daily high drawdown check if we're in significant profit
+                    # Only check drawdown from initial capital (already checked above)
+                    return self._triggered
+
             # Get adaptive drawdown limit based on capital size
             adaptive_limit = self.get_adaptive_drawdown_limit(equity)
 
@@ -136,10 +157,19 @@ class KillSwitch:
             if regime and hasattr(regime, "value") and regime.value == "impulse":
                 max_dd_limit = max_dd_limit * 0.8  # 20% tighter
 
+            # If we have profit above initial, be more lenient with daily high drawdown
+            if profit_above_initial:
+                # Allow 2x the normal drawdown limit when in profit
+                max_dd_limit = max_dd_limit * 2.0
+                logger.debug(
+                    f"Relaxed drawdown limit to {max_dd_limit:.2f}% due to profit above initial capital"
+                )
+
             if drawdown_pct >= max_dd_limit:
+                pf_str = f"{rolling_pf:.2f}" if rolling_pf is not None else "N/A"
                 await self._trigger(
                     f"Daily drawdown {drawdown_pct:.2f}% exceeds adaptive limit {max_dd_limit:.2f}% "
-                    f"(PF={rolling_pf:.2f if rolling_pf else 'N/A'})"
+                    f"(PF={pf_str})"
                 )
                 return True
 
@@ -173,17 +203,22 @@ class KillSwitch:
     async def _trigger(self, reason: str) -> None:
         """Trigger the killswitch."""
         if self._triggered:
+            # Add additional reason if already triggered
+            if reason not in self._reasons:
+                self._reasons.append(reason)
             return
 
         self._triggered = True
         self._trigger_reason = reason
+        self._triggered_at = datetime.utcnow()
+        self._reasons = [reason]  # Initialize with first reason
 
         logger.critical(f"KILLSWITCH TRIGGERED: {reason}")
 
         await self._bus.publish(
             Event(
                 event_type=EventType.KILLSWITCH_TRIGGERED,
-                data={"reason": reason},
+                data={"reason": reason, "triggered_at": self._triggered_at.isoformat()},
             )
         )
 
@@ -206,4 +241,6 @@ class KillSwitch:
         """Reset the killswitch (only on new day)."""
         self._triggered = False
         self._trigger_reason = ""
+        self._triggered_at = None
+        self._reasons = []
         self._error_count = 0

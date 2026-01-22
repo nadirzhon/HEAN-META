@@ -295,6 +295,7 @@ class TriangularScanner:
         )
         
         # Emit signal for atomic multi-leg execution
+        cycle_id = f"{cycle.asset_a}-{cycle.asset_b}-{cycle.asset_c}-{cycle.detection_time_ns}"
         # The executor will handle atomic execution with rollback
         signal = Signal(
             strategy_id="triangular_arbitrage",
@@ -304,6 +305,7 @@ class TriangularScanner:
             entry_price=0.0,  # Will be filled by executor
             metadata={
                 "triangular_cycle": True,
+                "cycle_id": cycle_id,
                 "pair_a": cycle.pair_a,
                 "pair_b": cycle.pair_b,
                 "pair_c": cycle.pair_c,
@@ -313,7 +315,9 @@ class TriangularScanner:
                 "profit_bps": cycle.profit_bps,
                 "profit_ratio": cycle.profit_ratio,
                 "max_size": cycle.max_size,
+                "detection_time_ns": cycle.detection_time_ns,
                 "atomic_execution": True,  # Flag for atomic multi-leg orders
+                "triangular_stats": self.get_stats(),
             }
         )
         

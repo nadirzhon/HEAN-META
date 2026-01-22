@@ -57,8 +57,7 @@ Successfully implemented a comprehensive predictive graph-based engine with real
 ### 4. ✅ Visual Singularity (Eureka UI)
 
 **Files Created**:
-- `web/eureka.html` - 3D visualization interface
-- `web/eureka.js` - Force-directed graph and visualization logic
+- `control-center` - 3D visualization interface (integrated UI)
 - `src/hean/api/routers/graph_engine.py` - API endpoints
 
 **Features**:
@@ -70,7 +69,7 @@ Successfully implemented a comprehensive predictive graph-based engine with real
 - D3.js price chart with current vs. future shadow
 - API integration for live data
 
-**Status**: ✅ Complete, accessible via `/eureka.html`
+**Status**: ✅ Complete, accessible via Command Center (`http://localhost:3000`)
 
 ## Build System
 
@@ -133,7 +132,7 @@ Successfully implemented a comprehensive predictive graph-based engine with real
    ```
 
 5. **Access Eureka UI**:
-   Navigate to: `http://localhost:3000/eureka.html`
+   Navigate to: `http://localhost:3000`
 
 ### Integration into Main Trading System:
 

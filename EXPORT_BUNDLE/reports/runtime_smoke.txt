@@ -1,4 +1,0 @@
-=== Smoke Test ===
-HEAN module import: OK
-
-✅ Module import successful

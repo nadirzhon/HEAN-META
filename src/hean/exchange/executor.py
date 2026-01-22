@@ -14,7 +14,10 @@ import random
 
 from hean.core.bus import EventBus
 from hean.core.types import Event, EventType, Order, OrderRequest, OrderStatus
-from hean.exchange.bybit.http import BybitHTTPClient
+try:
+    from hean.exchange.bybit.http import BybitHTTPClient
+except ImportError:  # Optional live trading dependency
+    BybitHTTPClient = None  # type: ignore[assignment]
 from hean.logging import get_logger
 
 logger = get_logger(__name__)
