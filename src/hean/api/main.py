@@ -1382,18 +1382,20 @@ async def add_request_id(request: Request, call_next):
     return response
 
 # Include all existing routers from app.py
-from hean.api.routers import analytics, engine, graph_engine, market, risk, strategies, system, telemetry, trading
+from hean.api.routers import analytics, changelog, engine, graph_engine, market, risk, risk_governor, strategies, system, telemetry, trading
 
 app.include_router(engine.router)
 app.include_router(trading.router)
 app.include_router(trading.why_router)
 app.include_router(strategies.router)
 app.include_router(risk.router)
+app.include_router(risk_governor.router)
 app.include_router(analytics.router)
 app.include_router(system.router)
 app.include_router(graph_engine.router)
 app.include_router(telemetry.router)
 app.include_router(market.router)
+app.include_router(changelog.router)
 
 # WebSocket endpoint for Pub/Sub
 @app.websocket("/ws")
