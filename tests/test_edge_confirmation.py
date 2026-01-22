@@ -221,6 +221,7 @@ def test_candidate_expires_and_is_replaced() -> None:
     confirmed = loop.confirm_or_update(signal, tick2, context2, prices2)
     assert confirmed is None, "Impulse after timeout should create a fresh candidate"
 
+
 """Tests for edge confirmation loop (2-step impulse entries)."""
 
 from datetime import datetime, timedelta
@@ -437,6 +438,3 @@ def test_candidate_expires_and_is_replaced() -> None:
 
     confirmed = loop.confirm_or_update(signal, tick2, context2, prices2)
     assert confirmed is None, "Impulse after timeout should create a fresh candidate"
-
-
-

@@ -171,9 +171,3 @@ def test_strategy_regime_gating() -> None:
     assert not ie.is_allowed_in_regime(Regime.RANGE)
     assert not ie.is_allowed_in_regime(Regime.NORMAL)
     assert ie.is_allowed_in_regime(Regime.IMPULSE)
-
-
-
-
-
-

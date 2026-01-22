@@ -261,4 +261,3 @@ def test_impulse_engine_metrics() -> None:
     assert metrics["be_stop_hit_pct"] == pytest.approx(33.33, abs=0.1)
     assert metrics["total_trades"] == 3.0
     assert metrics["be_stop_hits"] == 1.0
-

@@ -239,9 +239,7 @@ class SQLiteStorage(Storage):
             )
             row = await cursor.fetchone()  # type: ignore
         else:
-            cursor = conn.execute(
-                "SELECT data FROM snapshots ORDER BY timestamp DESC LIMIT 1"
-            )
+            cursor = conn.execute("SELECT data FROM snapshots ORDER BY timestamp DESC LIMIT 1")
             row = cursor.fetchone()
         if not row:
             return None
@@ -289,7 +287,7 @@ class SQLiteStorage(Storage):
                     data["error"],
                     data["capital_allocated_usd"],
                     data["daily_run_key"],
-                )
+                ),
             )
             # Save daily run key if provided
             if daily_run_key:
@@ -333,9 +331,7 @@ class SQLiteStorage(Storage):
                 )
             conn.commit()
 
-    async def check_daily_run_key(
-        self, daily_run_key: str
-    ) -> tuple[bool, str | None]:
+    async def check_daily_run_key(self, daily_run_key: str) -> tuple[bool, str | None]:
         """Check if a daily run key already exists.
 
         Args:
@@ -548,9 +544,7 @@ class SQLiteStorage(Storage):
             )
             row = await cursor.fetchone()  # type: ignore
         else:
-            cursor = conn.execute(
-                "SELECT data FROM capital_plans ORDER BY date DESC LIMIT 1"
-            )
+            cursor = conn.execute("SELECT data FROM capital_plans ORDER BY date DESC LIMIT 1")
             row = cursor.fetchone()
         if not row:
             return None
@@ -565,4 +559,3 @@ class SQLiteStorage(Storage):
             else:
                 self._conn.close()
             self._conn = None
-

@@ -97,7 +97,7 @@ class AgentRegistry:
 
         # Store event
         self._events.append(event_data)
-        self._events = self._events[-self._max_events:]  # Keep last N events
+        self._events = self._events[-self._max_events :]  # Keep last N events
 
         # Publish to bus
         await self._bus.publish(

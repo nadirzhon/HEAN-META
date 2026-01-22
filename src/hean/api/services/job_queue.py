@@ -134,4 +134,3 @@ class JobQueueService:
 
 # Global instance
 job_queue_service = JobQueueService()
-

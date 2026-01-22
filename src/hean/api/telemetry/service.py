@@ -156,7 +156,9 @@ class TelemetryService:
             "uptime_sec": round(self.uptime_seconds(), 2),
             "mode": mode,
             "ws_clients": ws_clients,
-            "events_per_sec": events_per_sec if events_per_sec is not None else self.events_per_sec(),
+            "events_per_sec": events_per_sec
+            if events_per_sec is not None
+            else self.events_per_sec(),
             "last_event_ts": last_event_ts or self.last_event_ts_iso(),
         }
 

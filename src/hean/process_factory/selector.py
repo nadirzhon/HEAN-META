@@ -27,7 +27,7 @@ class ProcessSelector:
         holdout_window_days: float = 7.0,
     ) -> None:
         """Initialize process selector.
-        
+
         Args:
             kill_fail_rate_threshold: Kill if fail_rate > this (default 0.7)
             kill_negative_pnl_runs: Kill if pnl_sum negative after N runs (default 10)
@@ -76,7 +76,7 @@ class ProcessSelector:
         self, entry: ProcessPortfolioEntry, runs: list[ProcessRun]
     ) -> ProcessPortfolioEntry:
         """Update portfolio entry metrics based on runs with decay weighting.
-        
+
         Also stores runs for holdout check in evaluate_process.
         """
         # Store runs for holdout check
@@ -226,9 +226,7 @@ class ProcessSelector:
 
         return entry.state
 
-    def _check_holdout_failure(
-        self, entry: ProcessPortfolioEntry, runs: list[ProcessRun]
-    ) -> bool:
+    def _check_holdout_failure(self, entry: ProcessPortfolioEntry, runs: list[ProcessRun]) -> bool:
         """Check if performance collapsed on recent holdout window.
 
         Args:
@@ -250,12 +248,12 @@ class ProcessSelector:
             return False  # Not enough data
 
         # Compute average PnL for training vs holdout
-        training_pnl = sum(
-            r.metrics.get("capital_delta", 0.0) for r in training_runs
-        ) / len(training_runs)
-        holdout_pnl = sum(
-            r.metrics.get("capital_delta", 0.0) for r in holdout_runs
-        ) / len(holdout_runs)
+        training_pnl = sum(r.metrics.get("capital_delta", 0.0) for r in training_runs) / len(
+            training_runs
+        )
+        holdout_pnl = sum(r.metrics.get("capital_delta", 0.0) for r in holdout_runs) / len(
+            holdout_runs
+        )
 
         # If training was positive but holdout is negative, that's a failure
         if training_pnl > 0 and holdout_pnl < 0:
@@ -267,9 +265,7 @@ class ProcessSelector:
 
         return False
 
-    def get_regime_buckets(
-        self, runs: list[ProcessRun]
-    ) -> dict[str, dict[str, Any]]:
+    def get_regime_buckets(self, runs: list[ProcessRun]) -> dict[str, dict[str, Any]]:
         """Get performance metrics by regime/time buckets.
 
         Args:
@@ -294,9 +290,7 @@ class ProcessSelector:
             if hour_key not in buckets["hour_bucket"]:
                 buckets["hour_bucket"][hour_key] = {"runs": 0, "pnl_sum": 0.0}
             buckets["hour_bucket"][hour_key]["runs"] += 1
-            buckets["hour_bucket"][hour_key]["pnl_sum"] += run.metrics.get(
-                "capital_delta", 0.0
-            )
+            buckets["hour_bucket"][hour_key]["pnl_sum"] += run.metrics.get("capital_delta", 0.0)
 
             # Vol bucket (if available in metadata)
             vol = run.metrics.get("volatility", None)
@@ -310,9 +304,7 @@ class ProcessSelector:
                 if vol_key not in buckets["vol_bucket"]:
                     buckets["vol_bucket"][vol_key] = {"runs": 0, "pnl_sum": 0.0}
                 buckets["vol_bucket"][vol_key]["runs"] += 1
-                buckets["vol_bucket"][vol_key]["pnl_sum"] += run.metrics.get(
-                    "capital_delta", 0.0
-                )
+                buckets["vol_bucket"][vol_key]["pnl_sum"] += run.metrics.get("capital_delta", 0.0)
 
             # Spread bucket (if available in metadata)
             spread = run.metrics.get("spread_bps", None)
@@ -372,4 +364,3 @@ class ProcessSelector:
             weight *= 0.5  # New gets half weight
 
         return min(weight, 0.5 * total_weight_budget)  # Cap at 50% per process
-

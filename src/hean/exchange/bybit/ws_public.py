@@ -42,7 +42,7 @@ class BybitPublicWebSocket:
             self._ws_url = "wss://stream-testnet.bybit.com/v5/public/linear"
         else:
             self._ws_url = "wss://stream.bybit.com/v5/public/linear"
-        
+
         # Phase 16: Dynamic endpoint switching support
         self._dynamic_ws_url: str | None = None
 
@@ -60,17 +60,14 @@ class BybitPublicWebSocket:
         try:
             # Phase 16: Use dynamic endpoint if set (from API Scouter)
             ws_url = self._dynamic_ws_url if self._dynamic_ws_url else self._ws_url
-            
+
             # Create SSL context that doesn't verify certificates (for macOS compatibility)
             # WARNING: In production, use proper certificate verification
             ssl_context = ssl.create_default_context()
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
-            
-            self._websocket = await websockets.connect(
-                ws_url,
-                ssl=ssl_context
-            )  # type: ignore
+
+            self._websocket = await websockets.connect(ws_url, ssl=ssl_context)  # type: ignore
             self._connected = True
             self._task = asyncio.create_task(self._listen())
             logger.info(
@@ -115,11 +112,10 @@ class BybitPublicWebSocket:
                 # Use asyncio.wait_for to add timeout for receiving messages
                 try:
                     message = await asyncio.wait_for(
-                        self._websocket.recv(),
-                        timeout=min(PING_INTERVAL, CONNECTION_TIMEOUT)
+                        self._websocket.recv(), timeout=min(PING_INTERVAL, CONNECTION_TIMEOUT)
                     )
                     last_message_time = time.time()
-                    
+
                     try:
                         data = json.loads(message)
                         await self._handle_message(data)
@@ -132,7 +128,9 @@ class BybitPublicWebSocket:
                     # Check if we need to send ping or if connection is dead
                     time_since_last = time.time() - last_message_time
                     if time_since_last >= CONNECTION_TIMEOUT:
-                        logger.warning(f"WebSocket connection timeout ({time_since_last:.1f}s), reconnecting...")
+                        logger.warning(
+                            f"WebSocket connection timeout ({time_since_last:.1f}s), reconnecting..."
+                        )
                         raise ConnectionError("Connection timeout")
                     # Send ping to keep connection alive
                     try:
@@ -257,7 +255,9 @@ class BybitPublicWebSocket:
             # Skip ticks with zero or negative price
             if price is None or price <= 0:
                 if symbol not in self._missing_price_warned:
-                    logger.warning(f"Invalid price for {symbol}: lastPrice={last_price_raw}, bid={bid_fallback}, ask={ask_fallback}, skipping tick")
+                    logger.warning(
+                        f"Invalid price for {symbol}: lastPrice={last_price_raw}, bid={bid_fallback}, ask={ask_fallback}, skipping tick"
+                    )
                     self._missing_price_warned.add(symbol)
                 return
 
@@ -389,34 +389,34 @@ class BybitPublicWebSocket:
             logger.info(f"Subscribed to orderbook for {symbol} (depth: {depth})")
         except Exception as e:
             logger.error(f"Failed to subscribe to orderbook for {symbol}: {e}")
-    
+
     async def switch_endpoint(self, ws_url: str) -> None:
         """Phase 16: Switch WebSocket endpoint dynamically (called by API Scouter).
-        
+
         Disconnects from current endpoint and reconnects to new endpoint,
         preserving subscriptions.
-        
+
         Args:
             ws_url: New WebSocket URL
         """
         if ws_url == (self._dynamic_ws_url or self._ws_url):
             logger.debug(f"Endpoint already set to {ws_url}, skipping switch")
             return
-        
+
         logger.info(f"Phase 16: Switching WebSocket endpoint to: {ws_url}")
-        
+
         # Save current subscriptions
         subscribed_symbols = self._subscribed_symbols.copy()
-        
+
         # Disconnect from current endpoint
         await self.disconnect()
-        
+
         # Set new endpoint
         self._dynamic_ws_url = ws_url
-        
+
         # Reconnect to new endpoint
         await self.connect()
-        
+
         # Re-subscribe to all symbols
         for symbol in subscribed_symbols:
             await self.subscribe_ticker(symbol)

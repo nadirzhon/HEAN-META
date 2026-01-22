@@ -72,4 +72,3 @@ def test_check_process_factory_actions():
         assert len(reasons) == 0
     finally:
         settings._process_factory_allow_actions = original_allow_actions  # type: ignore
-

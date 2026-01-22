@@ -34,13 +34,19 @@ def get_process_definition() -> ProcessDefinition:
                 step_id="scan_campaign_opportunities",
                 kind=ActionStepKind.HUMAN_TASK,
                 description="Scan for campaign opportunities",
-                params={"checklist": ["Check announcements", "Review eligibility", "Note deadlines"]},
+                params={
+                    "checklist": ["Check announcements", "Review eligibility", "Note deadlines"]
+                },
             ),
             ActionStep(
                 step_id="aggregate_opportunities",
                 kind=ActionStepKind.COMPUTE,
                 description="Aggregate and rank opportunities",
-                depends_on=["scan_trading_opportunities", "scan_earn_opportunities", "scan_campaign_opportunities"],
+                depends_on=[
+                    "scan_trading_opportunities",
+                    "scan_earn_opportunities",
+                    "scan_campaign_opportunities",
+                ],
             ),
         ],
         expected_outputs=["opportunities_list", "ranked_opportunities"],
@@ -55,4 +61,3 @@ def get_process_definition() -> ProcessDefinition:
         ),
         kill_conditions=[],
     )
-

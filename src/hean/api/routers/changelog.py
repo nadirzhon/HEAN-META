@@ -50,14 +50,16 @@ async def get_today_changelog() -> dict[str, Any]:
                 parts = line.split("|", 4)
                 if len(parts) == 5:
                     commit_hash, author_name, author_email, timestamp, message = parts
-                    changelog_items.append({
-                        "type": "git_commit",
-                        "commit_hash": commit_hash[:8],
-                        "author": author_name,
-                        "timestamp": datetime.fromtimestamp(int(timestamp)).isoformat(),
-                        "message": message,
-                        "category": "code_change",
-                    })
+                    changelog_items.append(
+                        {
+                            "type": "git_commit",
+                            "commit_hash": commit_hash[:8],
+                            "author": author_name,
+                            "timestamp": datetime.fromtimestamp(int(timestamp)).isoformat(),
+                            "message": message,
+                            "category": "code_change",
+                        }
+                    )
     except Exception as e:
         logger.debug(f"Git log not available: {e}")
 
@@ -74,12 +76,14 @@ async def get_today_changelog() -> dict[str, Any]:
 
     # If no changelog items, return a placeholder
     if not changelog_items:
-        changelog_items.append({
-            "type": "system_info",
-            "message": "No changes recorded today",
-            "timestamp": datetime.utcnow().isoformat(),
-            "category": "info",
-        })
+        changelog_items.append(
+            {
+                "type": "system_info",
+                "message": "No changes recorded today",
+                "timestamp": datetime.utcnow().isoformat(),
+                "category": "info",
+            }
+        )
 
     return {
         "status": "ok",

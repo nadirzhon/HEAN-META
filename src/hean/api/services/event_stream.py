@@ -151,4 +151,3 @@ class EventStreamService:
 
 # Global instance
 event_stream_service = EventStreamService()
-

@@ -134,4 +134,3 @@ class ProcessRegistry:
 
         except ImportError as e:
             logger.warning(f"Failed to load built-in processes: {e}")
-

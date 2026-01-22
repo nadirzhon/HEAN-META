@@ -207,16 +207,56 @@ class HEANSettings(BaseSettings):
     # Trading Symbols
     trading_symbols: list[str] = Field(
         default=[
-            "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT",
-            "DOGEUSDT", "DOTUSDT", "LTCUSDT", "AVAXUSDT", "LINKUSDT",
-            "BCHUSDT", "MATICUSDT", "ATOMUSDT", "ETCUSDT", "BNBUSDT",
-            "FILUSDT", "NEARUSDT", "OPUSDT", "ARBUSDT", "APTUSDT",
-            "SUIUSDT", "TRXUSDT", "XLMUSDT", "UNIUSDT", "AAVEUSDT",
-            "MKRUSDT", "INJUSDT", "RNDRUSDT", "SEIUSDT", "RUNEUSDT",
-            "ICPUSDT", "ALGOUSDT", "EOSUSDT", "FTMUSDT", "GALAUSDT",
-            "SANDUSDT", "AXSUSDT", "CHZUSDT", "CRVUSDT", "KAVAUSDT",
-            "GMXUSDT", "SNXUSDT", "ZILUSDT", "DYDXUSDT", "COMPUSDT",
-            "1INCHUSDT", "LDOUSDT", "NEOUSDT", "XTZUSDT", "APEUSDT",
+            "BTCUSDT",
+            "ETHUSDT",
+            "SOLUSDT",
+            "XRPUSDT",
+            "ADAUSDT",
+            "DOGEUSDT",
+            "DOTUSDT",
+            "LTCUSDT",
+            "AVAXUSDT",
+            "LINKUSDT",
+            "BCHUSDT",
+            "MATICUSDT",
+            "ATOMUSDT",
+            "ETCUSDT",
+            "BNBUSDT",
+            "FILUSDT",
+            "NEARUSDT",
+            "OPUSDT",
+            "ARBUSDT",
+            "APTUSDT",
+            "SUIUSDT",
+            "TRXUSDT",
+            "XLMUSDT",
+            "UNIUSDT",
+            "AAVEUSDT",
+            "MKRUSDT",
+            "INJUSDT",
+            "RNDRUSDT",
+            "SEIUSDT",
+            "RUNEUSDT",
+            "ICPUSDT",
+            "ALGOUSDT",
+            "EOSUSDT",
+            "FTMUSDT",
+            "GALAUSDT",
+            "SANDUSDT",
+            "AXSUSDT",
+            "CHZUSDT",
+            "CRVUSDT",
+            "KAVAUSDT",
+            "GMXUSDT",
+            "SNXUSDT",
+            "ZILUSDT",
+            "DYDXUSDT",
+            "COMPUSDT",
+            "1INCHUSDT",
+            "LDOUSDT",
+            "NEOUSDT",
+            "XTZUSDT",
+            "APEUSDT",
         ],
         description="List of trading symbols to monitor and trade (e.g., ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'])",
     )
@@ -228,8 +268,16 @@ class HEANSettings(BaseSettings):
     )
     symbols: list[str] = Field(
         default=[
-            "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
-            "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "TONUSDT",
+            "BTCUSDT",
+            "ETHUSDT",
+            "SOLUSDT",
+            "XRPUSDT",
+            "BNBUSDT",
+            "ADAUSDT",
+            "DOGEUSDT",
+            "AVAXUSDT",
+            "LINKUSDT",
+            "TONUSDT",
         ],
         description="List of symbols for multi-symbol scanning (default: 10 symbols). Used when MULTI_SYMBOL_ENABLED=true.",
     )
@@ -240,8 +288,16 @@ class HEANSettings(BaseSettings):
         """Parse symbols from env, handling empty strings and JSON."""
         if v is None or v == "":
             return [
-                "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
-                "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "TONUSDT",
+                "BTCUSDT",
+                "ETHUSDT",
+                "SOLUSDT",
+                "XRPUSDT",
+                "BNBUSDT",
+                "ADAUSDT",
+                "DOGEUSDT",
+                "AVAXUSDT",
+                "LINKUSDT",
+                "TONUSDT",
             ]
         return parse_list_env(v)
 
@@ -350,7 +406,9 @@ class HEANSettings(BaseSettings):
     bybit_testnet: bool = Field(default=False, description="Use Bybit testnet")
 
     # LLM API Keys (for agent generation and catalyst)
-    gemini_api_key: str = Field(default="", description="Google Gemini API key for agent generation and catalyst")
+    gemini_api_key: str = Field(
+        default="", description="Google Gemini API key for agent generation and catalyst"
+    )
 
     # Observability
     log_level: str = Field(default="INFO", description="Logging level")
@@ -693,7 +751,7 @@ class HEANSettings(BaseSettings):
         if self.paper_trade_assist:
             is_paper_safe = self.dry_run or self.bybit_testnet
             is_live_unsafe = not self.dry_run and self.live_confirm == "YES"
-            
+
             if is_live_unsafe:
                 raise ValueError(
                     "PAPER_TRADE_ASSIST=true is FORBIDDEN in live trading. "
@@ -701,7 +759,7 @@ class HEANSettings(BaseSettings):
                     f"Current: DRY_RUN={self.dry_run}, LIVE_CONFIRM={self.live_confirm}, "
                     f"bybit_testnet={self.bybit_testnet}"
                 )
-            
+
             if not is_paper_safe:
                 raise ValueError(
                     "PAPER_TRADE_ASSIST=true requires DRY_RUN=true OR bybit_testnet=true. "

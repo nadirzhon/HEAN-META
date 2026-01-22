@@ -56,4 +56,3 @@ def test_bybit_actions_not_enabled_error():
         assert "DRY_RUN" in str(exc_info.value)
 
     asyncio.run(test_place())
-

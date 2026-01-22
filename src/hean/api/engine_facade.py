@@ -24,7 +24,7 @@ class EngineFacade:
         self._bus = bus
         self._state = "STOPPED"
         telemetry_service.set_engine_state(self._state)
-        
+
         # Expose advanced systems (will be set when trading system starts)
         self._meta_learning_engine = None
         self._causal_inference_engine = None
@@ -44,15 +44,15 @@ class EngineFacade:
                 # Create and start trading system
                 self._trading_system = TradingSystem(mode="run", bus=self._bus)
                 await self._trading_system.start()
-                
+
                 # Expose advanced systems for API access
-                if hasattr(self._trading_system, '_meta_learning_engine'):
+                if hasattr(self._trading_system, "_meta_learning_engine"):
                     self._meta_learning_engine = self._trading_system._meta_learning_engine
-                if hasattr(self._trading_system, '_causal_inference_engine'):
+                if hasattr(self._trading_system, "_causal_inference_engine"):
                     self._causal_inference_engine = self._trading_system._causal_inference_engine
-                if hasattr(self._trading_system, '_multimodal_swarm'):
+                if hasattr(self._trading_system, "_multimodal_swarm"):
                     self._multimodal_swarm = self._trading_system._multimodal_swarm
-                
+
                 self._running = True
                 self._state = "RUNNING"
                 telemetry_service.set_engine_state("RUNNING")
@@ -166,7 +166,9 @@ class EngineFacade:
             for pos in positions_list
         ]
 
-    async def get_orders(self, status: Literal["all", "open", "filled"] = "all") -> list[dict[str, Any]]:
+    async def get_orders(
+        self, status: Literal["all", "open", "filled"] = "all"
+    ) -> list[dict[str, Any]]:
         """Get orders.
 
         Args:
@@ -372,11 +374,13 @@ class EngineFacade:
 
         strategies = []
         for strategy in self._trading_system._strategies:
-            strategies.append({
-                "strategy_id": strategy.strategy_id,
-                "enabled": strategy._running,
-                "type": type(strategy).__name__,
-            })
+            strategies.append(
+                {
+                    "strategy_id": strategy.strategy_id,
+                    "enabled": strategy._running,
+                    "type": type(strategy).__name__,
+                }
+            )
 
         return strategies
 
@@ -399,7 +403,10 @@ class EngineFacade:
                     await strategy.start()
                 else:
                     await strategy.stop()
-                return {"status": "success", "message": f"Strategy {strategy_id} {'enabled' if enabled else 'disabled'}"}
+                return {
+                    "status": "success",
+                    "message": f"Strategy {strategy_id} {'enabled' if enabled else 'disabled'}",
+                }
 
         return {"status": "error", "message": f"Strategy {strategy_id} not found"}
 
@@ -411,16 +418,16 @@ class EngineFacade:
 
     async def get_orderbook_presence(self, symbol: str | None = None) -> dict | list[dict]:
         """Get orderbook presence (Phase 3: Smart Limit Engine).
-        
+
         Args:
             symbol: Optional symbol filter
-        
+
         Returns:
             Orderbook presence data
         """
         if not self._running or self._trading_system is None:
             return {} if symbol else []
-        
+
         execution_router = self._trading_system._execution_router
         return execution_router.get_orderbook_presence(symbol)
 

@@ -15,9 +15,13 @@ PROMPT_INITIAL = """Generate a new trading agent Python class that:
 - Includes proper position sizing
 - Has clear entry/exit logic"""
 
-PROMPT_EVOLUTION = """Generate an evolved trading agent based on best/worst agents and market conditions."""
+PROMPT_EVOLUTION = (
+    """Generate an evolved trading agent based on best/worst agents and market conditions."""
+)
 
-PROMPT_MUTATION = """Improve an existing trading agent code by fixing issues and optimizing performance."""
+PROMPT_MUTATION = (
+    """Improve an existing trading agent code by fixing issues and optimizing performance."""
+)
 
 PROMPT_MARKET_CONDITIONS = """Generate a trading agent optimized for specific market conditions (volatility, trend, etc.)."""
 
@@ -34,11 +38,11 @@ PROMPT_ANALYTICAL = """Generate an analytical trading agent focused on data anal
 
 def get_prompt(prompt_type: str, **kwargs: dict) -> str:
     """Get prompt template by type.
-    
+
     Args:
         prompt_type: Type of prompt (initial, evolution, mutation, etc.)
         **kwargs: Variables for prompt formatting
-        
+
     Returns:
         Formatted prompt string
     """
@@ -80,7 +84,7 @@ def _get_evolution_prompt(**kwargs: dict) -> str:
     worst = kwargs.get("worst_agents_info", "")
     market = kwargs.get("market_conditions", "")
     metrics = kwargs.get("performance_metrics", "")
-    
+
     return f"""Generate an evolved trading agent based on:
 Best agents: {best}
 Worst agents: {worst}
@@ -94,7 +98,7 @@ def _get_mutation_prompt(**kwargs: dict) -> str:
     """Generate mutation prompt."""
     code = kwargs.get("agent_code", "")
     issues = kwargs.get("issues", "")
-    
+
     return f"""Improve this trading agent code:
 {code}
 
@@ -107,7 +111,7 @@ def _get_market_conditions_prompt(**kwargs: dict) -> str:
     """Generate market conditions prompt."""
     vol = kwargs.get("volatility_level", "")
     trend = kwargs.get("trend_direction", "")
-    
+
     return f"""Generate a trading agent optimized for:
 Volatility: {vol}
 Trend: {trend}

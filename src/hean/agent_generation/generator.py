@@ -32,6 +32,7 @@ class AgentGenerator:
         # First, try to load from config (Pydantic settings loads from env automatically)
         try:
             from hean.config import settings
+
             gemini_key_from_config = settings.gemini_api_key
         except Exception:
             gemini_key_from_config = None
@@ -41,6 +42,7 @@ class AgentGenerator:
         if env_file.exists():
             try:
                 from dotenv import load_dotenv
+
                 load_dotenv(env_file)
             except ImportError:
                 # If python-dotenv not installed, try manual parsing
@@ -57,6 +59,7 @@ class AgentGenerator:
         # Try to import OpenAI first
         try:
             import openai  # type: ignore
+
             api_key = os.getenv("OPENAI_API_KEY")
             if api_key:
                 self.llm_client = openai.OpenAI(api_key=api_key)
@@ -68,6 +71,7 @@ class AgentGenerator:
         # Try Anthropic
         try:
             import anthropic  # type: ignore
+
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if api_key:
                 self.llm_client = anthropic.Anthropic(api_key=api_key)
@@ -95,7 +99,9 @@ class AgentGenerator:
         except Exception as e:
             logger.warning(f"Failed to configure Gemini: {e}")
 
-        logger.warning("No LLM client configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY")
+        logger.warning(
+            "No LLM client configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY"
+        )
 
     def generate_agent(
         self, prompt_type: str, output_path: Path | str | None = None, **prompt_kwargs: Any
@@ -147,7 +153,7 @@ class AgentGenerator:
         # Check if Gemini was set
         if hasattr(self, "_is_gemini") and self._is_gemini:
             return self._call_gemini(user_prompt)
-        
+
         client_type = type(self.llm_client).__name__
         client_module = type(self.llm_client).__module__
 

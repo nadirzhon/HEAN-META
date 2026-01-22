@@ -13,6 +13,7 @@ router = APIRouter(prefix="/causal-inference", tags=["causal-inference"])
 
 class CausalRelationshipResponse(BaseModel):
     """Causal relationship response."""
+
     source_symbol: str
     target_symbol: str
     granger_causality: float
@@ -25,6 +26,7 @@ class CausalRelationshipResponse(BaseModel):
 
 class PreEchoSignalResponse(BaseModel):
     """Pre-echo signal response."""
+
     target_symbol: str
     source_symbol: str
     predicted_direction: str
@@ -40,15 +42,12 @@ class PreEchoSignalResponse(BaseModel):
 async def get_stats(request: Request):
     """Get causal inference engine statistics."""
     engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_causal_inference_engine'):
-        return {
-            "relationships": {},
-            "pre_echo_signals": []
-        }
-    
+
+    if not engine_facade or not hasattr(engine_facade, "_causal_inference_engine"):
+        return {"relationships": {}, "pre_echo_signals": []}
+
     causal_engine = engine_facade._causal_inference_engine
-    
+
     # Get relationships
     relationships = causal_engine.get_causal_relationships()
     relationships_dict = {
@@ -60,11 +59,11 @@ async def get_stats(request: Request):
             "lag_period": v.lag_period,
             "p_value": v.p_value,
             "confidence": v.confidence,
-            "last_updated": v.last_updated.isoformat()
+            "last_updated": v.last_updated.isoformat(),
         }
         for k, v in relationships.items()
     }
-    
+
     # Get pre-echo signals
     pre_echo_signals = causal_engine.get_pre_echo_signals(limit=10)
     signals_list = [
@@ -77,28 +76,25 @@ async def get_stats(request: Request):
             "lag_ms": s.lag_ms,
             "granger_score": s.granger_score,
             "transfer_entropy_score": s.transfer_entropy_score,
-            "timestamp": s.timestamp.isoformat()
+            "timestamp": s.timestamp.isoformat(),
         }
         for s in pre_echo_signals
     ]
-    
-    return {
-        "relationships": relationships_dict,
-        "pre_echo_signals": signals_list
-    }
+
+    return {"relationships": relationships_dict, "pre_echo_signals": signals_list}
 
 
 @router.get("/relationships", response_model=List[CausalRelationshipResponse])
 async def get_relationships(request: Request):
     """Get all causal relationships."""
     engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_causal_inference_engine'):
+
+    if not engine_facade or not hasattr(engine_facade, "_causal_inference_engine"):
         return []
-    
+
     causal_engine = engine_facade._causal_inference_engine
     relationships = causal_engine.get_causal_relationships()
-    
+
     return [
         CausalRelationshipResponse(
             source_symbol=v.source_symbol,
@@ -108,7 +104,7 @@ async def get_relationships(request: Request):
             lag_period=v.lag_period,
             p_value=v.p_value,
             confidence=v.confidence,
-            last_updated=v.last_updated.isoformat()
+            last_updated=v.last_updated.isoformat(),
         )
         for v in relationships.values()
     ]
@@ -118,13 +114,13 @@ async def get_relationships(request: Request):
 async def get_pre_echoes(request: Request, limit: int = 10):
     """Get recent pre-echo signals."""
     engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_causal_inference_engine'):
+
+    if not engine_facade or not hasattr(engine_facade, "_causal_inference_engine"):
         return []
-    
+
     causal_engine = engine_facade._causal_inference_engine
     signals = causal_engine.get_pre_echo_signals(limit=limit)
-    
+
     return [
         PreEchoSignalResponse(
             target_symbol=s.target_symbol,
@@ -135,7 +131,7 @@ async def get_pre_echoes(request: Request, limit: int = 10):
             lag_ms=s.lag_ms,
             granger_score=s.granger_score,
             transfer_entropy_score=s.transfer_entropy_score,
-            timestamp=s.timestamp.isoformat()
+            timestamp=s.timestamp.isoformat(),
         )
         for s in signals
     ]

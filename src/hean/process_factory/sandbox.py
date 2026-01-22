@@ -200,4 +200,3 @@ class ProcessSandbox:
         metrics["fee_drag"] = 0.0
 
         return metrics
-

@@ -46,21 +46,23 @@ class SpreadFilter(BaseFilter):
         # FORCED: Always allow for debug mode
         if settings.debug_mode:
             return True
-        
+
         if not tick.bid or not tick.ask or tick.bid <= 0 or tick.ask <= 0:
             return True  # Can't calculate spread
-        
+
         spread = (tick.ask - tick.bid) / tick.bid
         spread_bps = spread * 10000
-        
+
         max_spread_bps = settings.impulse_max_spread_bps
         if is_paper_assist_enabled():
             multiplier = get_spread_threshold_multiplier()
             max_spread_bps = max_spread_bps * multiplier
-        
+
         if spread_bps > max_spread_bps:
             # Determine agent name from context if available
-            agent_name = context.get("strategy_id", "impulse_engine") if context else "impulse_engine"
+            agent_name = (
+                context.get("strategy_id", "impulse_engine") if context else "impulse_engine"
+            )
             log_block_reason(
                 "spread_reject",
                 measured_value=spread_bps,
@@ -70,7 +72,7 @@ class SpreadFilter(BaseFilter):
                 agent_name=agent_name,
             )
             return False
-        
+
         log_allow_reason("spread_ok", symbol=tick.symbol)
         return True
 
@@ -91,14 +93,14 @@ class VolatilityExpansionFilter(BaseFilter):
         # FORCED: Always allow for debug mode
         if settings.debug_mode:
             return True
-        
+
         # In paper assist mode, relax volatility requirements
         if is_paper_assist_enabled():
             min_mult, max_mult = get_volatility_gate_relaxation()
             # Allow more lenient volatility checks
             log_allow_reason("volatility_ok", symbol=tick.symbol, note="paper_assist_relaxed")
             return True
-        
+
         # Default: use context if available
         if context:
             vol_short = context.get("vol_short")
@@ -108,7 +110,11 @@ class VolatilityExpansionFilter(BaseFilter):
                 actual_ratio = vol_short / vol_long
                 if actual_ratio < required_ratio:
                     # Determine agent name from context if available
-                    agent_name = context.get("strategy_id", "impulse_engine") if context else "impulse_engine"
+                    agent_name = (
+                        context.get("strategy_id", "impulse_engine")
+                        if context
+                        else "impulse_engine"
+                    )
                     log_block_reason(
                         "volatility_expansion_reject",
                         measured_value=actual_ratio,
@@ -118,7 +124,7 @@ class VolatilityExpansionFilter(BaseFilter):
                         agent_name=agent_name,
                     )
                     return False
-        
+
         return True
 
 

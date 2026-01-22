@@ -57,9 +57,17 @@ class ExecutionEdgeEstimator:
         expected_move_bps = 0.0
         if signal.take_profit:
             if signal.side == "buy":
-                move = (signal.take_profit - signal.entry_price) / signal.entry_price if signal.entry_price != 0 else 0.0
+                move = (
+                    (signal.take_profit - signal.entry_price) / signal.entry_price
+                    if signal.entry_price != 0
+                    else 0.0
+                )
             else:  # sell
-                move = (signal.entry_price - signal.take_profit) / signal.entry_price if signal.entry_price != 0 else 0.0
+                move = (
+                    (signal.entry_price - signal.take_profit) / signal.entry_price
+                    if signal.entry_price != 0
+                    else 0.0
+                )
             expected_move_bps = move * 10000
 
         # Calculate maker fill probability proxy
@@ -158,12 +166,12 @@ class ExecutionEdgeEstimator:
             base_threshold = settings.min_edge_bps_range * 0.5
         else:  # NORMAL
             base_threshold = settings.min_edge_bps_normal * 0.5
-        
+
         # Apply paper assist reduction
         if is_paper_assist_enabled():
             reduction_pct = get_edge_threshold_reduction_pct()
             base_threshold = base_threshold * (1.0 - reduction_pct / 100.0)
-        
+
         return base_threshold
 
     def should_emit_signal(self, signal: Signal, tick: Tick, regime: Regime) -> bool:

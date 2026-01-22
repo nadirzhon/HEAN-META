@@ -159,52 +159,57 @@ async def get_killswitch_status(request: Request) -> dict:
                 "reasons": [],
                 "triggered_at": None,
                 "thresholds": {},
-                "current_metrics": {}
+                "current_metrics": {},
             }
 
         trading_system = engine_facade._trading_system
-        
+
         # Get killswitch status
         killswitch_status = {
             "triggered": False,
             "reasons": [],
             "triggered_at": None,
             "thresholds": {},
-            "current_metrics": {}
+            "current_metrics": {},
         }
-        
+
         if hasattr(trading_system, "_killswitch"):
             killswitch = trading_system._killswitch
             accounting = trading_system._accounting
             equity = accounting.get_equity()
             drawdown_amount, drawdown_pct = accounting.get_drawdown(equity)
-            
+
             killswitch_status["triggered"] = killswitch.is_triggered()
-            killswitch_status["reasons"] = getattr(killswitch, "_reasons", []) or ([killswitch.get_reason()] if killswitch.get_reason() else [])
+            killswitch_status["reasons"] = getattr(killswitch, "_reasons", []) or (
+                [killswitch.get_reason()] if killswitch.get_reason() else []
+            )
             killswitch_status["triggered_at"] = getattr(killswitch, "_triggered_at", None)
             if killswitch_status["triggered_at"]:
                 killswitch_status["triggered_at"] = killswitch_status["triggered_at"].isoformat()
-            
+
             # Get thresholds from settings
             from hean.config import settings
+
             adaptive_limit = killswitch.get_adaptive_drawdown_limit(equity)
             killswitch_status["thresholds"] = {
                 "drawdown_pct": min(adaptive_limit, settings.max_daily_drawdown_pct),
                 "equity_drop": settings.killswitch_drawdown_pct,
                 "max_loss": getattr(settings, "max_loss_threshold", 0),
-                "risk_limit": getattr(settings, "risk_limit_threshold", 0)
+                "risk_limit": getattr(settings, "risk_limit_threshold", 0),
             }
-            
+
             # Get current metrics
             peak_equity = getattr(accounting, "_peak_equity", equity)
-            max_drawdown_pct = ((peak_equity - equity) / peak_equity * 100) if peak_equity > 0 else 0.0
+            max_drawdown_pct = (
+                ((peak_equity - equity) / peak_equity * 100) if peak_equity > 0 else 0.0
+            )
             killswitch_status["current_metrics"] = {
                 "current_drawdown_pct": drawdown_pct,
                 "current_equity": equity,
                 "max_drawdown_pct": max_drawdown_pct,
-                "peak_equity": peak_equity
+                "peak_equity": peak_equity,
             }
-        
+
         return killswitch_status
     except Exception as e:
         logger.error(f"Failed to get killswitch status: {e}", exc_info=True)
@@ -227,24 +232,32 @@ async def reset_killswitch(request: Request, confirm: bool = False) -> dict:
             raise HTTPException(status_code=500, detail="Engine not running")
 
         trading_system = engine_facade._trading_system
-        
+
         # Reset killswitch
         if hasattr(trading_system, "_killswitch"):
             trading_system._killswitch.reset()
             logger.info("Killswitch reset via API")
-        
+
         # Reset stop_trading flag
         trading_system._stop_trading = False
         logger.info("Stop trading flag reset via API")
-        
+
         await _log_control_event("killswitch_reset", "command", request, detail="killswitch/reset")
-        await _log_control_event("killswitch_reset", "result", request, success=True, extra={"result": "Killswitch and stop_trading flags reset"})
-        
+        await _log_control_event(
+            "killswitch_reset",
+            "result",
+            request,
+            success=True,
+            extra={"result": "Killswitch and stop_trading flags reset"},
+        )
+
         return {
             "status": "success",
             "message": "Killswitch and stop_trading flags reset",
         }
     except Exception as e:
         logger.error(f"Failed to reset killswitch: {e}", exc_info=True)
-        await _log_control_event("killswitch_reset", "result", request, success=False, detail=str(e))
+        await _log_control_event(
+            "killswitch_reset", "result", request, success=False, detail=str(e)
+        )
         raise HTTPException(status_code=500, detail=str(e))

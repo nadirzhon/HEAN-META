@@ -95,4 +95,3 @@ def test_selector_compute_weight():
     )
     weight_killed = selector.compute_weight(killed_entry)
     assert weight_killed == 0.0
-

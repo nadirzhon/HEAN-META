@@ -64,10 +64,3 @@ class TestDensityController:
 
         assert level_after == 0
         assert idle_days_after == 0.0
-
-
-
-
-
-
-

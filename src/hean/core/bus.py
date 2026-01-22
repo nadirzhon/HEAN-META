@@ -17,7 +17,7 @@ class EventBus:
 
     def __init__(self, max_queue_size: int = 50000) -> None:
         """Initialize the event bus.
-        
+
         Args:
             max_queue_size: Maximum queue size to prevent memory leaks (default 50000)
         """
@@ -46,7 +46,7 @@ class EventBus:
 
     async def publish(self, event: Event) -> None:
         """Publish an event to the bus.
-        
+
         Uses put_nowait for the fast path. If the queue is saturated we apply backpressure for
         non-price events and gracefully drop the lowest-value traffic (TICK) while emitting telemetry
         instead of crashing the whole pipeline.
@@ -165,7 +165,7 @@ class EventBus:
 
     async def _safe_call_handler(self, handler: Callable[[Event], Any], event: Event) -> None:
         """Safely call a handler, catching exceptions.
-        
+
         CRITICAL: Sync handlers are executed in thread pool to prevent blocking event loop.
         """
         try:

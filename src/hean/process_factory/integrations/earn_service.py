@@ -35,9 +35,7 @@ class EarnService:
             List of Earn products
         """
         try:
-            products_data = await self._http_client.get_earn_products(
-                category=category, coin=coin
-            )
+            products_data = await self._http_client.get_earn_products(category=category, coin=coin)
             products = []
             for product_data in products_data:
                 try:
@@ -195,4 +193,3 @@ class EarnService:
         except Exception as e:
             logger.error(f"Failed to place Earn redeem order: {e}")
             raise
-

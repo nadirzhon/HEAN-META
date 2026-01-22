@@ -24,7 +24,13 @@ def get_process_definition() -> ProcessDefinition:
                 step_id="identify_campaign",
                 kind=ActionStepKind.HUMAN_TASK,
                 description="Identify campaign/airdrop opportunity",
-                params={"checklist": ["Find campaign announcement", "Read requirements", "Note deadlines"]},
+                params={
+                    "checklist": [
+                        "Find campaign announcement",
+                        "Read requirements",
+                        "Note deadlines",
+                    ]
+                },
             ),
             ActionStep(
                 step_id="generate_checklist",
@@ -36,7 +42,13 @@ def get_process_definition() -> ProcessDefinition:
                 step_id="verify_eligibility",
                 kind=ActionStepKind.HUMAN_TASK,
                 description="Verify eligibility requirements",
-                params={"checklist": ["Check account status", "Verify requirements", "Note any restrictions"]},
+                params={
+                    "checklist": [
+                        "Check account status",
+                        "Verify requirements",
+                        "Note any restrictions",
+                    ]
+                },
                 depends_on=["generate_checklist"],
             ),
         ],
@@ -52,4 +64,3 @@ def get_process_definition() -> ProcessDefinition:
         ),
         kill_conditions=[],
     )
-

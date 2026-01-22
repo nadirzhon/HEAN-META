@@ -67,12 +67,8 @@ class KillCondition(BaseModel):
 
     metric: str = Field(..., description="Metric to monitor (e.g., 'fail_rate', 'pnl_sum')")
     threshold: float = Field(..., description="Threshold value")
-    comparison: str = Field(
-        default=">", description="Comparison operator: >, >=, <, <=, ==, !="
-    )
-    window_runs: int = Field(
-        default=10, ge=1, description="Number of runs to evaluate over"
-    )
+    comparison: str = Field(default=">", description="Comparison operator: >, >=, <, <=, ==, !=")
+    window_runs: int = Field(default=10, ge=1, description="Number of runs to evaluate over")
 
 
 class ScaleRule(BaseModel):
@@ -80,9 +76,7 @@ class ScaleRule(BaseModel):
 
     metric: str = Field(..., description="Metric to monitor")
     threshold: float = Field(..., description="Threshold value")
-    comparison: str = Field(
-        default=">", description="Comparison operator: >, >=, <, <=, ==, !="
-    )
+    comparison: str = Field(default=">", description="Comparison operator: >, >=, <, <=, ==, !=")
     scale_multiplier: float = Field(
         default=1.5, gt=0, description="Multiplier to apply when condition met"
     )
@@ -127,15 +121,9 @@ class ProcessDefinition(BaseModel):
     inputs_schema: dict[str, Any] = Field(
         default_factory=dict, description="JSON schema for process inputs"
     )
-    actions: list[ActionStep] = Field(
-        default_factory=list, description="List of action steps"
-    )
-    expected_outputs: list[str] = Field(
-        default_factory=list, description="Expected output keys"
-    )
-    safety: SafetyPolicy = Field(
-        default_factory=SafetyPolicy, description="Safety policy"
-    )
+    actions: list[ActionStep] = Field(default_factory=list, description="List of action steps")
+    expected_outputs: list[str] = Field(default_factory=list, description="Expected output keys")
+    safety: SafetyPolicy = Field(default_factory=SafetyPolicy, description="Safety policy")
     measurement: MeasurementSpec = Field(
         default_factory=MeasurementSpec, description="Measurement specification"
     )
@@ -168,9 +156,7 @@ class ProcessRun(BaseModel):
     started_at: datetime = Field(..., description="Start timestamp")
     finished_at: datetime | None = Field(default=None, description="Finish timestamp")
     status: ProcessRunStatus = Field(default=ProcessRunStatus.PENDING, description="Run status")
-    metrics: dict[str, Any] = Field(
-        default_factory=dict, description="Measured metrics"
-    )
+    metrics: dict[str, Any] = Field(default_factory=dict, description="Measured metrics")
     logs_ref: str | None = Field(default=None, description="Reference to log file/stream")
     inputs: dict[str, Any] = Field(default_factory=dict, description="Run inputs")
     outputs: dict[str, Any] = Field(default_factory=dict, description="Run outputs")
@@ -229,12 +215,8 @@ class Opportunity(BaseModel):
     risk_factor: float = Field(default=1.0, ge=0.1, le=5.0, description="Risk factor (0.1-5.0)")
     complexity: int = Field(default=3, ge=1, le=5, description="Complexity (1-5)")
     confidence: float = Field(default=0.5, ge=0, le=1, description="Confidence (0-1)")
-    process_id: str | None = Field(
-        default=None, description="Associated process ID if known"
-    )
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Additional metadata"
-    )
+    process_id: str | None = Field(default=None, description="Associated process ID if known")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
 class DailyCapitalPlan(BaseModel):
@@ -243,9 +225,7 @@ class DailyCapitalPlan(BaseModel):
     date: datetime = Field(..., description="Plan date")
     reserve_usd: float = Field(default=0.0, ge=0, description="Reserve allocation in USD")
     active_usd: float = Field(default=0.0, ge=0, description="Active allocation in USD")
-    experimental_usd: float = Field(
-        default=0.0, ge=0, description="Experimental allocation in USD"
-    )
+    experimental_usd: float = Field(default=0.0, ge=0, description="Experimental allocation in USD")
     allocations: dict[str, float] = Field(
         default_factory=dict, description="Process ID -> USD allocation mapping"
     )
@@ -260,15 +240,9 @@ class BybitEnvironmentSnapshot(BaseModel):
         default_factory=lambda: f"snapshot_{datetime.now().isoformat()}",
         description="Unique snapshot identifier",
     )
-    balances: dict[str, float] = Field(
-        default_factory=dict, description="Asset -> balance mapping"
-    )
-    positions: list[dict[str, Any]] = Field(
-        default_factory=list, description="Open positions"
-    )
-    open_orders: list[dict[str, Any]] = Field(
-        default_factory=list, description="Open orders"
-    )
+    balances: dict[str, float] = Field(default_factory=dict, description="Asset -> balance mapping")
+    positions: list[dict[str, Any]] = Field(default_factory=list, description="Open positions")
+    open_orders: list[dict[str, Any]] = Field(default_factory=list, description="Open orders")
     funding_rates: dict[str, float] = Field(
         default_factory=dict, description="Symbol -> funding rate mapping"
     )
@@ -322,4 +296,3 @@ class BybitEnvironmentSnapshot(BaseModel):
             age = (datetime.now() - self.timestamp).total_seconds() / 3600
             return age > max_age_hours
         return self.staleness_hours > max_age_hours
-

@@ -17,7 +17,9 @@ logger = get_logger(__name__)
 class OpenAIProcessFactory:
     """Generates process definitions using OpenAI with strict JSON validation."""
 
-    def __init__(self, api_key: str | None = None, prompt_template_path: str | Path | None = None) -> None:
+    def __init__(
+        self, api_key: str | None = None, prompt_template_path: str | Path | None = None
+    ) -> None:
         """Initialize OpenAI process factory.
 
         Args:
@@ -25,11 +27,17 @@ class OpenAIProcessFactory:
             prompt_template_path: Path to prompt template file
         """
         self.api_key = api_key
-        self.prompt_template_path = prompt_template_path or Path(__file__).parent.parent.parent.parent / "templates" / "openai_process_factory_prompt.txt"
+        self.prompt_template_path = (
+            prompt_template_path
+            or Path(__file__).parent.parent.parent.parent
+            / "templates"
+            / "openai_process_factory_prompt.txt"
+        )
 
         # Try to import OpenAI client
         try:
             from openai import OpenAI
+
             self._client = OpenAI(api_key=self.api_key) if self.api_key else OpenAI()
             self._available = True
         except ImportError:
@@ -161,16 +169,16 @@ class OpenAIProcessFactory:
             prompt = f"""Generate a new process definition based on this context:
 
 Environment Snapshot:
-{json.dumps(context['snapshot'], indent=2)}
+{json.dumps(context["snapshot"], indent=2)}
 
 Current Portfolio:
-{json.dumps(context['portfolio'], indent=2)}
+{json.dumps(context["portfolio"], indent=2)}
 
 Top Failures:
-{json.dumps(context['top_failures'], indent=2)}
+{json.dumps(context["top_failures"], indent=2)}
 
 Capability Gaps:
-{json.dumps(context['capability_gaps'], indent=2)}
+{json.dumps(context["capability_gaps"], indent=2)}
 
 Return ONLY valid JSON matching the ProcessDefinition schema. Include:
 - id: unique identifier
@@ -256,15 +264,12 @@ Default to HUMAN_TASK for anything uncertain."""
         # Validate budget guardrails
         actions = data.get("actions", [])
         if len(actions) > max_steps:
-            raise ValueError(
-                f"Too many steps: {len(actions)} > {max_steps} (budget limit)"
-            )
+            raise ValueError(f"Too many steps: {len(actions)} > {max_steps} (budget limit)")
 
         human_task_count = sum(
             1
             for action in actions
-            if isinstance(action, dict)
-            and action.get("kind") == "HUMAN_TASK"
+            if isinstance(action, dict) and action.get("kind") == "HUMAN_TASK"
         )
         if human_task_count > max_human_tasks:
             raise ValueError(
@@ -285,9 +290,7 @@ Default to HUMAN_TASK for anything uncertain."""
                     keyword in action_desc
                     for keyword in ["credential", "password", "api_key", "secret"]
                 ):
-                    raise ValueError(
-                        f"Action contains credential handling: {action_desc}"
-                    )
+                    raise ValueError(f"Action contains credential handling: {action_desc}")
                 # Reject UI scraping
                 if any(
                     keyword in action_desc
@@ -338,4 +341,3 @@ Default to HUMAN_TASK for anything uncertain."""
             action_desc = action.get("description", "").lower() if isinstance(action, dict) else ""
             if any(keyword in action_desc for keyword in dangerous_keywords):
                 raise ValueError(f"Action contains unsafe keyword: {action_desc}")
-

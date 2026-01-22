@@ -116,5 +116,3 @@ async def test_basis_arbitrage() -> None:
 
     await strategy.stop()
     await bus.stop()
-
-

@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 
 class RiskState(str, Enum):
     """Risk governor state levels."""
+
     NORMAL = "NORMAL"
     SOFT_BRAKE = "SOFT_BRAKE"
     QUARANTINE = "QUARANTINE"
@@ -95,7 +96,9 @@ class RiskGovernor:
             return RiskState.NORMAL
 
         # Calculate drawdown
-        drawdown_pct = ((initial_capital - equity) / initial_capital * 100) if initial_capital > 0 else 0.0
+        drawdown_pct = (
+            ((initial_capital - equity) / initial_capital * 100) if initial_capital > 0 else 0.0
+        )
 
         # Check for HARD_STOP conditions
         if drawdown_pct >= 20.0:  # 20% drawdown
@@ -143,15 +146,17 @@ class RiskGovernor:
             self._quarantined_symbols.add(symbol)
             logger.warning(f"Symbol quarantined: {symbol}, reason: {reason}")
 
-            await self._bus.publish(Event(
-                event_type=EventType.KILLSWITCH_TRIGGERED,  # Reuse existing event type
-                data={
-                    "type": "SYMBOL_QUARANTINED",
-                    "symbol": symbol,
-                    "reason": reason,
-                    "quarantined_symbols": list(self._quarantined_symbols),
-                }
-            ))
+            await self._bus.publish(
+                Event(
+                    event_type=EventType.KILLSWITCH_TRIGGERED,  # Reuse existing event type
+                    data={
+                        "type": "SYMBOL_QUARANTINED",
+                        "symbol": symbol,
+                        "reason": reason,
+                        "quarantined_symbols": list(self._quarantined_symbols),
+                    },
+                )
+            )
 
     async def clear_quarantine(self, symbol: str | None = None) -> dict[str, Any]:
         """Clear symbol quarantine.
@@ -204,16 +209,18 @@ class RiskGovernor:
 
         logger.info(f"Risk Governor cleared: {old_state.value} → NORMAL (force={force})")
 
-        await self._bus.publish(Event(
-            event_type=EventType.KILLSWITCH_TRIGGERED,  # Reuse
-            data={
-                "type": "RISK_STATE_UPDATE",
-                "state": self._state.value,
-                "previous_state": old_state.value,
-                "cleared": True,
-                "forced": force,
-            }
-        ))
+        await self._bus.publish(
+            Event(
+                event_type=EventType.KILLSWITCH_TRIGGERED,  # Reuse
+                data={
+                    "type": "RISK_STATE_UPDATE",
+                    "state": self._state.value,
+                    "previous_state": old_state.value,
+                    "cleared": True,
+                    "forced": force,
+                },
+            )
+        )
 
         return {
             "status": "cleared",
@@ -284,20 +291,22 @@ class RiskGovernor:
             f"reason={reason_codes}, {metric}={value:.2f} >= {threshold:.2f}"
         )
 
-        await self._bus.publish(Event(
-            event_type=EventType.KILLSWITCH_TRIGGERED,  # Reuse
-            data={
-                "type": "RISK_STATE_UPDATE",
-                "state": self._state.value,
-                "previous_state": old_state.value,
-                "reason_codes": reason_codes,
-                "metric": metric,
-                "value": value,
-                "threshold": threshold,
-                "recommended_action": self._get_recommended_action(),
-                "clear_rule": self._get_clear_rule(),
-            }
-        ))
+        await self._bus.publish(
+            Event(
+                event_type=EventType.KILLSWITCH_TRIGGERED,  # Reuse
+                data={
+                    "type": "RISK_STATE_UPDATE",
+                    "state": self._state.value,
+                    "previous_state": old_state.value,
+                    "reason_codes": reason_codes,
+                    "metric": metric,
+                    "value": value,
+                    "threshold": threshold,
+                    "recommended_action": self._get_recommended_action(),
+                    "clear_rule": self._get_clear_rule(),
+                },
+            )
+        )
 
     async def _deescalate_to(self, new_state: RiskState) -> None:
         """De-escalate to lower risk level.
@@ -318,15 +327,17 @@ class RiskGovernor:
 
         logger.info(f"Risk Governor de-escalated: {old_state.value} → {new_state.value}")
 
-        await self._bus.publish(Event(
-            event_type=EventType.KILLSWITCH_TRIGGERED,  # Reuse
-            data={
-                "type": "RISK_STATE_UPDATE",
-                "state": self._state.value,
-                "previous_state": old_state.value,
-                "deescalated": True,
-            }
-        ))
+        await self._bus.publish(
+            Event(
+                event_type=EventType.KILLSWITCH_TRIGGERED,  # Reuse
+                data={
+                    "type": "RISK_STATE_UPDATE",
+                    "state": self._state.value,
+                    "previous_state": old_state.value,
+                    "deescalated": True,
+                },
+            )
+        )
 
     def _can_clear(self) -> bool:
         """Check if risk governor can be cleared.

@@ -23,9 +23,7 @@ class ReconcileService:
         self._last_reconcile: datetime | None = None
         self._reconcile_lag_seconds: float = 0.0
 
-    async def reconcile_positions(
-        self, internal_positions: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def reconcile_positions(self, internal_positions: dict[str, Any]) -> dict[str, Any]:
         """Reconcile internal positions with exchange positions.
 
         Args:
@@ -113,9 +111,7 @@ class ReconcileService:
                 "discrepancies": [],
             }
 
-    async def reconcile_orders(
-        self, internal_orders: list[dict[str, Any]]
-    ) -> dict[str, Any]:
+    async def reconcile_orders(self, internal_orders: list[dict[str, Any]]) -> dict[str, Any]:
         """Reconcile internal orders with exchange orders.
 
         Args:
@@ -144,7 +140,9 @@ class ReconcileService:
 
             # Find discrepancies
             discrepancies = []
-            internal_by_id = {o.get("order_id", ""): o for o in internal_orders if o.get("order_id")}
+            internal_by_id = {
+                o.get("order_id", ""): o for o in internal_orders if o.get("order_id")
+            }
 
             all_order_ids = set(internal_by_id.keys()) | set(exchange_by_id.keys())
 
@@ -196,4 +194,3 @@ class ReconcileService:
         if self._last_reconcile is None:
             return 0.0
         return (datetime.utcnow() - self._last_reconcile).total_seconds()
-

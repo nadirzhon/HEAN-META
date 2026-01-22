@@ -19,7 +19,9 @@ async def market_snapshot(
 ) -> dict:
     """Return recent market snapshot (klines + last tick)."""
     default_symbol = settings.trading_symbols[0] if settings.trading_symbols else "BTCUSDT"
-    snapshot = await market_data_store.snapshot(symbol or default_symbol, timeframe=timeframe, limit=limit)
+    snapshot = await market_data_store.snapshot(
+        symbol or default_symbol, timeframe=timeframe, limit=limit
+    )
     snapshot["last_seq"] = telemetry_service.last_seq()
     return snapshot
 
@@ -62,7 +64,9 @@ async def market_candles(
 ) -> dict:
     """Return candles (klines) for a symbol."""
     default_symbol = settings.trading_symbols[0] if settings.trading_symbols else "BTCUSDT"
-    snapshot = await market_data_store.snapshot(symbol or default_symbol, timeframe=timeframe, limit=limit)
+    snapshot = await market_data_store.snapshot(
+        symbol or default_symbol, timeframe=timeframe, limit=limit
+    )
     return {
         "symbol": symbol or default_symbol,
         "timeframe": timeframe,

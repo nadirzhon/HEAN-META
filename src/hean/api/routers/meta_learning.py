@@ -13,6 +13,7 @@ router = APIRouter(prefix="/meta-learning", tags=["meta-learning"])
 
 class MetaLearningStateResponse(BaseModel):
     """Meta-learning state response."""
+
     total_scenarios_simulated: int
     scenarios_per_second: float
     failures_detected: int
@@ -23,6 +24,7 @@ class MetaLearningStateResponse(BaseModel):
 
 class CodeWeightResponse(BaseModel):
     """Code weight response."""
+
     name: str
     file_path: str
     line_number: int
@@ -33,6 +35,7 @@ class CodeWeightResponse(BaseModel):
 
 class PatchHistoryResponse(BaseModel):
     """Patch history response."""
+
     timestamp: str
     weight: str
     old_value: float
@@ -44,26 +47,28 @@ class PatchHistoryResponse(BaseModel):
 async def get_state(request: Request):
     """Get meta-learning engine state."""
     engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_meta_learning_engine'):
+
+    if not engine_facade or not hasattr(engine_facade, "_meta_learning_engine"):
         return MetaLearningStateResponse(
             total_scenarios_simulated=0,
             scenarios_per_second=0.0,
             failures_detected=0,
             patches_applied=0,
-            performance_improvement=0.0
+            performance_improvement=0.0,
         )
-    
+
     meta_engine = engine_facade._meta_learning_engine
     state = meta_engine.get_state()
-    
+
     return MetaLearningStateResponse(
         total_scenarios_simulated=state.total_scenarios_simulated,
         scenarios_per_second=state.scenarios_per_second,
         failures_detected=state.failures_detected,
         patches_applied=state.patches_applied,
         performance_improvement=state.performance_improvement,
-        last_simulation_time=state.last_simulation_time.isoformat() if state.last_simulation_time else None
+        last_simulation_time=state.last_simulation_time.isoformat()
+        if state.last_simulation_time
+        else None,
     )
 
 
@@ -71,13 +76,13 @@ async def get_state(request: Request):
 async def get_weights(request: Request):
     """Get all code weights."""
     engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_meta_learning_engine'):
+
+    if not engine_facade or not hasattr(engine_facade, "_meta_learning_engine"):
         return []
-    
+
     meta_engine = engine_facade._meta_learning_engine
     weights = meta_engine.get_weights()
-    
+
     return [
         CodeWeightResponse(
             name=w.name,
@@ -85,7 +90,7 @@ async def get_weights(request: Request):
             line_number=w.line_number,
             current_value=w.current_value,
             value_range=list(w.value_range),
-            impact_score=w.impact_score
+            impact_score=w.impact_score,
         )
         for w in weights.values()
     ]
@@ -95,20 +100,20 @@ async def get_weights(request: Request):
 async def get_patch_history(request: Request, limit: int = 10):
     """Get patch history."""
     engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_meta_learning_engine'):
+
+    if not engine_facade or not hasattr(engine_facade, "_meta_learning_engine"):
         return []
-    
+
     meta_engine = engine_facade._meta_learning_engine
     patches = meta_engine.get_patch_history()
-    
+
     return [
         PatchHistoryResponse(
-            timestamp=p['timestamp'].isoformat(),
-            weight=p['weight'],
-            old_value=p['old_value'],
-            new_value=p['new_value'],
-            scenario_id=p['scenario_id']
+            timestamp=p["timestamp"].isoformat(),
+            weight=p["weight"],
+            old_value=p["old_value"],
+            new_value=p["new_value"],
+            scenario_id=p["scenario_id"],
         )
         for p in patches[-limit:]
     ]

@@ -90,9 +90,7 @@ class MetricsExporter:
         if self.export_path:
             try:
                 self.export_path.parent.mkdir(parents=True, exist_ok=True)
-                self.export_path.write_text(
-                    json.dumps(export_data, indent=2), encoding="utf-8"
-                )
+                self.export_path.write_text(json.dumps(export_data, indent=2), encoding="utf-8")
             except Exception as e:
                 logger.warning(f"Failed to export metrics to file: {e}")
 
@@ -159,26 +157,30 @@ class MetricsExporter:
         ]
 
         if snapshot_staleness_seconds is not None:
-            lines.extend([
-                f"# HELP hean_snapshot_staleness_seconds Snapshot staleness in seconds",
-                f"# TYPE hean_snapshot_staleness_seconds gauge",
-                f"hean_snapshot_staleness_seconds {snapshot_staleness_seconds}",
-            ])
+            lines.extend(
+                [
+                    f"# HELP hean_snapshot_staleness_seconds Snapshot staleness in seconds",
+                    f"# TYPE hean_snapshot_staleness_seconds gauge",
+                    f"hean_snapshot_staleness_seconds {snapshot_staleness_seconds}",
+                ]
+            )
 
-        lines.extend([
-            f"# HELP hean_order_rejects Number of order rejects",
-            f"# TYPE hean_order_rejects counter",
-            f"hean_order_rejects {order_rejects}",
-            f"# HELP hean_slippage_bps Average slippage in basis points",
-            f"# TYPE hean_slippage_bps gauge",
-            f"hean_slippage_bps {slippage_bps}",
-            f"# HELP hean_maker_taker_ratio Maker/taker fill ratio",
-            f"# TYPE hean_maker_taker_ratio gauge",
-            f"hean_maker_taker_ratio {maker_taker_ratio}",
-            f"# HELP hean_api_latency_ms API latency in milliseconds",
-            f"# TYPE hean_api_latency_ms gauge",
-            f"hean_api_latency_ms {api_latency_ms}",
-        ])
+        lines.extend(
+            [
+                f"# HELP hean_order_rejects Number of order rejects",
+                f"# TYPE hean_order_rejects counter",
+                f"hean_order_rejects {order_rejects}",
+                f"# HELP hean_slippage_bps Average slippage in basis points",
+                f"# TYPE hean_slippage_bps gauge",
+                f"hean_slippage_bps {slippage_bps}",
+                f"# HELP hean_maker_taker_ratio Maker/taker fill ratio",
+                f"# TYPE hean_maker_taker_ratio gauge",
+                f"hean_maker_taker_ratio {maker_taker_ratio}",
+                f"# HELP hean_api_latency_ms API latency in milliseconds",
+                f"# TYPE hean_api_latency_ms gauge",
+                f"hean_api_latency_ms {api_latency_ms}",
+            ]
+        )
 
         return "\n".join(lines) + "\n"
 
@@ -200,4 +202,3 @@ def get_exporter(export_path: str | Path | None = None) -> MetricsExporter:
     if _global_exporter is None:
         _global_exporter = MetricsExporter(export_path=export_path)
     return _global_exporter
-

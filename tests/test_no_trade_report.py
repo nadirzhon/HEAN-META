@@ -45,9 +45,3 @@ def test_no_trade_report_global_singleton_reset() -> None:
     assert summary2.totals == {}
     assert summary2.per_strategy == {}
     assert summary2.per_symbol == {}
-
-
-
-
-
-

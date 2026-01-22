@@ -187,10 +187,3 @@ async def test_stream_config_gating(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not signals, "When disabled via config, stream should not emit signals"
 
     await bus.stop()
-
-
-
-
-
-
-

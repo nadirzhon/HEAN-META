@@ -101,4 +101,3 @@ def test_scale_rule():
     assert rule.metric == "avg_roi"
     assert rule.scale_multiplier == 1.5
     assert rule.max_allocation_usd == 5000.0
-

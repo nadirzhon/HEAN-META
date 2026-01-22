@@ -116,4 +116,3 @@ class PrometheusServer:
             "maker_taker_ratio": maker_taker_ratio,
             "api_latency_ms": api_latency_ms,
         }
-

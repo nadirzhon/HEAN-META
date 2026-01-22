@@ -98,4 +98,3 @@ async def test_storage_capital_plan():
         assert loaded.reserve_usd == 400.0
         assert loaded.allocations["process1"] == 100.0
         await storage.close()
-

@@ -51,4 +51,3 @@ def get_process_definition() -> ProcessDefinition:
         ),
         kill_conditions=[],
     )
-

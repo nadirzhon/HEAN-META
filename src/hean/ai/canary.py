@@ -169,22 +169,24 @@ class CanaryTester:
         )
 
         # Publish experiment result
-        await self._bus.publish(Event(
-            event_type=EventType.STRATEGY_UPDATED,
-            data={
-                "type": "EXPERIMENT_RESULT",
-                "experiment_id": f"canary_{strategy_id}",
-                "strategy": strategy_id,
-                "phase": "canary",
-                "metrics": metrics.to_dict(),
-                "comparison_vs_baseline": {
-                    "sharpe_delta": metrics.sharpe - self._baseline_sharpe,
-                    "better": metrics.sharpe >= self._baseline_sharpe * 1.1,
+        await self._bus.publish(
+            Event(
+                event_type=EventType.STRATEGY_UPDATED,
+                data={
+                    "type": "EXPERIMENT_RESULT",
+                    "experiment_id": f"canary_{strategy_id}",
+                    "strategy": strategy_id,
+                    "phase": "canary",
+                    "metrics": metrics.to_dict(),
+                    "comparison_vs_baseline": {
+                        "sharpe_delta": metrics.sharpe - self._baseline_sharpe,
+                        "better": metrics.sharpe >= self._baseline_sharpe * 1.1,
+                    },
+                    "decision": decision,
+                    "timestamp": datetime.utcnow().isoformat(),
                 },
-                "decision": decision,
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-        ))
+            )
+        )
 
         return result
 

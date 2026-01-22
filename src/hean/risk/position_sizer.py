@@ -80,9 +80,7 @@ class PositionSizer:
 
         # CRITICAL FIX: Ensure stop_distance_pct is always valid
         if stop_distance_pct <= 0 or stop_distance_pct > 50:
-            logger.warning(
-                f"Invalid stop distance: {stop_distance_pct}%, using default 2%"
-            )
+            logger.warning(f"Invalid stop distance: {stop_distance_pct}%, using default 2%")
             stop_distance_pct = 2.0
 
         # Calculate risk amount
@@ -143,7 +141,7 @@ class PositionSizer:
                 f"protection_mult={protection_multiplier:.2f}, leverage={leverage:.2f}x, "
                 f"size={position_size:.6f}"
             )
-            
+
             # CRITICAL: Ensure size doesn't become 0 after multipliers
             if position_size <= 0:
                 min_size_value = (equity * 0.001) / current_price

@@ -44,5 +44,3 @@ def test_config_validation() -> None:
 
     with pytest.raises(ValueError):
         HEANSettings(reinvest_rate=1.5)  # > 1.0
-
-

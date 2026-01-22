@@ -143,10 +143,3 @@ def test_capital_pressure_influences_allocator_weights() -> None:
     new_weights = allocator.update_weights(strategy_metrics)
 
     assert new_weights["strategy_good"] > new_weights["strategy_neutral"]
-
-
-
-
-
-
-

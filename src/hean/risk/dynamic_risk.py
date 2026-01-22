@@ -222,4 +222,3 @@ class DynamicRiskManager:
         self._last_drawdown = 0.0
         self._last_spike_time = None
         self._risk_reductions_triggered = 0
-

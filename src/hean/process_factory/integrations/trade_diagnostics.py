@@ -27,12 +27,12 @@ def log_trade_blocked(
     """
     if suggested_fix is None:
         suggested_fix = []
-    
+
     logger.warning(
         f"event=trade_blocked symbol={symbol} strategy={strategy_id} "
         f"reasons={reasons} suggested_fix={suggested_fix}"
     )
-    
+
     # Also print to console for visibility
     print(f"\n⚠ Trade blocked: {symbol} ({strategy_id})")
     print(f"  Reasons: {', '.join(reasons)}")
@@ -50,11 +50,11 @@ def check_live_enabled() -> tuple[bool, list[str], list[str]]:
     """
     reasons = []
     fixes = []
-    
+
     if not settings.is_live:
         reasons.append("live_disabled")
         fixes.append("Set LIVE_CONFIRM=YES and trading_mode=live")
-    
+
     return len(reasons) == 0, reasons, fixes
 
 
@@ -66,11 +66,11 @@ def check_dry_run() -> tuple[bool, list[str], list[str]]:
     """
     reasons = []
     fixes = []
-    
+
     if settings.dry_run:
         reasons.append("dry_run")
         fixes.append("Set DRY_RUN=false to allow real orders")
-    
+
     return len(reasons) == 0, reasons, fixes
 
 
@@ -82,10 +82,9 @@ def check_process_factory_actions() -> tuple[bool, list[str], list[str]]:
     """
     reasons = []
     fixes = []
-    
+
     if not settings.process_factory_allow_actions:
         reasons.append("process_factory_allow_actions_false")
         fixes.append("Set PROCESS_FACTORY_ALLOW_ACTIONS=true")
-    
-    return len(reasons) == 0, reasons, fixes
 
+    return len(reasons) == 0, reasons, fixes

@@ -106,5 +106,3 @@ async def test_paper_broker_fees() -> None:
 
     await broker.stop()
     await bus.stop()
-
-

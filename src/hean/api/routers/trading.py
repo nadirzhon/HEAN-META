@@ -70,7 +70,7 @@ async def get_positions(request: Request) -> list[dict]:
 @router.get("")
 async def get_orders(
     request: Request,
-    status: str = Query(default="all", description="Filter by status: all, open, filled")
+    status: str = Query(default="all", description="Filter by status: all, open, filled"),
 ) -> list[dict]:
     """Get orders."""
     engine_facade = _get_facade(request)
@@ -151,7 +151,9 @@ async def close_position(request: Request, payload: ClosePositionRequest) -> dic
     try:
         result = await engine_facade.close_position(payload.position_id, reason="api_close")
         if result.get("status") == "error":
-            raise HTTPException(status_code=500, detail=result.get("message", "Failed to close position"))
+            raise HTTPException(
+                status_code=500, detail=result.get("message", "Failed to close position")
+            )
         return result
     except Exception as e:
         logger.error(f"Failed to close position: {e}", exc_info=True)
@@ -217,8 +219,16 @@ async def test_roundtrip(request: Request, payload: TestRoundtripRequest) -> dic
         price = 50000.0 if "BTC" in payload.symbol else 3000.0
 
     side = payload.side.lower()
-    tp = price * (1 + payload.take_profit_pct / 100) if side == "buy" else price * (1 - payload.take_profit_pct / 100)
-    sl = price * (1 - payload.stop_loss_pct / 100) if side == "buy" else price * (1 + payload.stop_loss_pct / 100)
+    tp = (
+        price * (1 + payload.take_profit_pct / 100)
+        if side == "buy"
+        else price * (1 - payload.take_profit_pct / 100)
+    )
+    sl = (
+        price * (1 - payload.stop_loss_pct / 100)
+        if side == "buy"
+        else price * (1 + payload.stop_loss_pct / 100)
+    )
 
     signal = Signal(
         strategy_id="test_roundtrip",
@@ -289,10 +299,10 @@ async def reset_paper_state(request: Request) -> dict:
 @router.get("/orderbook-presence")
 async def get_orderbook_presence(
     request: Request,
-    symbol: str | None = Query(default=None, description="Symbol filter (optional)")
+    symbol: str | None = Query(default=None, description="Symbol filter (optional)"),
 ) -> dict | list[dict]:
     """Get our orderbook presence (Phase 3: Smart Limit Engine).
-    
+
     Shows our limit orders as glowing clusters in the orderbook,
     with their distance from mid-price.
     """
@@ -309,7 +319,7 @@ async def get_orderbook_presence(
 @why_router.get("/why")
 async def why_not_trading(request: Request) -> dict:
     """Explain why orders are not being created (transparency panel).
-    
+
     Returns comprehensive diagnostics per AFO-Director spec:
     - engine_state, killswitch_state
     - last_tick_age_sec, last_signal_ts, last_decision_ts, last_order_ts, last_fill_ts
@@ -321,30 +331,36 @@ async def why_not_trading(request: Request) -> dict:
     - multi_symbol (enabled, symbols_count, last_scanned_symbol, scan_cursor, scan_cycle_ts)
     """
     facade = _get_facade(request)
-    
+
     try:
         # Get engine status
         engine_status = await facade.get_status() if facade.is_running else {}
         risk_status = await facade.get_risk_status() if facade.is_running else {}
-        
+
         # Get killswitch status directly from risk router
         killswitch_status = {}
         try:
             if facade.is_running:
-                from hean.api.routers.risk import get_killswitch_status as _get_killswitch_status_impl
-                killswitch_status = await _get_killswitch_status_impl(request) if facade.is_running else {}
+                from hean.api.routers.risk import (
+                    get_killswitch_status as _get_killswitch_status_impl,
+                )
+
+                killswitch_status = (
+                    await _get_killswitch_status_impl(request) if facade.is_running else {}
+                )
         except Exception as e:
             logger.debug(f"Could not get killswitch status: {e}")
             killswitch_status = {}
-        
+
         # Get trading metrics
         metrics = await trading_metrics.get_metrics() if facade.is_running else {}
-        
+
         # Get recent order decisions (last 5 minutes worth)
         from hean.api import main as api_main
+
         async with api_main.trading_state_lock:
             all_decisions = list(api_main.trading_state_cache.get("order_decisions", []))
-        
+
         # Filter decisions from last 5 minutes
         now = datetime.utcnow()
         five_min_ago = now - timedelta(minutes=5)
@@ -361,28 +377,32 @@ async def why_not_trading(request: Request) -> dict:
                         recent_decisions.append(decision)
                 except Exception:
                     pass
-        
+
         # Analyze reasons from last 5 minutes
         reason_code_counts = {}
         for decision in recent_decisions:
             reason_code = decision.get("reason_code") or decision.get("decision") or "UNKNOWN"
             reason_code_counts[reason_code] = reason_code_counts.get(reason_code, 0) + 1
-        
+
         # Top 10 reason codes from last 5m
         top_reason_codes_last_5m = [
             {"code": code, "count": count}
-            for code, count in sorted(reason_code_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+            for code, count in sorted(reason_code_counts.items(), key=lambda x: x[1], reverse=True)[
+                :10
+            ]
         ]
-        
+
         # Analyze engine state
         engine_state = engine_status.get("status", "STOPPED") if facade.is_running else "STOPPED"
-        killswitch_triggered = killswitch_status.get("triggered", False) or risk_status.get("killswitch_triggered", False)
+        killswitch_triggered = killswitch_status.get("triggered", False) or risk_status.get(
+            "killswitch_triggered", False
+        )
         killswitch_state = {
             "triggered": killswitch_triggered,
             "reasons": killswitch_status.get("reasons", []),
             "triggered_at": killswitch_status.get("triggered_at"),
         }
-        
+
         # Get last activity timestamps
         last_signal_ts = metrics.get("last_signal_ts")
         last_order_ts = metrics.get("last_order_ts")
@@ -391,7 +411,7 @@ async def why_not_trading(request: Request) -> dict:
         if recent_decisions:
             last_decision = recent_decisions[-1]
             last_decision_ts = last_decision.get("timestamp")
-        
+
         # Calculate last tick age
         last_tick_age_sec = None
         if facade.is_running:
@@ -406,7 +426,7 @@ async def why_not_trading(request: Request) -> dict:
                     last_tick_age_sec = max_age if max_age > 0 else None
             except Exception as e:
                 logger.debug(f"Could not check market data staleness: {e}")
-        
+
         # Get account state for equity/pnl
         account_state = {}
         equity = None
@@ -415,7 +435,7 @@ async def why_not_trading(request: Request) -> dict:
         real_pnl = None
         margin_used = None
         margin_free = None
-        
+
         if facade.is_running:
             try:
                 snapshot = await facade.get_trading_state()
@@ -425,12 +445,14 @@ async def why_not_trading(request: Request) -> dict:
                 unreal_pnl = account_state.get("unrealized_pnl", 0.0)
                 real_pnl = account_state.get("realized_pnl", 0.0)
                 margin_used = account_state.get("used_margin", 0.0)
-                margin_free = account_state.get("available_balance") or account_state.get("free_margin")
+                margin_free = account_state.get("available_balance") or account_state.get(
+                    "free_margin"
+                )
                 if margin_free is None and balance is not None and margin_used is not None:
                     margin_free = max(balance - margin_used, 0.0)
             except Exception as e:
                 logger.debug(f"Could not get account state: {e}")
-        
+
         # Profit capture state (will be implemented in B2)
         profit_capture_state = {
             "enabled": False,
@@ -454,7 +476,7 @@ async def why_not_trading(request: Request) -> dict:
                     profit_capture_state = trading_system._profit_capture.get_state()
             except Exception as e:
                 logger.debug(f"Could not get profit capture state: {e}")
-        
+
         # Execution quality (AFO-Director / Execution Alpha v0)
         execution_quality = {
             "ws_ok": None,
@@ -470,18 +492,34 @@ async def why_not_trading(request: Request) -> dict:
                     router = trading_system._execution_router
                     # Check WS connection status
                     if hasattr(router, "_bybit_ws_public"):
-                        execution_quality["ws_ok"] = router._bybit_ws_public._connected if router._bybit_ws_public else None
+                        execution_quality["ws_ok"] = (
+                            router._bybit_ws_public._connected if router._bybit_ws_public else None
+                        )
                     if hasattr(router, "_bybit_http"):
-                        execution_quality["rest_ok"] = router._bybit_http._connected if router._bybit_http else None
+                        execution_quality["rest_ok"] = (
+                            router._bybit_http._connected if router._bybit_http else None
+                        )
                     # Get execution diagnostics if available
                     if hasattr(router, "_diagnostics"):
                         diag = router._diagnostics
-                        execution_quality["avg_latency_ms"] = diag.get_avg_latency_ms() if hasattr(diag, "get_avg_latency_ms") else None
-                        execution_quality["reject_rate_5m"] = diag.get_reject_rate_5m() if hasattr(diag, "get_reject_rate_5m") else None
-                        execution_quality["slippage_est_5m"] = diag.get_slippage_est_5m() if hasattr(diag, "get_slippage_est_5m") else None
+                        execution_quality["avg_latency_ms"] = (
+                            diag.get_avg_latency_ms()
+                            if hasattr(diag, "get_avg_latency_ms")
+                            else None
+                        )
+                        execution_quality["reject_rate_5m"] = (
+                            diag.get_reject_rate_5m()
+                            if hasattr(diag, "get_reject_rate_5m")
+                            else None
+                        )
+                        execution_quality["slippage_est_5m"] = (
+                            diag.get_slippage_est_5m()
+                            if hasattr(diag, "get_slippage_est_5m")
+                            else None
+                        )
             except Exception as e:
                 logger.debug(f"Could not get execution quality: {e}")
-        
+
         # Multi-symbol state (will be implemented in D2)
         multi_symbol = {
             "enabled": False,
@@ -499,10 +537,11 @@ async def why_not_trading(request: Request) -> dict:
                 logger.debug(f"Could not get multi-symbol state: {e}")
             # Fallback: check if multi-symbol is enabled via config
             from hean.config import settings
+
             if hasattr(settings, "multi_symbol_enabled") and settings.multi_symbol_enabled:
                 multi_symbol["enabled"] = True
                 multi_symbol["symbols_count"] = len(getattr(settings, "symbols", []))
-        
+
         return {
             "engine_state": engine_state,
             "killswitch_state": killswitch_state,
@@ -579,34 +618,35 @@ async def get_trading_metrics(request: Request) -> dict:
 async def get_trading_state(request: Request) -> dict:
     """Get current trading state snapshot (positions, orders, fills, decisions)."""
     facade = _get_facade(request)
-    
+
     try:
         # Get trading state from engine
         snapshot = await facade.get_trading_state() if facade.is_running else {}
-        
+
         # Get recent decisions
         from hean.api import main as api_main
+
         async with api_main.trading_state_lock:
             recent_decisions = list(api_main.trading_state_cache.get("order_decisions", []))[-50:]
-            recent_exit_decisions = list(api_main.trading_state_cache.get("order_exit_decisions", []))[-50:]
-        
+            recent_exit_decisions = list(
+                api_main.trading_state_cache.get("order_exit_decisions", [])
+            )[-50:]
+
         # Get open positions
         positions = snapshot.get("positions", [])
         open_positions = [p for p in positions if p.get("status") != "closed"]
-        
+
         # Get open orders
         orders = snapshot.get("orders", [])
         open_orders = [
-            o for o in orders
+            o
+            for o in orders
             if o.get("status", "").upper() not in ("FILLED", "CANCELLED", "REJECTED")
         ]
-        
+
         # Get recent fills (filled orders)
-        recent_fills = [
-            o for o in orders
-            if o.get("status", "").upper() == "FILLED"
-        ][-50:]
-        
+        recent_fills = [o for o in orders if o.get("status", "").upper() == "FILLED"][-50:]
+
         return {
             "status": "ok",
             "open_positions": open_positions,

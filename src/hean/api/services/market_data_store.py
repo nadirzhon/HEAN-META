@@ -38,8 +38,11 @@ class MarketDataStore:
             "volume": getattr(tick, "volume", 0.0),
             "bid": getattr(tick, "bid", None),
             "ask": getattr(tick, "ask", None),
-            "ts": tick.timestamp.isoformat() if hasattr(tick, "timestamp") else datetime.utcnow().isoformat(),
-            "ts_ms": _ts_ms(getattr(tick, "timestamp", None)) or int(datetime.utcnow().timestamp() * 1000),
+            "ts": tick.timestamp.isoformat()
+            if hasattr(tick, "timestamp")
+            else datetime.utcnow().isoformat(),
+            "ts_ms": _ts_ms(getattr(tick, "timestamp", None))
+            or int(datetime.utcnow().timestamp() * 1000),
         }
         async with self._lock:
             self._last_tick[tick.symbol] = payload
@@ -80,7 +83,9 @@ class MarketDataStore:
                 return self._last_tick.get(last_symbol)
             return None
 
-    async def get_klines(self, symbol: str, timeframe: str = "1m", limit: int = 200) -> list[dict[str, Any]]:
+    async def get_klines(
+        self, symbol: str, timeframe: str = "1m", limit: int = 200
+    ) -> list[dict[str, Any]]:
         """Return up to `limit` klines for symbol/timeframe (oldest first)."""
         async with self._lock:
             candles = list(self._candles.get((symbol, timeframe), []))
@@ -90,7 +95,9 @@ class MarketDataStore:
             return []
         return candles[-limit:]
 
-    async def snapshot(self, symbol: str | None = None, timeframe: str = "1m", limit: int = 200) -> dict[str, Any]:
+    async def snapshot(
+        self, symbol: str | None = None, timeframe: str = "1m", limit: int = 200
+    ) -> dict[str, Any]:
         """Return consolidated market snapshot for UI priming."""
         async with self._lock:
             target_symbol = symbol

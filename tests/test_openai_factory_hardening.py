@@ -66,15 +66,11 @@ def test_required_fields_enforcement(factory, sample_snapshot, sample_portfolio)
     }
 
     factory._client.chat.completions.create.return_value = MagicMock(
-        choices=[
-            MagicMock(message=MagicMock(content=json.dumps(incomplete_data)))
-        ]
+        choices=[MagicMock(message=MagicMock(content=json.dumps(incomplete_data)))]
     )
 
     with pytest.raises(ValueError, match="Missing required field"):
-        factory.generate_process(
-            sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5
-        )
+        factory.generate_process(sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5)
 
 
 def test_kill_conditions_required(factory, sample_snapshot, sample_portfolio):
@@ -92,9 +88,7 @@ def test_kill_conditions_required(factory, sample_snapshot, sample_portfolio):
     )
 
     with pytest.raises(ValueError, match="Missing kill_conditions"):
-        factory.generate_process(
-            sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5
-        )
+        factory.generate_process(sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5)
 
 
 def test_measurement_spec_required(factory, sample_snapshot, sample_portfolio):
@@ -113,9 +107,7 @@ def test_measurement_spec_required(factory, sample_snapshot, sample_portfolio):
     )
 
     with pytest.raises(ValueError, match="Missing measurement spec"):
-        factory.generate_process(
-            sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5
-        )
+        factory.generate_process(sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5)
 
 
 def test_budget_guardrails_max_steps(factory, sample_snapshot, sample_portfolio):
@@ -128,7 +120,9 @@ def test_budget_guardrails_max_steps(factory, sample_snapshot, sample_portfolio)
         "description": "Test description",
         "kill_conditions": [{"metric": "fail_rate", "threshold": 0.7}],
         "measurement": {"metrics": ["capital_delta"]},
-        "actions": [{"kind": "BYBIT_API", "description": f"Step {i}"} for i in range(25)],  # 25 > 20
+        "actions": [
+            {"kind": "BYBIT_API", "description": f"Step {i}"} for i in range(25)
+        ],  # 25 > 20
     }
 
     factory._client.chat.completions.create.return_value = MagicMock(
@@ -136,9 +130,7 @@ def test_budget_guardrails_max_steps(factory, sample_snapshot, sample_portfolio)
     )
 
     with pytest.raises(ValueError, match="Too many steps"):
-        factory.generate_process(
-            sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5
-        )
+        factory.generate_process(sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5)
 
 
 def test_budget_guardrails_max_human_tasks(factory, sample_snapshot, sample_portfolio):
@@ -161,9 +153,7 @@ def test_budget_guardrails_max_human_tasks(factory, sample_snapshot, sample_port
     )
 
     with pytest.raises(ValueError, match="Too many human tasks"):
-        factory.generate_process(
-            sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5
-        )
+        factory.generate_process(sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5)
 
 
 def test_deterministic_generation_seed_temperature(factory, sample_snapshot, sample_portfolio):
@@ -183,9 +173,7 @@ def test_deterministic_generation_seed_temperature(factory, sample_snapshot, sam
     )
 
     # Generate process
-    factory.generate_process(
-        sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5
-    )
+    factory.generate_process(sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5)
 
     # Check that API was called with deterministic settings
     call_kwargs = factory._client.chat.completions.create.call_args[1]
@@ -214,9 +202,7 @@ def test_safety_filter_rejects_unsafe_processes(factory, sample_snapshot, sample
     )
 
     with pytest.raises(ValueError, match="unsafe keyword"):
-        factory.generate_process(
-            sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5
-        )
+        factory.generate_process(sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5)
 
 
 def test_budget_guardrails_stop_runaway_processes(factory, sample_snapshot, sample_portfolio):
@@ -238,7 +224,4 @@ def test_budget_guardrails_stop_runaway_processes(factory, sample_snapshot, samp
 
     # Even with high max_steps, should enforce reasonable limits
     with pytest.raises(ValueError, match="Too many steps"):
-        factory.generate_process(
-            sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5
-        )
-
+        factory.generate_process(sample_snapshot, sample_portfolio, max_steps=20, max_human_tasks=5)

@@ -54,9 +54,7 @@ class AttributionResult(BaseModel):
     opportunity_cost_usd: float = Field(
         default=0.0, description="Opportunity cost (lockup time * risk-free rate)"
     )
-    capital_locked_hours: float = Field(
-        default=0.0, ge=0, description="Hours capital was locked"
-    )
+    capital_locked_hours: float = Field(default=0.0, ge=0, description="Hours capital was locked")
     time_weighted_capital_usd: float = Field(
         default=0.0, description="Time-weighted capital usage (capital * hours)"
     )
@@ -161,9 +159,7 @@ class TruthLayer:
             profit_illusion=profit_illusion,
         )
 
-    def _compute_fees(
-        self, run: ProcessRun, ledger_entries: list[LedgerEntry]
-    ) -> float:
+    def _compute_fees(self, run: ProcessRun, ledger_entries: list[LedgerEntry]) -> float:
         """Compute trading fees for a run.
 
         Args:
@@ -238,9 +234,7 @@ class TruthLayer:
 
         return total_fees
 
-    def _compute_funding(
-        self, run: ProcessRun, ledger_entries: list[LedgerEntry]
-    ) -> float:
+    def _compute_funding(self, run: ProcessRun, ledger_entries: list[LedgerEntry]) -> float:
         """Compute funding payments for a run.
 
         Args:
@@ -272,9 +266,7 @@ class TruthLayer:
 
         return total_funding
 
-    def _compute_rewards(
-        self, run: ProcessRun, ledger_entries: list[LedgerEntry]
-    ) -> float:
+    def _compute_rewards(self, run: ProcessRun, ledger_entries: list[LedgerEntry]) -> float:
         """Compute rewards/bonuses for a run.
 
         Args:
@@ -370,9 +362,7 @@ class TruthLayer:
 
         return opportunity_cost
 
-    def compute_portfolio_attribution(
-        self, runs: list[ProcessRun]
-    ) -> dict[str, AttributionResult]:
+    def compute_portfolio_attribution(self, runs: list[ProcessRun]) -> dict[str, AttributionResult]:
         """Compute attribution for multiple runs (grouped by process).
 
         Args:
@@ -435,4 +425,3 @@ class TruthLayer:
             )
 
         return aggregated
-

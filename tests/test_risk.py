@@ -84,5 +84,3 @@ async def test_killswitch_drawdown() -> None:
     assert killswitch.is_triggered()
 
     await bus.stop()
-
-

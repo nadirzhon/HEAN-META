@@ -228,5 +228,3 @@ async def test_market_context_dataclass_and_builder_buckets() -> None:
 
     await detector.stop()
     await bus.stop()
-
-

@@ -145,7 +145,9 @@ async def resume_engine(request: Request) -> dict:
     try:
         await _log_control_event("resume", "command", request, detail="engine/resume")
         result = await engine_facade.resume()
-        await _log_control_event("resume", "result", request, success=True, extra={"result": result})
+        await _log_control_event(
+            "resume", "result", request, success=True, extra={"result": result}
+        )
         # Standardized response
         return {
             "ok": True,
@@ -181,14 +183,18 @@ async def restart_engine(request: Request) -> dict:
     try:
         await _log_control_event("restart", "command", request, detail="engine/restart")
         result = await engine_facade.restart()
-        await _log_control_event("restart", "result", request, success=True, extra={"result": result})
+        await _log_control_event(
+            "restart", "result", request, success=True, extra={"result": result}
+        )
         # Standardized response
         start_result = result.get("start_result", {})
         return {
             "ok": True,
             "status": result.get("status", "restarted"),
             "engine_state": "RUNNING" if start_result.get("status") == "started" else "STOPPED",
-            "message": result.get("message", start_result.get("message", "Engine restarted successfully")),
+            "message": result.get(
+                "message", start_result.get("message", "Engine restarted successfully")
+            ),
             "start_result": start_result,
         }
     except NotImplementedError as e:

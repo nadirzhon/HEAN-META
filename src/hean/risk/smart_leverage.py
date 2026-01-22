@@ -61,7 +61,7 @@ class SmartLeverageManager:
         real_time_alpha: float = 0.0,
     ) -> float:
         """Calculate leverage based ONLY on real-time alpha score.
-        
+
         UNCONSTRAINED: No safety thresholds - leverage determined solely by alpha.
         The system has the right to take risks and evolve based on alpha signals.
 
@@ -83,7 +83,7 @@ class SmartLeverageManager:
             # Primary: Alpha-based leverage (no constraints)
             # High alpha = high leverage, even if extreme
             leverage = 1.0 + (abs(real_time_alpha) * self._max_leverage * 10.0)
-            
+
             # No upper bound - allow extreme leverage if alpha demands it
             if real_time_alpha > 0.8:
                 # Extremely high alpha: allow unlimited leverage
@@ -96,7 +96,7 @@ class SmartLeverageManager:
                 leverage = self._max_leverage * 5.0  # 25x if max is 5x
             elif real_time_alpha > 0.3:
                 leverage = self._max_leverage * 2.0  # 10x if max is 5x
-            
+
             logger.info(
                 f"Alpha-based leverage: alpha={real_time_alpha:.4f}, "
                 f"leverage={leverage:.2f}x (UNCONSTRAINED)"
@@ -106,7 +106,7 @@ class SmartLeverageManager:
         # UNCONSTRAINED: Edge-based leverage (no safety limits)
         # Base leverage scales with edge, no constraints on volatility/drawdown/PF
         base_leverage = 1.0
-        
+
         # Scale leverage with edge (no safety constraints)
         if edge_bps > self._min_edge_for_leverage_4x:
             base_leverage = 4.0 * (edge_bps / self._min_edge_for_leverage_4x)
@@ -136,17 +136,19 @@ class SmartLeverageManager:
         if regime == Regime.RANGE:
             regime_multiplier = 1.5  # Increase in RANGE (more opportunities)
         elif regime == Regime.IMPULSE:
-            regime_multiplier = 2.0  # UNCONSTRAINED: Allow MORE leverage in IMPULSE (high alpha opportunity)
+            regime_multiplier = (
+                2.0  # UNCONSTRAINED: Allow MORE leverage in IMPULSE (high alpha opportunity)
+            )
             logger.debug(f"UNCONSTRAINED: IMPULSE regime, increasing leverage multiplier to 2.0x")
 
         leverage = base_leverage * regime_multiplier
 
         # NO SAFETY LIMITS - Allow leverage to scale based on edge/alpha
         # Remove all drawdown, volatility, and PF constraints
-        
+
         # Only minimum bound (can't go below 1.0x)
         leverage = max(1.0, leverage)
-        
+
         # NO MAXIMUM BOUND - Allow extreme leverage if edge is high
         # (Previously: leverage = min(leverage, self._max_leverage))
         # Now removed - leverage can exceed max_leverage if conditions demand it
@@ -169,7 +171,7 @@ class SmartLeverageManager:
         real_time_alpha: float = 0.0,
     ) -> bool:
         """Check if leverage should be used.
-        
+
         UNCONSTRAINED: No safety checks - leverage based on alpha/edge only.
 
         Args:
@@ -185,12 +187,12 @@ class SmartLeverageManager:
         """
         # UNCONSTRAINED: No safety checks - only check for minimum signal
         # Use leverage if there's any positive alpha or edge
-        
+
         if real_time_alpha > 0.0:
             return True  # Any positive alpha allows leverage
-        
+
         # Minimum edge requirement (minimal constraint - just need some edge)
         if edge_bps > 5.0:  # Very low threshold
             return True
-        
+
         return False

@@ -377,7 +377,9 @@ class PaperBroker:
                 f"[FORCED_FILL] Order partially filled, remaining: {order.size - order.filled_size}"
             )
 
-        self._append_timeline(order, order.status.value if hasattr(order.status, "value") else str(order.status))
+        self._append_timeline(
+            order, order.status.value if hasattr(order.status, "value") else str(order.status)
+        )
 
         # Publish fill event
         logger.info(f"[FORCED_FILL] Publishing ORDER_FILLED event for order {order.order_id}")

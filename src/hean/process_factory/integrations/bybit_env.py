@@ -38,9 +38,7 @@ class BybitEnvScanner:
         self.max_backoff_sec = max_backoff_sec
         self.timeout_sec = timeout_sec
 
-    async def _retry_with_backoff(
-        self, func: Any, *args: Any, **kwargs: Any
-    ) -> Any:
+    async def _retry_with_backoff(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         """Execute function with exponential backoff retry.
 
         Args:
@@ -125,15 +123,16 @@ class BybitEnvScanner:
                 for key in ["balances", "positions", "open_orders", "funding_rates", "fees"]:
                     snapshot.source_flags[key] = "UNKNOWN"
                 snapshot.earn_availability = {"status": "UNKNOWN", "reason": "API not configured"}
-                snapshot.campaign_availability = {"status": "UNKNOWN", "reason": "API not configured"}
+                snapshot.campaign_availability = {
+                    "status": "UNKNOWN",
+                    "reason": "API not configured",
+                }
                 return snapshot
 
         try:
             # Fetch balances with retry
             try:
-                account_info = await self._retry_with_backoff(
-                    self._http_client.get_account_info
-                )
+                account_info = await self._retry_with_backoff(self._http_client.get_account_info)
                 # Parse account info (format depends on Bybit API response)
                 # This is a simplified parser - adjust based on actual API response format
                 if isinstance(account_info, dict):
@@ -153,9 +152,7 @@ class BybitEnvScanner:
 
             # Fetch positions with retry
             try:
-                positions = await self._retry_with_backoff(
-                    self._http_client.get_positions
-                )
+                positions = await self._retry_with_backoff(self._http_client.get_positions)
                 snapshot.positions = positions if isinstance(positions, list) else []
                 snapshot.source_flags["positions"] = "API"
             except Exception as e:
@@ -189,9 +186,7 @@ class BybitEnvScanner:
 
             # Earn availability - try to fetch via API
             try:
-                earn_products = await self._retry_with_backoff(
-                    self._http_client.get_earn_products
-                )
+                earn_products = await self._retry_with_backoff(self._http_client.get_earn_products)
                 if earn_products:
                     # Group products by category
                     categories = set()
@@ -201,7 +196,7 @@ class BybitEnvScanner:
                             categories.add(product["category"])
                         if "coin" in product:
                             coins.add(product["coin"])
-                    
+
                     snapshot.earn_availability = {
                         "status": "AVAILABLE",
                         "reason": f"API accessible, {len(earn_products)} products found",
@@ -220,7 +215,12 @@ class BybitEnvScanner:
             except Exception as e:
                 error_msg = str(e).lower()
                 # Check if it's a permissions/authentication error
-                if "permission" in error_msg or "auth" in error_msg or "10003" in error_msg or "10004" in error_msg:
+                if (
+                    "permission" in error_msg
+                    or "auth" in error_msg
+                    or "10003" in error_msg
+                    or "10004" in error_msg
+                ):
                     snapshot.earn_availability = {
                         "status": "RESTRICTED",
                         "reason": f"API accessible but permission denied: {e}",
@@ -257,4 +257,3 @@ class BybitEnvScanner:
                 self._http_client = None
 
         return snapshot
-

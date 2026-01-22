@@ -150,7 +150,8 @@ async def test_max_time_in_trade_forces_exit() -> None:
         size=0.1,
         entry_price=50000.0,
         current_price=50000.0,
-        opened_at=datetime.utcnow() - timedelta(seconds=settings.impulse_max_time_in_trade_sec + 10),
+        opened_at=datetime.utcnow()
+        - timedelta(seconds=settings.impulse_max_time_in_trade_sec + 10),
         strategy_id="impulse_engine",
         stop_loss=49750.0,
         take_profit=50500.0,
@@ -261,9 +262,3 @@ def test_impulse_engine_metrics() -> None:
     assert metrics["be_stop_hit_rate_pct"] == pytest.approx(66.67, abs=0.1)
     assert metrics["total_trades"] == 3.0
     assert metrics["be_stop_hits"] == 2.0
-
-
-
-
-
-

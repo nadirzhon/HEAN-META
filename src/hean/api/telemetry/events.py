@@ -24,7 +24,9 @@ class EventEnvelope(BaseModel):
     source: str = Field(default="engine", description="Producer of the event")
     correlation_id: str | None = Field(default=None, description="Request/trace correlation id")
     payload: dict[str, Any] = Field(default_factory=dict, description="Event payload")
-    context: dict[str, Any] = Field(default_factory=dict, description="Contextual tags (symbol, mode, etc.)")
+    context: dict[str, Any] = Field(
+        default_factory=dict, description="Contextual tags (symbol, mode, etc.)"
+    )
 
     @field_validator("ts", mode="before")
     @classmethod
@@ -45,7 +47,9 @@ class EventEnvelope(BaseModel):
     def _validate_severity(cls, value: str) -> str:
         sev = value.upper()
         if sev not in ALLOWED_SEVERITIES:
-            raise ValueError(f"Invalid severity '{value}'. Allowed: {', '.join(sorted(ALLOWED_SEVERITIES))}")
+            raise ValueError(
+                f"Invalid severity '{value}'. Allowed: {', '.join(sorted(ALLOWED_SEVERITIES))}"
+            )
         return sev
 
     def as_dict(self) -> dict[str, Any]:

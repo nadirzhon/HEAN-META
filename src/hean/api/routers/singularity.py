@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api", tags=["singularity"])
 async def get_system_evolution_level() -> Dict[str, Any]:
     """
     Get System Evolution Level (SEL) - overall system intelligence metric.
-    
+
     Returns:
         Dictionary with SEL value (0.0 to 1.0)
     """
@@ -23,20 +23,18 @@ async def get_system_evolution_level() -> Dict[str, Any]:
         facade = EngineFacade()
         if not facade.is_running:
             return {"sel": 0.0, "status": "engine_not_running"}
-    
+
         # Try to get SEL from Metamorphic Engine
         try:
             from hean.core.intelligence.metamorphic_integration import MetamorphicIntegration
+
             # This would need to be stored in the engine facade
             # For now, return mock data
             sel = 0.75  # Mock value
         except ImportError:
             sel = 0.0
-        
-        return {
-            "sel": sel,
-            "status": "ok"
-        }
+
+        return {"sel": sel, "status": "ok"}
     except Exception as e:
         logger.error(f"Error getting SEL: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -46,7 +44,7 @@ async def get_system_evolution_level() -> Dict[str, Any]:
 async def get_causal_graph() -> Dict[str, Any]:
     """
     Get the causal graph showing relationships between assets.
-    
+
     Returns:
         Dictionary with nodes and edges of the causal graph
     """
@@ -54,7 +52,7 @@ async def get_causal_graph() -> Dict[str, Any]:
         facade = EngineFacade()
         if not facade.is_running:
             return {"nodes": [], "edges": [], "status": "engine_not_running"}
-        
+
         # Try to get causal graph from Causal Discovery Engine
         try:
             # This would need to be stored in the engine facade
@@ -71,12 +69,8 @@ async def get_causal_graph() -> Dict[str, Any]:
         except Exception:
             nodes = []
             edges = []
-        
-        return {
-            "nodes": nodes,
-            "edges": edges,
-            "status": "ok"
-        }
+
+        return {"nodes": nodes, "edges": edges, "status": "ok"}
     except Exception as e:
         logger.error(f"Error getting causal graph: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -86,7 +80,7 @@ async def get_causal_graph() -> Dict[str, Any]:
 async def get_atomic_clusters() -> Dict[str, Any]:
     """
     Get active atomic execution clusters.
-    
+
     Returns:
         Dictionary with cluster information
     """
@@ -94,7 +88,7 @@ async def get_atomic_clusters() -> Dict[str, Any]:
         facade = EngineFacade()
         if not facade.is_running:
             return {"clusters": [], "status": "engine_not_running"}
-        
+
         # Try to get clusters from Atomic Executor
         # This would need to be stored in the engine facade
         return {
@@ -102,9 +96,9 @@ async def get_atomic_clusters() -> Dict[str, Any]:
             "statistics": {
                 "total_clusters_created": 0,
                 "active_clusters": 0,
-                "total_orders_placed": 0
+                "total_orders_placed": 0,
             },
-            "status": "ok"
+            "status": "ok",
         }
     except Exception as e:
         logger.error(f"Error getting atomic clusters: {e}", exc_info=True)

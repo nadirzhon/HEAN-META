@@ -40,7 +40,9 @@ class AIFactory:
         self._candidates: dict[str, dict[str, Any]] = {}
         self._experiments: dict[str, dict[str, Any]] = {}
 
-        logger.info(f"AI Factory initialized: enabled={self._enabled}, canary_pct={self._canary_pct}%")
+        logger.info(
+            f"AI Factory initialized: enabled={self._enabled}, canary_pct={self._canary_pct}%"
+        )
 
     def generate_candidates(
         self,
@@ -155,15 +157,17 @@ class AIFactory:
         logger.info(f"Promoted {strategy_id} to canary ({canary_pct}% traffic)")
 
         # Publish event
-        await self._bus.publish(Event(
-            event_type=EventType.STRATEGY_UPDATED,  # Reuse existing event type
-            data={
-                "type": "CANARY_PROMOTION",
-                "strategy_id": strategy_id,
-                "canary_pct": canary_pct,
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-        ))
+        await self._bus.publish(
+            Event(
+                event_type=EventType.STRATEGY_UPDATED,  # Reuse existing event type
+                data={
+                    "type": "CANARY_PROMOTION",
+                    "strategy_id": strategy_id,
+                    "canary_pct": canary_pct,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            )
+        )
 
         return {
             "status": "promoted",
@@ -193,7 +197,7 @@ class AIFactory:
         if candidate["status"] != "canary":
             return {
                 "status": "error",
-                "message": f"Candidate {strategy_id} not in canary status (current: {candidate['status']})"
+                "message": f"Candidate {strategy_id} not in canary status (current: {candidate['status']})",
             }
 
         candidate["status"] = "production"
@@ -202,14 +206,16 @@ class AIFactory:
         logger.info(f"Promoted {strategy_id} to production (100% traffic)")
 
         # Publish event
-        await self._bus.publish(Event(
-            event_type=EventType.STRATEGY_UPDATED,
-            data={
-                "type": "PRODUCTION_PROMOTION",
-                "strategy_id": strategy_id,
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-        ))
+        await self._bus.publish(
+            Event(
+                event_type=EventType.STRATEGY_UPDATED,
+                data={
+                    "type": "PRODUCTION_PROMOTION",
+                    "strategy_id": strategy_id,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            )
+        )
 
         return {
             "status": "promoted",
@@ -246,16 +252,18 @@ class AIFactory:
         logger.warning(f"Rolled back {strategy_id} from {old_status}: {reason}")
 
         # Publish event
-        await self._bus.publish(Event(
-            event_type=EventType.STRATEGY_UPDATED,
-            data={
-                "type": "STRATEGY_ROLLBACK",
-                "strategy_id": strategy_id,
-                "previous_status": old_status,
-                "reason": reason,
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-        ))
+        await self._bus.publish(
+            Event(
+                event_type=EventType.STRATEGY_UPDATED,
+                data={
+                    "type": "STRATEGY_ROLLBACK",
+                    "strategy_id": strategy_id,
+                    "previous_status": old_status,
+                    "reason": reason,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            )
+        )
 
         return {
             "status": "rolled_back",

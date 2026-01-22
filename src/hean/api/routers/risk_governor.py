@@ -15,6 +15,7 @@ router = APIRouter(prefix="/risk/governor", tags=["risk"])
 
 class ClearRequest(BaseModel):
     """Request to clear risk governor."""
+
     confirm: bool = False
     force: bool = False
     symbol: str | None = None
@@ -111,8 +112,7 @@ async def clear_risk_governor(request: Request, clear_request: ClearRequest) -> 
         # Check if live mode and confirmation required
         if settings.is_live and not clear_request.confirm:
             raise HTTPException(
-                status_code=403,
-                detail="Live mode requires confirm=true to clear risk governor"
+                status_code=403, detail="Live mode requires confirm=true to clear risk governor"
             )
 
         # Clear specific symbol quarantine
@@ -132,7 +132,9 @@ async def clear_risk_governor(request: Request, clear_request: ClearRequest) -> 
 
 
 @router.post("/quarantine/{symbol}")
-async def quarantine_symbol(request: Request, symbol: str, reason: str = "MANUAL") -> dict[str, Any]:
+async def quarantine_symbol(
+    request: Request, symbol: str, reason: str = "MANUAL"
+) -> dict[str, Any]:
     """Quarantine a specific symbol (block trading).
 
     Args:

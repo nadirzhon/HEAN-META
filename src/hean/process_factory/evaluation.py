@@ -31,9 +31,7 @@ class PortfolioHealthScore(BaseModel):
     churn_rate: float = Field(
         ..., ge=0, description="Kill/scale churn rate (processes killed or scaled per period)"
     )
-    avg_process_age_days: float = Field(
-        ..., ge=0, description="Average process age in days"
-    )
+    avg_process_age_days: float = Field(..., ge=0, description="Average process age in days")
     net_contribution_usd: float = Field(
         ..., description="Total net contribution across all processes"
     )
@@ -41,9 +39,7 @@ class PortfolioHealthScore(BaseModel):
         ..., ge=0, description="Number of processes with profit illusion"
     )
     core_process_count: int = Field(..., ge=0, description="Number of core processes")
-    testing_process_count: int = Field(
-        ..., ge=0, description="Number of testing processes"
-    )
+    testing_process_count: int = Field(..., ge=0, description="Number of testing processes")
     killed_process_count: int = Field(..., ge=0, description="Number of killed processes")
 
 
@@ -51,16 +47,12 @@ class ProcessEvaluationResult(BaseModel):
     """Evaluation result for a single process."""
 
     process_id: str = Field(..., description="Process ID")
-    recommendation: str = Field(
-        ..., description="Recommendation: CORE, TESTING, KILL, or SCALE"
-    )
+    recommendation: str = Field(..., description="Recommendation: CORE, TESTING, KILL, or SCALE")
     net_contribution_usd: float = Field(..., description="Net contribution in USD")
     runs_count: int = Field(..., ge=0, description="Number of runs")
     win_rate: float = Field(..., ge=0, le=1, description="Win rate (0-1)")
     stability: float = Field(..., ge=0, le=1, description="Stability score (0-1)")
-    reasons: list[str] = Field(
-        default_factory=list, description="Reasons for recommendation"
-    )
+    reasons: list[str] = Field(default_factory=list, description="Reasons for recommendation")
 
 
 class PortfolioEvaluator:
@@ -105,9 +97,10 @@ class PortfolioEvaluator:
         # Load all runs in date range
         all_runs = await self.storage.list_runs(limit=10000)
         recent_runs = [
-            r for r in all_runs if r.started_at >= cutoff_date and r.status in (
-                ProcessRunStatus.COMPLETED, ProcessRunStatus.FAILED
-            )
+            r
+            for r in all_runs
+            if r.started_at >= cutoff_date
+            and r.status in (ProcessRunStatus.COMPLETED, ProcessRunStatus.FAILED)
         ]
 
         # Load portfolio
@@ -188,18 +181,10 @@ class PortfolioEvaluator:
         stability = self._compute_stability(process_runs)
 
         # Compute win rate
-        completed_runs = [
-            r for r in process_runs
-            if r.status == ProcessRunStatus.COMPLETED
-        ]
-        win_rate = (
-            len(completed_runs) / len(process_runs)
-            if process_runs else 0.0
-        )
+        completed_runs = [r for r in process_runs if r.status == ProcessRunStatus.COMPLETED]
+        win_rate = len(completed_runs) / len(process_runs) if process_runs else 0.0
 
-        net_contribution = (
-            attribution.net_pnl_usd if attribution else entry.pnl_sum
-        )
+        net_contribution = attribution.net_pnl_usd if attribution else entry.pnl_sum
 
         return ProcessEvaluationResult(
             process_id=entry.process_id,
@@ -233,7 +218,7 @@ class PortfolioEvaluator:
 
         mean_pnl = sum(pnls) / len(pnls)
         variance = sum((p - mean_pnl) ** 2 for p in pnls) / len(pnls)
-        std_dev = variance ** 0.5
+        std_dev = variance**0.5
 
         # Stability is inverse of coefficient of variation
         if mean_pnl == 0:
@@ -269,32 +254,22 @@ class PortfolioEvaluator:
             stability = self._compute_stability(process_runs)
             process_stabilities.append(stability)
         avg_stability = (
-            sum(process_stabilities) / len(process_stabilities)
-            if process_stabilities else 0.5
+            sum(process_stabilities) / len(process_stabilities) if process_stabilities else 0.5
         )
 
         # Compute concentration risk (Herfindahl index)
-        total_net = sum(
-            a.net_pnl_usd for a in attributions.values() if a.net_pnl_usd > 0
-        )
+        total_net = sum(a.net_pnl_usd for a in attributions.values() if a.net_pnl_usd > 0)
         if total_net > 0:
-            weights = [
-                max(0, a.net_pnl_usd) / total_net
-                for a in attributions.values()
-            ]
-            herfindahl = sum(w ** 2 for w in weights)
+            weights = [max(0, a.net_pnl_usd) / total_net for a in attributions.values()]
+            herfindahl = sum(w**2 for w in weights)
             concentration_risk = herfindahl  # 0-1, higher = more concentrated
         else:
             concentration_risk = 0.5  # Neutral if no positive contributions
 
         # Compute churn rate (killed processes per period)
-        killed_count = len(
-            [e for e in portfolio if e.state == ProcessPortfolioState.KILLED]
-        )
+        killed_count = len([e for e in portfolio if e.state == ProcessPortfolioState.KILLED])
         # Estimate churn as killed / total
-        churn_rate = (
-            killed_count / len(portfolio) if portfolio else 0.0
-        )
+        churn_rate = killed_count / len(portfolio) if portfolio else 0.0
 
         # Compute average process age
         now = datetime.now()
@@ -309,20 +284,12 @@ class PortfolioEvaluator:
         total_net = sum(a.net_pnl_usd for a in attributions.values())
 
         # Profit illusion count
-        profit_illusion_count = sum(
-            1 for a in attributions.values() if a.profit_illusion
-        )
+        profit_illusion_count = sum(1 for a in attributions.values() if a.profit_illusion)
 
         # Count by state
-        core_count = len(
-            [e for e in portfolio if e.state == ProcessPortfolioState.CORE]
-        )
-        testing_count = len(
-            [e for e in portfolio if e.state == ProcessPortfolioState.TESTING]
-        )
-        killed_count = len(
-            [e for e in portfolio if e.state == ProcessPortfolioState.KILLED]
-        )
+        core_count = len([e for e in portfolio if e.state == ProcessPortfolioState.CORE])
+        testing_count = len([e for e in portfolio if e.state == ProcessPortfolioState.TESTING])
+        killed_count = len([e for e in portfolio if e.state == ProcessPortfolioState.KILLED])
 
         return PortfolioHealthScore(
             stability_score=avg_stability,
@@ -335,4 +302,3 @@ class PortfolioEvaluator:
             testing_process_count=testing_count,
             killed_process_count=killed_count,
         )
-

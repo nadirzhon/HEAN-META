@@ -49,9 +49,7 @@ class BybitActions(ABC):
         pass
 
     @abstractmethod
-    async def cancel_order(
-        self, symbol: str, order_id: str
-    ) -> dict[str, Any]:
+    async def cancel_order(self, symbol: str, order_id: str) -> dict[str, Any]:
         """Cancel an order on Bybit.
 
         Args:
@@ -82,9 +80,7 @@ class BybitActions(ABC):
         pass
 
     @abstractmethod
-    async def get_symbol_rules(
-        self, symbol: str
-    ) -> dict[str, Any]:
+    async def get_symbol_rules(self, symbol: str) -> dict[str, Any]:
         """Get trading rules for a symbol (min qty, step size, etc.).
 
         Args:
@@ -119,9 +115,7 @@ class DefaultBybitActions(BybitActions):
             "Set PROCESS_FACTORY_ALLOW_ACTIONS=true and DRY_RUN=false to enable."
         )
 
-    async def cancel_order(
-        self, symbol: str, order_id: str
-    ) -> dict[str, Any]:
+    async def cancel_order(self, symbol: str, order_id: str) -> dict[str, Any]:
         """Cancel order (disabled by default)."""
         raise NotEnabledError(
             "Bybit actions are disabled by default. "
@@ -135,9 +129,7 @@ class DefaultBybitActions(BybitActions):
             "Set PROCESS_FACTORY_ALLOW_ACTIONS=true and DRY_RUN=false to enable."
         )
 
-    async def get_symbol_rules(
-        self, symbol: str
-    ) -> dict[str, Any]:
+    async def get_symbol_rules(self, symbol: str) -> dict[str, Any]:
         """Get symbol rules (disabled by default)."""
         raise NotEnabledError(
             "Bybit actions are disabled by default. "
@@ -187,16 +179,14 @@ class BybitHTTPAdapter(BybitActions):
             "status": order.status.value,
         }
 
-    async def cancel_order(
-        self, symbol: str, order_id: str
-    ) -> dict[str, Any]:
+    async def cancel_order(self, symbol: str, order_id: str) -> dict[str, Any]:
         """Cancel order via BybitHTTPClient."""
         await self._client.cancel_order(order_id, symbol)
         return {"order_id": order_id, "symbol": symbol, "status": "cancelled"}
 
     async def get_min_notional(self, symbol: str) -> float:
         """Get min notional from symbol rules.
-        
+
         CRITICAL: Fetches from API, no hardcoded defaults.
         """
         rules = await self.get_symbol_rules(symbol)
@@ -205,11 +195,9 @@ class BybitHTTPAdapter(BybitActions):
             raise ValueError(f"minNotional not found in symbol rules for {symbol}")
         return float(min_notional)
 
-    async def get_symbol_rules(
-        self, symbol: str
-    ) -> dict[str, Any]:
+    async def get_symbol_rules(self, symbol: str) -> dict[str, Any]:
         """Get symbol rules from Bybit API.
-        
+
         CRITICAL: Fetches real rules from API. Hardcoded defaults are forbidden in production.
 
         Args:
@@ -245,9 +233,7 @@ class GatedBybitActions(BybitActions):
             adapter: Underlying adapter to use if enabled (creates default if not provided)
         """
         self._adapter = adapter or DefaultBybitActions()
-        self._allow_actions = getattr(
-            settings, "process_factory_allow_actions", False
-        )
+        self._allow_actions = getattr(settings, "process_factory_allow_actions", False)
         self._dry_run = getattr(settings, "dry_run", True)
 
     def _check_enabled(self) -> None:
@@ -263,8 +249,7 @@ class GatedBybitActions(BybitActions):
             )
         if self._dry_run:
             raise NotEnabledError(
-                "Dry run mode is enabled. "
-                "Set DRY_RUN=false to allow real orders."
+                "Dry run mode is enabled. Set DRY_RUN=false to allow real orders."
             )
 
     async def place_limit_postonly(
@@ -276,14 +261,10 @@ class GatedBybitActions(BybitActions):
     ) -> dict[str, Any]:
         """Place limit post-only order (gated)."""
         self._check_enabled()
-        logger.warning(
-            f"PLACING POST-ONLY LIMIT ORDER: {side} {qty} {symbol} @ {price}"
-        )
+        logger.warning(f"PLACING POST-ONLY LIMIT ORDER: {side} {qty} {symbol} @ {price}")
         return await self._adapter.place_limit_postonly(symbol, side, qty, price)
 
-    async def cancel_order(
-        self, symbol: str, order_id: str
-    ) -> dict[str, Any]:
+    async def cancel_order(self, symbol: str, order_id: str) -> dict[str, Any]:
         """Cancel order (gated)."""
         self._check_enabled()
         logger.warning(f"CANCELLING ORDER: {order_id} on {symbol}")
@@ -294,9 +275,7 @@ class GatedBybitActions(BybitActions):
         self._check_enabled()
         return await self._adapter.get_min_notional(symbol)
 
-    async def get_symbol_rules(
-        self, symbol: str
-    ) -> dict[str, Any]:
+    async def get_symbol_rules(self, symbol: str) -> dict[str, Any]:
         """Get symbol rules (gated)."""
         self._check_enabled()
         return await self._adapter.get_symbol_rules(symbol)
@@ -330,4 +309,3 @@ def create_bybit_action_adapter(http_client: Any | None = None) -> BybitActions:
         BybitActionAdapter instance (gated by default)
     """
     return create_bybit_actions(http_client)
-

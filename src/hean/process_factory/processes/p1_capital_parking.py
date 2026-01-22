@@ -25,7 +25,13 @@ def get_process_definition() -> ProcessDefinition:
                 step_id="check_earn_availability",
                 kind=ActionStepKind.HUMAN_TASK,
                 description="Check available Earn products on Bybit",
-                params={"checklist": ["Navigate to Earn section", "Check available products", "Note interest rates"]},
+                params={
+                    "checklist": [
+                        "Navigate to Earn section",
+                        "Check available products",
+                        "Note interest rates",
+                    ]
+                },
             ),
             ActionStep(
                 step_id="evaluate_options",
@@ -47,4 +53,3 @@ def get_process_definition() -> ProcessDefinition:
             KillCondition(metric="fail_rate", threshold=0.5, comparison=">", window_runs=5),
         ],
     )
-

@@ -32,8 +32,15 @@ async def telemetry_ping() -> dict[str, Any]:
 async def telemetry_summary(request: Request) -> dict[str, Any]:
     """Return heartbeat-friendly telemetry snapshot."""
     engine_facade = state.get_engine_facade(request)
-    engine_state = getattr(engine_facade, "engine_state", telemetry_service.get_engine_state()) if engine_facade else telemetry_service.get_engine_state()
-    summary = telemetry_service.summary(ws_clients=_ws_client_count(), mode="LIVE" if settings.is_live and not settings.dry_run else "PAPER")
+    engine_state = (
+        getattr(engine_facade, "engine_state", telemetry_service.get_engine_state())
+        if engine_facade
+        else telemetry_service.get_engine_state()
+    )
+    summary = telemetry_service.summary(
+        ws_clients=_ws_client_count(),
+        mode="LIVE" if settings.is_live and not settings.dry_run else "PAPER",
+    )
     summary["engine_state"] = engine_state
     summary["last_heartbeat"] = telemetry_service.last_heartbeat()
     summary["available"] = True

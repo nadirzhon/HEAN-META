@@ -53,11 +53,7 @@ async def test_candle_boundaries_and_aggregation() -> None:
     await asyncio.sleep(0)  # type: ignore[name-defined]
 
     # Extract emitted candles for 1m timeframe
-    m1_candles = [
-        e.data["candle"]
-        for e in received
-        if e.data.get("timeframe") == "1m"
-    ]
+    m1_candles = [e.data["candle"] for e in received if e.data.get("timeframe") == "1m"]
 
     # First 1m candle should be closed when tick crosses 00:01
     assert len(m1_candles) >= 1
@@ -72,14 +68,8 @@ async def test_candle_boundaries_and_aggregation() -> None:
     assert c1.volume == pytest.approx(1.0 + 2.0 + 3.0 + 4.0)
 
     # 5m candle should span [00:00, 00:05)
-    m5_candles = [
-        e.data["candle"]
-        for e in received
-        if e.data.get("timeframe") == "5m"
-    ]
+    m5_candles = [e.data["candle"] for e in received if e.data.get("timeframe") == "5m"]
     assert len(m5_candles) == 0  # not closed yet; boundary not crossed
 
     await aggregator.stop()
     await bus.stop()
-
-

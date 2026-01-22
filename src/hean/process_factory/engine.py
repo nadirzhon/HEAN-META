@@ -57,9 +57,7 @@ class ProcessEngine:
         self.sandbox = sandbox or ProcessSandbox()
         self.leverage_engine = leverage_engine or LeverageEngine()
 
-    async def scan_environment(
-        self, http_client: Any | None = None
-    ) -> BybitEnvironmentSnapshot:
+    async def scan_environment(self, http_client: Any | None = None) -> BybitEnvironmentSnapshot:
         """Scan environment and save snapshot.
 
         Args:
@@ -71,7 +69,9 @@ class ProcessEngine:
         scanner = BybitEnvScanner(http_client=http_client)
         snapshot = await scanner.scan()
         await self.storage.save_snapshot(snapshot)
-        logger.info(f"Environment scan completed: {len(snapshot.balances)} balances, {len(snapshot.positions)} positions")
+        logger.info(
+            f"Environment scan completed: {len(snapshot.balances)} balances, {len(snapshot.positions)} positions"
+        )
         return snapshot
 
     async def plan(
@@ -108,7 +108,9 @@ class ProcessEngine:
         # Save plan
         await self.storage.save_capital_plan(plan)
 
-        logger.info(f"Planning completed: {len(ranked)} opportunities, plan with {len(plan.allocations)} allocations")
+        logger.info(
+            f"Planning completed: {len(ranked)} opportunities, plan with {len(plan.allocations)} allocations"
+        )
         return ranked, plan
 
     async def run_process(
@@ -130,7 +132,7 @@ class ProcessEngine:
 
         Returns:
             Process run result
-            
+
         Raises:
             ValueError: If snapshot is stale (prevents run)
         """
@@ -142,7 +144,10 @@ class ProcessEngine:
         if not force:
             snapshot = await self.storage.load_latest_snapshot()
             if snapshot is not None and snapshot.is_stale(max_age_hours=24.0):
-                staleness_hours = snapshot.staleness_hours or (datetime.now() - snapshot.timestamp).total_seconds() / 3600
+                staleness_hours = (
+                    snapshot.staleness_hours
+                    or (datetime.now() - snapshot.timestamp).total_seconds() / 3600
+                )
                 raise ValueError(
                     f"Cannot run process: snapshot is stale ({staleness_hours:.1f} hours old, max 24.0 hours). "
                     f"Please run 'process scan' to create a fresh snapshot."
@@ -156,9 +161,7 @@ class ProcessEngine:
 
         # Check if run already exists for today (unless forced)
         if not force:
-            exists, existing_run_id = await self.storage.check_daily_run_key(
-                daily_run_key
-            )
+            exists, existing_run_id = await self.storage.check_daily_run_key(daily_run_key)
             if exists:
                 logger.info(
                     f"Process run already exists for today (idempotency check)",
@@ -286,9 +289,7 @@ class ProcessEngine:
         logger.info(f"Portfolio updated: {len(updated_entries)} processes")
         return updated_entries
 
-    def _snapshot_to_opportunities(
-        self, snapshot: BybitEnvironmentSnapshot
-    ) -> list[Opportunity]:
+    def _snapshot_to_opportunities(self, snapshot: BybitEnvironmentSnapshot) -> list[Opportunity]:
         """Convert environment snapshot to opportunities.
 
         Args:
@@ -345,4 +346,3 @@ class ProcessEngine:
             )
 
         return opportunities
-

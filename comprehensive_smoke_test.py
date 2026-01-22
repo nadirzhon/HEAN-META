@@ -35,14 +35,14 @@ def print_status(message: str, status: str = "info") -> None:
         "warning": Colors.YELLOW,
         "info": Colors.BLUE,
     }.get(status, Colors.RESET)
-    
+
     symbol = {
         "success": "✓",
         "error": "✗",
         "warning": "⚠",
         "info": "ℹ",
     }.get(status, "•")
-    
+
     print(f"{color}{symbol} {message}{Colors.RESET}")
 
 
@@ -157,7 +157,9 @@ async def test_test_order_buy(client: httpx.AsyncClient) -> bool:
             await asyncio.sleep(2)  # Wait for order processing
             return True
         else:
-            print_status(f"Test BUY order failed: {response.status_code} - {response.text}", "error")
+            print_status(
+                f"Test BUY order failed: {response.status_code} - {response.text}", "error"
+            )
             return False
     except Exception as e:
         print_status(f"Test BUY order error: {e}", "error")
@@ -170,7 +172,7 @@ async def test_test_order_sell(client: httpx.AsyncClient) -> bool:
     try:
         # Wait a bit to ensure price cache is populated after BUY test
         await asyncio.sleep(1)
-        
+
         # Use BTCUSDT with explicit price to ensure it works
         # First get current price from engine status
         status_resp = await client.get(f"{API_BASE}/engine/status", timeout=TIMEOUT)
@@ -180,7 +182,7 @@ async def test_test_order_sell(client: httpx.AsyncClient) -> bool:
             # Try to extract price from status if available
             if "current_prices" in status_data:
                 price = status_data["current_prices"].get("BTCUSDT", price)
-        
+
         response = await client.post(
             f"{API_BASE}/orders/test",
             json={
@@ -197,7 +199,9 @@ async def test_test_order_sell(client: httpx.AsyncClient) -> bool:
             await asyncio.sleep(2)
             return True
         else:
-            print_status(f"Test SELL order failed: {response.status_code} - {response.text}", "error")
+            print_status(
+                f"Test SELL order failed: {response.status_code} - {response.text}", "error"
+            )
             return False
     except Exception as e:
         print_status(f"Test SELL order error: {e}", "error")
@@ -225,7 +229,9 @@ async def test_test_roundtrip(client: httpx.AsyncClient) -> bool:
             print_status(f"Roundtrip test completed: {data.get('status', 'unknown')}", "success")
             return True
         else:
-            print_status(f"Roundtrip test failed: {response.status_code} - {response.text}", "error")
+            print_status(
+                f"Roundtrip test failed: {response.status_code} - {response.text}", "error"
+            )
             return False
     except Exception as e:
         print_status(f"Roundtrip test error: {e}", "error")
@@ -241,7 +247,9 @@ async def test_strategies(client: httpx.AsyncClient) -> bool:
             strategies = response.json()
             print_status(f"Strategies retrieved: {len(strategies)} strategies", "success")
             for strategy in strategies:
-                print_status(f"  - {strategy.get('id', 'unknown')}: {strategy.get('enabled', False)}", "info")
+                print_status(
+                    f"  - {strategy.get('id', 'unknown')}: {strategy.get('enabled', False)}", "info"
+                )
             return True
         else:
             print_status(f"Strategies failed: {response.status_code}", "error")
@@ -258,7 +266,10 @@ async def test_risk_status(client: httpx.AsyncClient) -> bool:
         response = await client.get(f"{API_BASE}/risk/status", timeout=TIMEOUT)
         if response.status_code == 200:
             data = response.json()
-            print_status(f"Risk status retrieved: killswitch={data.get('killswitch_triggered', False)}", "success")
+            print_status(
+                f"Risk status retrieved: killswitch={data.get('killswitch_triggered', False)}",
+                "success",
+            )
             return True
         else:
             print_status(f"Risk status failed: {response.status_code}", "error")
@@ -292,7 +303,9 @@ async def test_why_not_trading(client: httpx.AsyncClient) -> bool:
         response = await client.get(f"{API_BASE}/trading/why", timeout=TIMEOUT)
         if response.status_code == 200:
             data = response.json()
-            print_status(f"Why not trading: engine_running={data.get('engine_running', False)}", "success")
+            print_status(
+                f"Why not trading: engine_running={data.get('engine_running', False)}", "success"
+            )
             return True
         else:
             print_status(f"Why not trading failed: {response.status_code}", "error")
@@ -308,7 +321,7 @@ async def test_agent_generation() -> bool:
     try:
         import os
         from hean.agent_generation.generator import AgentGenerator
-        
+
         # Ensure API key is loaded from environment
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -322,22 +335,22 @@ async def test_agent_generation() -> bool:
                             break
             except Exception:
                 pass
-        
+
         generator = AgentGenerator()
         if generator.llm_client is None:
             print_status("No LLM client configured (Gemini API key may be missing)", "warning")
             return False
-        
+
         # Check if it's Gemini
         client_type = type(generator.llm_client).__name__
         client_module = type(generator.llm_client).__module__
         is_gemini = "generativeai" in client_module or "genai" in str(client_module)
-        
+
         if is_gemini:
             print_status(f"Gemini client initialized successfully ({client_type})", "success")
         else:
             print_status(f"LLM client initialized: {client_type} (not Gemini)", "info")
-        
+
         return True
     except Exception as e:
         print_status(f"Agent generation error: {e}", "error")
@@ -350,7 +363,7 @@ async def test_catalyst_system() -> bool:
     try:
         from hean.agent_generation.catalyst import ImprovementCatalyst
         from hean.portfolio.accounting import PortfolioAccounting
-        
+
         accounting = PortfolioAccounting(300.0)
         catalyst = ImprovementCatalyst(
             accounting=accounting,
@@ -366,54 +379,54 @@ async def test_catalyst_system() -> bool:
 
 async def main() -> None:
     """Run comprehensive smoke tests."""
-    print(f"\n{Colors.BOLD}{Colors.BLUE}{'='*60}")
+    print(f"\n{Colors.BOLD}{Colors.BLUE}{'=' * 60}")
     print("HEAN Comprehensive Smoke Test")
-    print(f"{'='*60}{Colors.RESET}\n")
-    
+    print(f"{'=' * 60}{Colors.RESET}\n")
+
     results: dict[str, bool] = {}
-    
+
     async with httpx.AsyncClient() as client:
         # Basic health checks
         results["health"] = await test_health(client)
         results["engine_status"] = await test_engine_status(client)
-        
+
         # Engine control
         results["start_engine"] = await test_start_engine(client)
-        
+
         # Trading endpoints
         results["positions"] = await test_positions(client)
         results["orders"] = await test_orders(client)
-        
+
         # Test orders (different methods)
         results["test_order_buy"] = await test_test_order_buy(client)
         results["test_order_sell"] = await test_test_order_sell(client)
         results["test_roundtrip"] = await test_test_roundtrip(client)
-        
+
         # Strategies and risk
         results["strategies"] = await test_strategies(client)
         results["risk_status"] = await test_risk_status(client)
         results["trading_metrics"] = await test_trading_metrics(client)
         results["why_not_trading"] = await test_why_not_trading(client)
-        
+
         # Agent generation and catalyst
         results["agent_generation"] = await test_agent_generation()
         results["catalyst_system"] = await test_catalyst_system()
-    
+
     # Summary
-    print(f"\n{Colors.BOLD}{Colors.BLUE}{'='*60}")
+    print(f"\n{Colors.BOLD}{Colors.BLUE}{'=' * 60}")
     print("Test Summary")
-    print(f"{'='*60}{Colors.RESET}\n")
-    
+    print(f"{'=' * 60}{Colors.RESET}\n")
+
     passed = sum(1 for v in results.values() if v)
     total = len(results)
-    
+
     for test_name, result in results.items():
         status = "PASS" if result else "FAIL"
         color = Colors.GREEN if result else Colors.RED
         print(f"{color}{status}{Colors.RESET} - {test_name}")
-    
+
     print(f"\n{Colors.BOLD}Total: {passed}/{total} tests passed{Colors.RESET}\n")
-    
+
     if passed == total:
         print_status("All tests passed! ✓", "success")
         sys.exit(0)

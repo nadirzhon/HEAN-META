@@ -185,7 +185,7 @@ async def test_retry_backoff_exponential_delay():
 async def test_daily_run_key_different_dates_allowed(storage):
     """Test that different dates allow different runs."""
     from datetime import timedelta
-    
+
     process_id = "test_process"
     today_key = f"{process_id}_{date.today().isoformat()}"
     yesterday = date.today() - timedelta(days=1)
@@ -226,4 +226,3 @@ async def test_daily_run_key_different_dates_allowed(storage):
 
     assert exists1 and run_id1 == "run_today"
     assert exists2 and run_id2 == "run_yesterday"
-

@@ -102,9 +102,7 @@ def test_penalty_returns_zero_when_blocked() -> None:
 
     # Context should be blocked
     assert dm.blocked(strategy_id, context_key) is True
-    
+
     # Penalty should return 0.0 for blocked contexts
     penalty_value = dm.penalty(strategy_id, context_key)
     assert penalty_value == 0.0
-
-

@@ -127,4 +127,3 @@ class LogStreamService:
 
 # Global instance
 log_stream_service = LogStreamService()
-

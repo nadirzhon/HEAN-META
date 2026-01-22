@@ -13,11 +13,11 @@ def test_engine_pause_resume():
     # Start engine first
     response = client.post("/engine/start", json={"confirm_phrase": None})
     assert response.status_code == 200
-    
+
     # Pause
     response = client.post("/engine/pause", json={})
     assert response.status_code == 200
-    
+
     # Resume
     response = client.post("/engine/resume")
     assert response.status_code == 200
@@ -35,7 +35,7 @@ def test_orders_endpoint():
     response = client.get("/orders")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
-    
+
     # Test with status filter
     response = client.get("/orders?status=open")
     assert response.status_code == 200
@@ -128,11 +128,6 @@ def test_live_trading_protection():
     """Test that live trading actions are protected."""
     # This test would require mocking settings to be in live mode
     # For now, just verify the endpoint exists
-    response = client.post("/orders/test", json={
-        "symbol": "BTCUSDT",
-        "side": "buy",
-        "size": 0.001
-    })
+    response = client.post("/orders/test", json={"symbol": "BTCUSDT", "side": "buy", "size": 0.001})
     # Should either succeed (paper mode) or fail with 403 (live mode)
     assert response.status_code in (200, 403)
-

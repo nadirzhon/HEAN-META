@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI):
     engine_facade_inst = EngineFacade()
     # Update state module
     import hean.api.state as state
+
     state.engine_facade = engine_facade_inst
 
     # Initialize Bybit client if credentials are available
@@ -97,6 +98,7 @@ app.include_router(telemetry.router)
 async def inject_engine_facade(request: Request, call_next):
     """Inject engine_facade into request state."""
     import hean.api.state as state
+
     request.state.engine_facade = state.engine_facade
     request.state.reconcile_service = state.reconcile_service
     return await call_next(request)

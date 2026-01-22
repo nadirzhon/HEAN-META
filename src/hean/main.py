@@ -148,7 +148,7 @@ class TradingSystem:
         self._running = False
         self._stop_trading = False
         self._current_regime: dict[str, Regime] = {}
-        
+
         # Paper trade assist: fallback micro-trade tracking
         self._last_micro_trade_time: dict[str, datetime] = {}
         self._micro_trade_task: asyncio.Task[None] | None = None
@@ -176,7 +176,7 @@ class TradingSystem:
         context: dict[str, Any],
     ) -> None:
         """Emit structured order decision telemetry for observability.
-        
+
         Includes gating flags, reason_codes array, market_regime, and advisory fields per AFO-Director spec.
         """
         # Collect gating flags for diagnostics
@@ -184,17 +184,21 @@ class TradingSystem:
         drawdown_amount, drawdown_pct = self._accounting.get_drawdown(equity)
         open_positions = len(self._accounting.get_positions())
         open_orders = len(self._order_manager.get_open_orders())
-        
+
         # Build reason_codes array (reason_code + any additional reasons from context)
         reason_codes = [reason_code]
         if "additional_reasons" in context:
             reason_codes.extend(context["additional_reasons"])
-        
+
         # Get current regime for symbol
         market_regime = None
         market_metrics_short = {}
         if hasattr(self, "_regime_detector"):
-            current_regime = self._regime_detector.get_regime(signal.symbol) if hasattr(self._regime_detector, "get_regime") else None
+            current_regime = (
+                self._regime_detector.get_regime(signal.symbol)
+                if hasattr(self._regime_detector, "get_regime")
+                else None
+            )
             if current_regime:
                 # Map existing regime to spec regime types
                 regime_map = {
@@ -202,18 +206,29 @@ class TradingSystem:
                     "normal": "RANGE",
                     "range": "RANGE",
                 }
-                market_regime = regime_map.get(current_regime.value if hasattr(current_regime, "value") else str(current_regime), "RANGE")
-        
+                market_regime = regime_map.get(
+                    current_regime.value
+                    if hasattr(current_regime, "value")
+                    else str(current_regime),
+                    "RANGE",
+                )
+
         # Check for stale data
         last_tick_age_sec = None
         if hasattr(self, "_last_tick_at") and signal.symbol in self._last_tick_at:
-            last_tick_age_sec = (datetime.utcnow() - self._last_tick_at[signal.symbol]).total_seconds()
+            last_tick_age_sec = (
+                datetime.utcnow() - self._last_tick_at[signal.symbol]
+            ).total_seconds()
             if last_tick_age_sec > 30:
                 market_regime = "STALE_DATA"
                 reason_codes.append("STALE_MARKET_DATA")
-        
+
         # Check liquidity (simple heuristic: if spread is too wide, mark as LOW_LIQ)
-        if hasattr(self, "_execution_router") and hasattr(self._execution_router, "_current_bids") and hasattr(self._execution_router, "_current_asks"):
+        if (
+            hasattr(self, "_execution_router")
+            and hasattr(self._execution_router, "_current_bids")
+            and hasattr(self._execution_router, "_current_asks")
+        ):
             bid = self._execution_router._current_bids.get(signal.symbol)
             ask = self._execution_router._current_asks.get(signal.symbol)
             if bid and ask and bid > 0:
@@ -223,34 +238,38 @@ class TradingSystem:
                     if market_regime != "STALE_DATA":
                         market_regime = "LOW_LIQ"
                     reason_codes.append("LOW_LIQUIDITY")
-        
+
         # Build comprehensive gating flags
         gating_flags = {
-            "risk_ok": not self._stop_trading and not (self._killswitch.is_triggered() if hasattr(self, "_killswitch") else False),
+            "risk_ok": not self._stop_trading
+            and not (self._killswitch.is_triggered() if hasattr(self, "_killswitch") else False),
             "data_fresh_ok": last_tick_age_sec is None or last_tick_age_sec < 30,
             "profit_lock_ok": True,  # Will be set by profit capture in B2
             "engine_running_ok": not self._stop_trading,
-            "symbol_enabled_ok": signal.symbol in (settings.trading_symbols if hasattr(settings, "trading_symbols") else []),
+            "symbol_enabled_ok": signal.symbol
+            in (settings.trading_symbols if hasattr(settings, "trading_symbols") else []),
             "liquidity_ok": market_regime != "LOW_LIQ",
             "execution_ok": True,  # Will be enhanced by execution quality checks
             "stop_trading": self._stop_trading,
-            "killswitch_triggered": self._killswitch.is_triggered() if hasattr(self, "_killswitch") else False,
+            "killswitch_triggered": self._killswitch.is_triggered()
+            if hasattr(self, "_killswitch")
+            else False,
             "max_positions": open_positions >= settings.max_open_positions,
             "max_orders": open_orders >= settings.max_open_orders,
             "drawdown_pct": drawdown_pct,
             "equity": equity,
         }
-        
+
         # Add killswitch reason if triggered
         if gating_flags["killswitch_triggered"] and hasattr(self, "_killswitch"):
             gating_flags["killswitch_reason"] = self._killswitch.get_reason()
-        
+
         # Build advisory (how to continue)
         advisory = None
         if decision in ("SKIP", "BLOCK"):
             hints = []
             how_to_continue = None
-            
+
             if not gating_flags["risk_ok"]:
                 if gating_flags["killswitch_triggered"]:
                     how_to_continue = "check_killswitch"
@@ -273,15 +292,15 @@ class TradingSystem:
             else:
                 how_to_continue = "resume"
                 hints.append("System should resume automatically")
-            
+
             advisory = {
                 "how_to_continue": how_to_continue,
                 "hints": hints,
             }
-        
+
         # Get score/confidence from context if available
         score = context.get("score") or context.get("confidence")
-        
+
         payload = {
             "type": "ORDER_DECISION",
             "decision": decision,  # CREATE|SKIP|BLOCK
@@ -299,16 +318,18 @@ class TradingSystem:
             "market_regime": market_regime,  # TREND|RANGE|LOW_LIQ|STALE_DATA
             "market_metrics_short": market_metrics_short,  # spread_pct, etc.
             "advisory": advisory,  # nullable
-            **{k: v for k, v in context.items() if k not in ("additional_reasons", "score", "confidence")},
+            **{
+                k: v
+                for k, v in context.items()
+                if k not in ("additional_reasons", "score", "confidence")
+            },
         }
         # Keep short history for diagnostics
         self._order_decision_history.append(payload)
         self._order_decision_history = self._order_decision_history[-100:]
         logger.info(f"[ORDER_DECISION] {payload}")
         try:
-            await self._bus.publish(
-                Event(event_type=EventType.ORDER_DECISION, data=payload)
-            )
+            await self._bus.publish(Event(event_type=EventType.ORDER_DECISION, data=payload))
         except Exception as e:
             logger.debug(f"Failed to publish ORDER_DECISION event: {e}")
 
@@ -350,9 +371,7 @@ class TradingSystem:
         self._last_exit_decision_ts[position.position_id] = datetime.utcnow()
         logger.info(f"[ORDER_EXIT_DECISION] {payload}")
         try:
-            await self._bus.publish(
-                Event(event_type=EventType.ORDER_EXIT_DECISION, data=payload)
-            )
+            await self._bus.publish(Event(event_type=EventType.ORDER_EXIT_DECISION, data=payload))
         except Exception as e:
             logger.debug(f"Failed to publish ORDER_EXIT_DECISION event: {e}")
 
@@ -400,15 +419,18 @@ class TradingSystem:
         # Start regime detector
         await self._regime_detector.start()
         self._bus.subscribe(EventType.REGIME_UPDATE, self._handle_regime_update)
-        
+
         # Start multi-symbol scanner
         await self._multi_symbol_scanner.start()
-        
+
         # Phase: Oracle Engine Integration (Algorithmic Fingerprinting + TCN)
-        if self._mode == "run" and getattr(settings, 'oracle_engine_enabled', True):
+        if self._mode == "run" and getattr(settings, "oracle_engine_enabled", True):
             try:
                 from hean.core.intelligence.oracle_integration import OracleIntegration
-                self._oracle_integration = OracleIntegration(self._bus, symbols=settings.trading_symbols)
+
+                self._oracle_integration = OracleIntegration(
+                    self._bus, symbols=settings.trading_symbols
+                )
                 await self._oracle_integration.start()
                 logger.info("Oracle Engine Integration started (Fingerprinting + TCN)")
             except ModuleNotFoundError as e:
@@ -419,7 +441,9 @@ class TradingSystem:
         # Phase 5: Initialize Statistical Arbitrage & Anti-Fragile Architecture
         if self._mode == "run" and settings.phase5_correlation_engine_enabled:
             # 1. Correlation Engine for pair trading
-            self._correlation_engine = CorrelationEngine(self._bus, symbols=settings.trading_symbols)
+            self._correlation_engine = CorrelationEngine(
+                self._bus, symbols=settings.trading_symbols
+            )
             await self._correlation_engine.start()
             logger.info("Phase 5: Correlation Engine started")
 
@@ -429,7 +453,7 @@ class TradingSystem:
                 bus=self._bus,
                 regime_detector=self._regime_detector,
                 accounting=self._accounting,
-                position_sizer=self._position_sizer
+                position_sizer=self._position_sizer,
             )
             await self._safety_net.start()
             logger.info("Phase 5: Global Safety Net activated")
@@ -437,8 +461,7 @@ class TradingSystem:
         if self._mode == "run" and settings.phase5_self_healing_enabled:
             # 3. Self-Healing Middleware
             self._self_healing = SelfHealingMiddleware(
-                bus=self._bus,
-                order_manager=self._order_manager
+                bus=self._bus, order_manager=self._order_manager
             )
             await self._self_healing.start()
             logger.info("Phase 5: Self-Healing Middleware started")
@@ -447,63 +470,80 @@ class TradingSystem:
             # 4. Enable Kelly Criterion for Position Sizer
             try:
                 from hean.risk.kelly_criterion import KellyCriterion
-                if hasattr(self._position_sizer, 'enable_kelly_criterion'):
+
+                if hasattr(self._position_sizer, "enable_kelly_criterion"):
                     self._position_sizer.enable_kelly_criterion(
-                        self._accounting, 
-                        fractional_kelly=settings.phase5_kelly_fractional
+                        self._accounting, fractional_kelly=settings.phase5_kelly_fractional
                     )
-                    logger.info(f"Phase 5: Kelly Criterion enabled with fractional_kelly={settings.phase5_kelly_fractional}")
+                    logger.info(
+                        f"Phase 5: Kelly Criterion enabled with fractional_kelly={settings.phase5_kelly_fractional}"
+                    )
             except Exception as e:
                 logger.warning(f"Could not enable Kelly Criterion: {e}")
 
         # Absolute+: Initialize Post-Singularity Systems
-        if self._mode == "run" and getattr(settings, 'absolute_plus_enabled', True):
+        if self._mode == "run" and getattr(settings, "absolute_plus_enabled", True):
             # 1. Meta-Learning Engine (Recursive Intelligence Core)
             try:
-                cpp_source_dir = Path(__file__).parent.parent.parent / "src" / "hean" / "core" / "cpp"
+                cpp_source_dir = (
+                    Path(__file__).parent.parent.parent / "src" / "hean" / "core" / "cpp"
+                )
                 self._meta_learning_engine = MetaLearningEngine(
                     bus=self._bus,
                     cpp_source_dir=cpp_source_dir,
-                    simulation_rate=getattr(settings, 'meta_learning_rate', 1_000_000),
-                    auto_patch_enabled=getattr(settings, 'meta_learning_auto_patch', True),
-                    max_concurrent_simulations=getattr(settings, 'meta_learning_max_workers', 100)
+                    simulation_rate=getattr(settings, "meta_learning_rate", 1_000_000),
+                    auto_patch_enabled=getattr(settings, "meta_learning_auto_patch", True),
+                    max_concurrent_simulations=getattr(settings, "meta_learning_max_workers", 100),
                 )
                 await self._meta_learning_engine.start()
-                logger.info("⚡ ABSOLUTE+: Meta-Learning Engine started (Recursive Intelligence Core)")
+                logger.info(
+                    "⚡ ABSOLUTE+: Meta-Learning Engine started (Recursive Intelligence Core)"
+                )
             except Exception as e:
                 logger.warning(f"Failed to start Meta-Learning Engine: {e}")
-            
+
             # 2. Causal Inference Engine
             try:
                 # Source symbols for cross-asset pre-echo detection
-                source_symbols = getattr(settings, 'causal_source_symbols', [
-                    "BTCUSDT", "ETHUSDT", "BNBUSDT",  # Other exchanges could be added
-                    "SPX", "NDX",  # Stock indices (if available)
-                    "DXY"  # Dollar index
-                ])
+                source_symbols = getattr(
+                    settings,
+                    "causal_source_symbols",
+                    [
+                        "BTCUSDT",
+                        "ETHUSDT",
+                        "BNBUSDT",  # Other exchanges could be added
+                        "SPX",
+                        "NDX",  # Stock indices (if available)
+                        "DXY",  # Dollar index
+                    ],
+                )
                 self._causal_inference_engine = CausalInferenceEngine(
                     bus=self._bus,
                     target_symbols=settings.trading_symbols,
                     source_symbols=source_symbols,
-                    window_size=getattr(settings, 'causal_window_size', 500),
-                    min_causality_threshold=getattr(settings, 'causal_min_threshold', 0.3),
-                    min_transfer_entropy=getattr(settings, 'causal_min_te', 0.1)
+                    window_size=getattr(settings, "causal_window_size", 500),
+                    min_causality_threshold=getattr(settings, "causal_min_threshold", 0.3),
+                    min_transfer_entropy=getattr(settings, "causal_min_te", 0.1),
                 )
                 await self._causal_inference_engine.start()
-                logger.info("🔮 ABSOLUTE+: Causal Inference Engine started (Granger Causality + Transfer Entropy)")
+                logger.info(
+                    "🔮 ABSOLUTE+: Causal Inference Engine started (Granger Causality + Transfer Entropy)"
+                )
             except Exception as e:
                 logger.warning(f"Failed to start Causal Inference Engine: {e}")
-            
+
             # 3. Multimodal Swarm (Unified Tensor Processing)
             try:
                 self._multimodal_swarm = MultimodalSwarm(
                     bus=self._bus,
                     symbols=settings.trading_symbols,
-                    window_size=getattr(settings, 'multimodal_window_size', 100),
-                    num_agents=getattr(settings, 'multimodal_num_agents', 50)
+                    window_size=getattr(settings, "multimodal_window_size", 100),
+                    num_agents=getattr(settings, "multimodal_num_agents", 50),
                 )
                 await self._multimodal_swarm.start()
-                logger.info("🌐 ABSOLUTE+: Multimodal Swarm started (Price + Sentiment + On-Chain + Macro)")
+                logger.info(
+                    "🌐 ABSOLUTE+: Multimodal Swarm started (Price + Sentiment + On-Chain + Macro)"
+                )
             except Exception as e:
                 logger.warning(f"Failed to start Multimodal Swarm: {e}")
 
@@ -525,17 +565,20 @@ class TradingSystem:
                 self._price_feed = BybitPriceFeed(self._bus, symbols)
                 await self._price_feed.start()
                 mode_label = "live" if settings.is_live else "paper"
-                logger.info(f"MARKET_STREAM_STARTED: Bybit price feed ({mode_label}) for symbols {symbols}")
-                
+                logger.info(
+                    f"MARKET_STREAM_STARTED: Bybit price feed ({mode_label}) for symbols {symbols}"
+                )
+
                 # Auto-detect balance from exchange in live mode
                 # System works with any amount - no need to specify INITIAL_CAPITAL
                 try:
                     from hean.exchange.bybit.http import BybitHTTPClient
+
                     http_client = BybitHTTPClient()
                     await http_client.connect()
                     account_info = await http_client.get_account_info()
                     await http_client.disconnect()
-                    
+
                     # Parse balance from Bybit API response
                     # Bybit returns: {"result": {"list": [{"coin": [{"walletBalance": "...", "coin": "USDT"}]}]}}
                     balance = 0.0
@@ -548,7 +591,7 @@ class TradingSystem:
                                 if coin.get("coin") == "USDT":
                                     balance = float(coin.get("walletBalance", 0))
                                     break
-                    
+
                     if balance > 0:
                         # Update accounting with real exchange balance
                         self._accounting.set_balance_from_exchange(balance)
@@ -559,12 +602,17 @@ class TradingSystem:
                         logger.info(f"✅ Synced with exchange balance: ${balance:,.2f} USDT")
                         logger.info("📊 System ready to trade with any capital amount")
                     else:
-                        logger.warning(f"⚠️ Could not get balance from exchange, using config: ${initial_capital:,.2f}")
+                        logger.warning(
+                            f"⚠️ Could not get balance from exchange, using config: ${initial_capital:,.2f}"
+                        )
                 except Exception as e:
                     logger.warning(f"⚠️ Could not sync with exchange balance: {e}")
                     logger.info(f"Using configured initial capital: ${initial_capital:,.2f}")
             except Exception as e:
-                logger.warning(f"MARKET_STREAM_FALLBACK: Bybit price feed failed, switching to synthetic. Error: {e}", exc_info=True)
+                logger.warning(
+                    f"MARKET_STREAM_FALLBACK: Bybit price feed failed, switching to synthetic. Error: {e}",
+                    exc_info=True,
+                )
                 self._price_feed = SyntheticPriceFeed(self._bus, symbols)
                 await self._price_feed.start()
                 logger.info(f"MARKET_STREAM_STARTED: Synthetic price feed for symbols {symbols}")
@@ -641,7 +689,7 @@ class TradingSystem:
             self._clock.schedule_periodic(self._print_status, timedelta(seconds=10))
             # Anti-stuck: periodic TTL/NO_TICKS checks even if feed stalls
             self._clock.schedule_periodic(self._check_position_timeouts, timedelta(seconds=5))
-            
+
             # Start fallback micro-trade task if paper assist enabled
             if is_paper_assist_enabled():
                 self._micro_trade_task = asyncio.create_task(self._micro_trade_fallback_loop())
@@ -746,7 +794,7 @@ class TradingSystem:
 
         signal: Signal = event.data["signal"]
         logger.debug(f"Signal received: {signal.strategy_id} {signal.symbol} {signal.side}")
-        
+
         # Track signal attempt for diagnostics
         signal_attempt_key = f"{signal.strategy_id}:{signal.symbol}"
 
@@ -787,28 +835,28 @@ class TradingSystem:
                 check_process_factory_actions,
                 log_trade_blocked,
             )
-            
+
             blocked_reasons = []
             suggested_fixes = []
-            
+
             # Check live enabled
             live_ok, live_reasons, live_fixes = check_live_enabled()
             if not live_ok:
                 blocked_reasons.extend(live_reasons)
                 suggested_fixes.extend(live_fixes)
-            
+
             # Check dry run
             dry_run_ok, dry_reasons, dry_fixes = check_dry_run()
             if not dry_run_ok:
                 blocked_reasons.extend(dry_reasons)
                 suggested_fixes.extend(dry_fixes)
-            
+
             # Check process factory actions
             actions_ok, actions_reasons, actions_fixes = check_process_factory_actions()
             if not actions_ok:
                 blocked_reasons.extend(actions_reasons)
                 suggested_fixes.extend(actions_fixes)
-            
+
             if blocked_reasons:
                 log_trade_blocked(
                     symbol=signal.symbol,
@@ -919,7 +967,7 @@ class TradingSystem:
 
         # Calculate position size BEFORE creating OrderRequest
         equity = self._accounting.get_equity()
-        
+
         # Get current price for size calculation
         current_price = signal.entry_price or self._regime_detector.get_price(signal.symbol)
         if not current_price or current_price <= 0:
@@ -936,16 +984,16 @@ class TradingSystem:
                 },
             )
             return
-        
+
         # Get regime first (needed for size calculation)
         regime = self._current_regime.get(signal.symbol, Regime.NORMAL)
-        
+
         # Get metrics for dynamic risk scaling (needed for size calculation)
         rolling_pf = None
         recent_drawdown = None
         volatility_percentile = None
         edge_bps = None
-        
+
         # Get rolling profit factor from strategy metrics
         strategy_metrics = self._accounting.get_strategy_metrics()
         if strategy_metrics:
@@ -967,11 +1015,11 @@ class TradingSystem:
                     rolling_pf = 1.0
         else:
             rolling_pf = 1.0
-        
+
         # Get recent drawdown
         _, drawdown_pct = self._accounting.get_drawdown(equity)
         recent_drawdown = drawdown_pct
-        
+
         # Get volatility and calculate percentile
         current_volatility = self._regime_detector.get_volatility(signal.symbol)
         if current_volatility > 0:
@@ -980,11 +1028,11 @@ class TradingSystem:
             # Calculate percentile
             dynamic_risk = self._position_sizer.get_dynamic_risk_manager()
             volatility_percentile = dynamic_risk.calculate_volatility_percentile(current_volatility)
-        
+
         # Get edge_bps from signal metadata if available
         if signal.metadata:
             edge_bps = signal.metadata.get("edge_bps")
-        
+
         # Calculate base size
         base_size = signal.size or self._position_sizer.calculate_size(
             signal,
@@ -996,14 +1044,14 @@ class TradingSystem:
             volatility_percentile=volatility_percentile,
             edge_bps=edge_bps,
         )
-        
+
         # Ensure minimum size
         if base_size <= 0:
             min_size_value = (equity * 0.001) / current_price  # 0.1% of equity
             absolute_min = 0.001
             base_size = max(min_size_value, absolute_min)
             logger.warning(f"Base size was 0, using minimum {base_size:.6f}")
-        
+
         # Apply protection multiplier
         if protection_size_multiplier < 1.0:
             base_size *= protection_size_multiplier
@@ -1011,7 +1059,7 @@ class TradingSystem:
                 min_size_value = (equity * 0.001) / current_price
                 absolute_min = 0.001
                 base_size = max(min_size_value, absolute_min)
-        
+
         # Check risk limits with calculated size
         if not settings.debug_mode:
             allowed, reason = self._risk_limits.check_order_request(
@@ -1044,7 +1092,12 @@ class TradingSystem:
                     threshold=None,
                     measured_value=None,
                 )
-                log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"risk_limits: {reason}")
+                log_allow_reason(
+                    "BLOCK",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    note=f"risk_limits: {reason}",
+                )
                 await self._emit_order_decision(
                     signal=signal,
                     decision="REJECT",
@@ -1081,7 +1134,12 @@ class TradingSystem:
                     strategy_id=signal.strategy_id,
                     agent_name=signal.strategy_id,
                 )
-                log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"daily_attempts: {reason}")
+                log_allow_reason(
+                    "BLOCK",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    note=f"daily_attempts: {reason}",
+                )
                 await self._emit_order_decision(
                     signal=signal,
                     decision="SKIP",
@@ -1110,7 +1168,12 @@ class TradingSystem:
                     strategy_id=signal.strategy_id,
                     agent_name=signal.strategy_id,
                 )
-                log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"cooldown: {reason}")
+                log_allow_reason(
+                    "BLOCK",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    note=f"cooldown: {reason}",
+                )
                 await self._emit_order_decision(
                     signal=signal,
                     decision="SKIP",
@@ -1118,7 +1181,9 @@ class TradingSystem:
                     computed_qty=base_size,
                     context={
                         "reason": reason,
-                        "consecutive_losses": self._risk_limits.get_consecutive_losses(signal.strategy_id),
+                        "consecutive_losses": self._risk_limits.get_consecutive_losses(
+                            signal.strategy_id
+                        ),
                         "open_orders": len(self._order_manager.get_open_orders()),
                         "open_positions": len(self._accounting.get_positions()),
                     },
@@ -1197,8 +1262,10 @@ class TradingSystem:
 
         # Position size already calculated above, reuse it
         # (variables regime, rolling_pf, recent_drawdown, volatility_percentile, edge_bps already defined)
-        logger.info(f"Base size calculated: {base_size:.6f} (signal.size={signal.size}, equity=${equity:.2f}, price=${current_price:.2f})")
-        
+        logger.info(
+            f"Base size calculated: {base_size:.6f} (signal.size={signal.size}, equity=${equity:.2f}, price=${current_price:.2f})"
+        )
+
         # CRITICAL: If base_size is 0 or negative, use minimum size immediately
         original_base_size = base_size
         if base_size <= 0:
@@ -1376,7 +1443,7 @@ class TradingSystem:
         )
 
         metrics.increment("signals_accepted")
-        
+
         # Final diagnostic: ALLOW
         log_allow_reason(
             "ALLOW",
@@ -1602,7 +1669,10 @@ class TradingSystem:
             )
 
         await self._emit_account_state()
-        return {"closed_positions": len(closed_positions), "cancelled_orders": len(self._order_manager.get_open_orders())}
+        return {
+            "closed_positions": len(closed_positions),
+            "cancelled_orders": len(self._order_manager.get_open_orders()),
+        }
 
     async def reset_paper_state(self) -> dict[str, Any]:
         """Clear paper-trading state (positions, orders, cached decisions)."""
@@ -1729,8 +1799,8 @@ class TradingSystem:
         all_orders = self._order_manager.get_all_orders()
         for order in all_orders:
             metadata = order.metadata or {}
-            status_value = order.status.value if hasattr(order.status, "value") else str(
-                order.status
+            status_value = (
+                order.status.value if hasattr(order.status, "value") else str(order.status)
             )
             mark_price = mark_prices.get(order.symbol, order.price)
             notional = (mark_price or order.price or 0.0) * order.size
@@ -2218,7 +2288,7 @@ class TradingSystem:
 
         # Get profit target progress
         progress = self._profit_tracker.get_progress()
-        
+
         # Check profit capture (if enabled)
         if self._profit_capture and self._profit_capture._enabled:
             try:
@@ -2361,7 +2431,7 @@ async def run_evaluation(days: int) -> dict[str, Any]:
         )
     else:
         logger.info(f"[METRICS] total_trades={total_trades}")
-        
+
     if total_pnl <= 0:
         logger.warning(
             f"[METRICS_WARNING] total_pnl={total_pnl:.2f} <= 0. "
@@ -2369,7 +2439,7 @@ async def run_evaluation(days: int) -> dict[str, Any]:
         )
     else:
         logger.info(f"[METRICS] total_pnl={total_pnl:.2f}")
-        
+
     if profit_factor <= 1.0:
         logger.warning(
             f"[METRICS_WARNING] profit_factor={profit_factor:.2f} <= 1.0. "
@@ -2377,7 +2447,7 @@ async def run_evaluation(days: int) -> dict[str, Any]:
         )
     else:
         logger.info(f"[METRICS] profit_factor={profit_factor:.2f}")
-    
+
     logger.info(
         f"[METRICS_SUMMARY] total_trades={total_trades}, "
         f"total_pnl={total_pnl:.2f}, profit_factor={profit_factor:.2f}"
@@ -2531,15 +2601,14 @@ async def run_backtest(days: int, output_file: str | None = None) -> None:
         )
     else:
         logger.info(f"[METRICS] total_trades={total_trades}")
-        
+
     if total_pnl <= 0:
         logger.warning(
-            f"[METRICS_WARNING] total_pnl={total_pnl:.2f} <= 0. "
-            f"Expected positive PnL in backtest."
+            f"[METRICS_WARNING] total_pnl={total_pnl:.2f} <= 0. Expected positive PnL in backtest."
         )
     else:
         logger.info(f"[METRICS] total_pnl={total_pnl:.2f}")
-        
+
     if profit_factor <= 1.0:
         logger.warning(
             f"[METRICS_WARNING] profit_factor={profit_factor:.2f} <= 1.0. "
@@ -2547,7 +2616,7 @@ async def run_backtest(days: int, output_file: str | None = None) -> None:
         )
     else:
         logger.info(f"[METRICS] profit_factor={profit_factor:.2f}")
-    
+
     logger.info(
         f"[METRICS_SUMMARY] total_trades={total_trades}, "
         f"total_pnl={total_pnl:.2f}, profit_factor={profit_factor:.2f}"
@@ -2589,7 +2658,9 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     subparsers.add_parser("run", help="Run the trading system")
-    subparsers.add_parser("report", help="Show trading diagnostics report (attempts, blocks, reasons)")
+    subparsers.add_parser(
+        "report", help="Show trading diagnostics report (attempts, blocks, reasons)"
+    )
     backtest_parser = subparsers.add_parser("backtest", help="Run a backtest")
     backtest_parser.add_argument("--days", type=int, default=30, help="Number of days to backtest")
     backtest_parser.add_argument(
@@ -2600,8 +2671,12 @@ def main() -> None:
     evaluate_parser.add_argument("--days", type=int, default=60, help="Number of days to evaluate")
 
     # Process Factory commands (experimental)
-    process_parser = subparsers.add_parser("process", help="Process Factory commands (experimental)")
-    process_subparsers = process_parser.add_subparsers(dest="process_command", help="Process Factory command")
+    process_parser = subparsers.add_parser(
+        "process", help="Process Factory commands (experimental)"
+    )
+    process_subparsers = process_parser.add_subparsers(
+        dest="process_command", help="Process Factory command"
+    )
 
     process_scan_parser = process_subparsers.add_parser(
         "scan",
@@ -2685,14 +2760,14 @@ def main() -> None:
     elif args.command == "report":
         # Show trading diagnostics report
         from hean.observability.no_trade_report import no_trade_report
-        
+
         summary = no_trade_report.get_summary()
-        
+
         print("=" * 70)
         print("📊 TRADING DIAGNOSTICS REPORT")
         print("=" * 70)
         print()
-        
+
         # Pipeline counters
         pipeline = summary.pipeline_counters
         print("📈 PIPELINE COUNTERS:")
@@ -2701,7 +2776,7 @@ def main() -> None:
         print(f"  Positions opened: {pipeline.get('positions_opened', 0)}")
         print(f"  Positions closed: {pipeline.get('positions_closed', 0)}")
         print()
-        
+
         # Block reasons
         totals = summary.totals
         if totals:
@@ -2710,7 +2785,7 @@ def main() -> None:
             for reason, count in sorted_reasons[:10]:  # Top 10
                 print(f"  {reason}: {count}")
             print()
-        
+
         # Per strategy
         per_strategy = summary.per_strategy
         if per_strategy:
@@ -2723,7 +2798,7 @@ def main() -> None:
                     for reason, count in top_reasons:
                         print(f"    - {reason}: {count}")
             print()
-        
+
         # Per symbol
         per_symbol = summary.per_symbol
         if per_symbol:
@@ -2736,15 +2811,20 @@ def main() -> None:
                     for reason, count in top_reasons:
                         print(f"    - {reason}: {count}")
             print()
-        
+
         # Paper assist status
         from hean.paper_trade_assist import is_paper_assist_enabled
+
         if is_paper_assist_enabled():
             print("✅ PAPER_TRADE_ASSIST: ENABLED")
-            print(f"  Micro-trade interval: {settings.paper_trade_assist_micro_trade_interval_sec}s")
-            print(f"  Micro-trade notional: ${settings.paper_trade_assist_micro_trade_notional_usd}")
+            print(
+                f"  Micro-trade interval: {settings.paper_trade_assist_micro_trade_interval_sec}s"
+            )
+            print(
+                f"  Micro-trade notional: ${settings.paper_trade_assist_micro_trade_notional_usd}"
+            )
             print()
-        
+
         print("=" * 70)
 
     elif args.command == "backtest":
@@ -2772,39 +2852,56 @@ def main() -> None:
 
         try:
             if args.process_command == "scan":
+
                 async def scan_with_output():
                     snapshot = await engine.scan_environment()
                     print(f"\n✓ Environment scan completed")
                     print(f"  Snapshot ID: {snapshot.snapshot_id}")
                     print(f"  Timestamp: {snapshot.timestamp.isoformat()}")
                     if snapshot.is_stale():
-                        print(f"  ⚠ WARNING: Snapshot is stale ({snapshot.staleness_hours:.1f} hours old)")
+                        print(
+                            f"  ⚠ WARNING: Snapshot is stale ({snapshot.staleness_hours:.1f} hours old)"
+                        )
                     else:
                         print(f"  ✓ Snapshot is fresh ({snapshot.staleness_hours:.1f} hours old)")
                     print(f"  Balances: {len(snapshot.balances)} assets")
                     print(f"  Positions: {len(snapshot.positions)}")
                     print(f"  Funding rates: {len(snapshot.funding_rates)} symbols")
                     return snapshot
+
                 asyncio.run(scan_with_output())
 
             elif args.process_command == "plan":
+
                 async def plan_with_output():
                     ranked, plan = await engine.plan(args.capital)
                     print(f"\n✓ Planning completed: {len(ranked)} opportunities")
                     print(f"\n📊 Capital Plan:")
-                    print(f"  Reserve: ${plan.reserve_usd:.2f} ({plan.reserve_usd/plan.total_capital_usd*100:.1f}%)")
-                    print(f"  Active: ${plan.active_usd:.2f} ({plan.active_usd/plan.total_capital_usd*100:.1f}%)")
-                    print(f"  Experimental: ${plan.experimental_usd:.2f} ({plan.experimental_usd/plan.total_capital_usd*100:.1f}%)")
+                    print(
+                        f"  Reserve: ${plan.reserve_usd:.2f} ({plan.reserve_usd / plan.total_capital_usd * 100:.1f}%)"
+                    )
+                    print(
+                        f"  Active: ${plan.active_usd:.2f} ({plan.active_usd / plan.total_capital_usd * 100:.1f}%)"
+                    )
+                    print(
+                        f"  Experimental: ${plan.experimental_usd:.2f} ({plan.experimental_usd / plan.total_capital_usd * 100:.1f}%)"
+                    )
                     print(f"\n🎯 Top Opportunities:")
                     for i, (opp, score) in enumerate(ranked[:5], 1):
-                        print(f"  {i}. {opp.id}: ${opp.expected_profit_usd:.2f} profit, {opp.time_hours:.1f}h, risk={opp.risk_factor:.1f}")
+                        print(
+                            f"  {i}. {opp.id}: ${opp.expected_profit_usd:.2f} profit, {opp.time_hours:.1f}h, risk={opp.risk_factor:.1f}"
+                        )
                     print(f"\n💰 Allocations:")
-                    for process_id, allocation in sorted(plan.allocations.items(), key=lambda x: x[1], reverse=True):
+                    for process_id, allocation in sorted(
+                        plan.allocations.items(), key=lambda x: x[1], reverse=True
+                    ):
                         print(f"  {process_id}: ${allocation:.2f}")
                     return ranked, plan
+
                 asyncio.run(plan_with_output())
 
             elif args.process_command == "run":
+
                 async def run_with_output():
                     try:
                         run = await engine.run_process(
@@ -2816,9 +2913,10 @@ def main() -> None:
                             sys.exit(1)
                         raise
                     from hean.process_factory.truth_layer import TruthLayer
+
                     truth_layer = TruthLayer()
                     attribution = truth_layer.compute_attribution(run)
-                    
+
                     print(f"\n✓ Process run completed: {run.run_id}")
                     print(f"  Status: {run.status.value}")
                     print(f"  Process: {run.process_id}")
@@ -2832,7 +2930,7 @@ def main() -> None:
                     print(f"  Opportunity Cost: ${attribution.opportunity_cost_usd:.2f}")
                     if attribution.profit_illusion:
                         print(f"  ⚠ Profit Illusion: Gross positive but net negative!")
-                    
+
                     # Get kill/scale suggestions
                     portfolio = await engine.update_portfolio()
                     entry = next((e for e in portfolio if e.process_id == run.process_id), None)
@@ -2846,28 +2944,29 @@ def main() -> None:
                             print(f"  ✓ Good performance, eligible for scaling")
                         else:
                             print(f"  → Continue testing ({entry.runs_count} runs)")
-                    
+
                     if run.error:
                         print(f"\n❌ Error: {run.error}")
                     return run
+
                 asyncio.run(run_with_output())
 
             elif args.process_command == "report":
+
                 async def generate_report():
                     portfolio = await engine.update_portfolio()
                     capital_plan = await storage.load_latest_capital_plan()
                     recent_runs = await storage.list_runs(limit=50)
-                    
+
                     # Compute attribution for profit illusion detection
                     from hean.process_factory.truth_layer import TruthLayer
+
                     truth_layer = TruthLayer()
                     attributions = truth_layer.compute_portfolio_attribution(recent_runs)
-                    
+
                     generator = ProcessReportGenerator()
-                    result = generator.generate_daily_report(
-                        portfolio, capital_plan, recent_runs
-                    )
-                    
+                    result = generator.generate_daily_report(portfolio, capital_plan, recent_runs)
+
                     if result is None:
                         # Idempotent: report already exists
                         date_str = datetime.now().strftime("%Y-%m-%d")
@@ -2877,21 +2976,23 @@ def main() -> None:
                         print(f"  Markdown: {md_path}")
                         print(f"  JSON: {json_path}")
                         return None, None
-                    
+
                     md_path, json_path = result
                     print(f"\n✓ Report generated:")
                     print(f"  Markdown: {md_path}")
                     print(f"  JSON: {json_path}")
-                    
+
                     # Print summary
                     print(f"\n📊 Portfolio Summary:")
                     total_net = sum(a.net_pnl_usd for a in attributions.values())
                     total_gross = sum(a.gross_pnl_usd for a in attributions.values())
-                    profit_illusion_count = sum(1 for a in attributions.values() if a.profit_illusion)
+                    profit_illusion_count = sum(
+                        1 for a in attributions.values() if a.profit_illusion
+                    )
                     print(f"  Total Net Contribution: ${total_net:.2f}")
                     print(f"  Total Gross PnL: ${total_gross:.2f}")
                     print(f"  Profit Illusion Processes: {profit_illusion_count}")
-                    
+
                     # Top contributors (net)
                     sorted_attributions = sorted(
                         attributions.items(), key=lambda x: x[1].net_pnl_usd, reverse=True
@@ -2900,16 +3001,19 @@ def main() -> None:
                     for process_id, attr in sorted_attributions:
                         if attr.net_pnl_usd > 0:
                             print(f"  {process_id}: ${attr.net_pnl_usd:.2f} net")
-                    
+
                     # Profit illusion list
                     if profit_illusion_count > 0:
                         print(f"\n⚠ Profit Illusion Processes:")
                         for process_id, attr in attributions.items():
                             if attr.profit_illusion:
-                                print(f"  {process_id}: ${attr.gross_pnl_usd:.2f} gross → ${attr.net_pnl_usd:.2f} net")
-                    
+                                print(
+                                    f"  {process_id}: ${attr.gross_pnl_usd:.2f} gross → ${attr.net_pnl_usd:.2f} net"
+                                )
+
                     # Portfolio health
                     from hean.process_factory.evaluation import PortfolioEvaluator
+
                     evaluator = PortfolioEvaluator(storage)
                     health_score, _ = await evaluator.evaluate_portfolio(days=30)
                     print(f"\n💚 Portfolio Health Score:")
@@ -2919,19 +3023,21 @@ def main() -> None:
                     print(f"  Core Processes: {health_score.core_process_count}")
                     print(f"  Testing Processes: {health_score.testing_process_count}")
                     print(f"  Killed Processes: {health_score.killed_process_count}")
-                    
+
                     return md_path, json_path
-                
+
                 asyncio.run(generate_report())
-            
+
             elif args.process_command == "evaluate":
+
                 async def evaluate_with_output():
                     from hean.process_factory.evaluation import PortfolioEvaluator
+
                     evaluator = PortfolioEvaluator(storage)
                     health_score, process_results = await evaluator.evaluate_portfolio(
                         days=args.days
                     )
-                    
+
                     print(f"\n✓ Portfolio Evaluation ({args.days} days)")
                     print(f"\n💚 Portfolio Health Score:")
                     print(f"  Stability: {health_score.stability_score:.2%}")
@@ -2939,31 +3045,37 @@ def main() -> None:
                     print(f"  Churn Rate: {health_score.churn_rate:.2f}")
                     print(f"  Net Contribution: ${health_score.net_contribution_usd:.2f}")
                     print(f"  Profit Illusion Count: {health_score.profit_illusion_count}")
-                    print(f"  Core: {health_score.core_process_count}, Testing: {health_score.testing_process_count}, Killed: {health_score.killed_process_count}")
-                    
+                    print(
+                        f"  Core: {health_score.core_process_count}, Testing: {health_score.testing_process_count}, Killed: {health_score.killed_process_count}"
+                    )
+
                     print(f"\n📋 Process Recommendations:")
-                    for result in sorted(process_results, key=lambda x: x.net_contribution_usd, reverse=True):
+                    for result in sorted(
+                        process_results, key=lambda x: x.net_contribution_usd, reverse=True
+                    ):
                         print(f"\n  {result.process_id}:")
                         print(f"    Recommendation: {result.recommendation}")
                         print(f"    Net Contribution: ${result.net_contribution_usd:.2f}")
-                        print(f"    Runs: {result.runs_count}, Win Rate: {result.win_rate:.1%}, Stability: {result.stability:.1%}")
+                        print(
+                            f"    Runs: {result.runs_count}, Win Rate: {result.win_rate:.1%}, Stability: {result.stability:.1%}"
+                        )
                         if result.reasons:
                             print(f"    Reasons: {', '.join(result.reasons)}")
-                    
+
                     return health_score, process_results
-                
+
                 asyncio.run(evaluate_with_output())
-            
+
             elif args.process_command == "exec-smoke-test":
                 from hean.process_factory.integrations.smoke_test import run_smoke_test
-                
+
                 async def smoke_test_with_output():
                     try:
                         result = await run_smoke_test()
                     except ValueError as e:
                         print(f"\n❌ Validation error: {e}")
                         sys.exit(1)
-                    
+
                     if result["success"]:
                         print(f"\n✓ SUCCESS: Execution smoke test passed")
                         print(f"  Order ID: {result['order_id']}")
@@ -2977,21 +3089,25 @@ def main() -> None:
                         print(f"  Error type: {result.get('error_type', 'unknown')}")
                         print(f"  Error: {result.get('error', 'unknown error')}")
                         print(f"\n  Suggested fixes:")
-                        if result.get('error_type') == 'not_enabled':
+                        if result.get("error_type") == "not_enabled":
                             print(f"    - Set PROCESS_FACTORY_ALLOW_ACTIONS=true")
                             print(f"    - Set DRY_RUN=false")
-                        elif result.get('error_type') == 'min_notional':
-                            print(f"    - Increase EXECUTION_SMOKE_TEST_NOTIONAL_USD (min ${result.get('error', '').split()[-1] if '$' in result.get('error', '') else '5'})")
-                        elif result.get('error_type') == 'validation_error':
+                        elif result.get("error_type") == "min_notional":
+                            print(
+                                f"    - Increase EXECUTION_SMOKE_TEST_NOTIONAL_USD (min ${result.get('error', '').split()[-1] if '$' in result.get('error', '') else '5'})"
+                            )
+                        elif result.get("error_type") == "validation_error":
                             print(f"    - Check configuration flags")
                         else:
                             print(f"    - Check API credentials (BYBIT_API_KEY, BYBIT_API_SECRET)")
                             print(f"    - Check network connectivity")
-                            print(f"    - Verify symbol is valid: {result.get('symbol', 'unknown')}")
+                            print(
+                                f"    - Verify symbol is valid: {result.get('symbol', 'unknown')}"
+                            )
                         sys.exit(1)
-                    
+
                     return result
-                
+
                 asyncio.run(smoke_test_with_output())
 
             else:

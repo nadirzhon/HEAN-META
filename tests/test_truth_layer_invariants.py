@@ -74,14 +74,11 @@ def test_truth_layer_no_duplicate_ledger_entries(truth_layer, sample_run):
 
     # Check for duplicate entry_ids
     entry_ids = [entry.entry_id for entry in attribution.ledger_entries]
-    assert len(entry_ids) == len(set(entry_ids)), (
-        f"Found duplicate ledger entry IDs: {entry_ids}"
-    )
+    assert len(entry_ids) == len(set(entry_ids)), f"Found duplicate ledger entry IDs: {entry_ids}"
 
     # Check for duplicate run_id + entry_type combinations (should be unique per run)
     entry_keys = [
-        (entry.run_id, entry.entry_type, entry.entry_id)
-        for entry in attribution.ledger_entries
+        (entry.run_id, entry.entry_type, entry.entry_id) for entry in attribution.ledger_entries
     ]
     assert len(entry_keys) == len(set(entry_keys)), (
         f"Found duplicate ledger entry keys: {entry_keys}"
@@ -94,24 +91,16 @@ def test_truth_layer_report_totals_match_ledger_sums(truth_layer, sample_run):
 
     # Sum ledger entries by type
     ledger_pnl = sum(
-        e.amount_usd
-        for e in attribution.ledger_entries
-        if e.entry_type == LedgerEntryType.PNL
+        e.amount_usd for e in attribution.ledger_entries if e.entry_type == LedgerEntryType.PNL
     )
     ledger_fees = sum(
-        abs(e.amount_usd)
-        for e in attribution.ledger_entries
-        if e.entry_type == LedgerEntryType.FEE
+        abs(e.amount_usd) for e in attribution.ledger_entries if e.entry_type == LedgerEntryType.FEE
     )
     ledger_funding = sum(
-        e.amount_usd
-        for e in attribution.ledger_entries
-        if e.entry_type == LedgerEntryType.FUNDING
+        e.amount_usd for e in attribution.ledger_entries if e.entry_type == LedgerEntryType.FUNDING
     )
     ledger_rewards = sum(
-        e.amount_usd
-        for e in attribution.ledger_entries
-        if e.entry_type == LedgerEntryType.REWARD
+        e.amount_usd for e in attribution.ledger_entries if e.entry_type == LedgerEntryType.REWARD
     )
     ledger_opp_cost = sum(
         abs(e.amount_usd)
@@ -165,9 +154,7 @@ def test_truth_layer_portfolio_attribution_aggregation(truth_layer):
     agg = attributions["process_1"]
 
     # Aggregated totals should match sum of individual attributions
-    individual_attributions = [
-        truth_layer.compute_attribution(run) for run in runs
-    ]
+    individual_attributions = [truth_layer.compute_attribution(run) for run in runs]
     expected_gross = sum(a.gross_pnl_usd for a in individual_attributions)
     expected_net = sum(a.net_pnl_usd for a in individual_attributions)
     expected_fees = sum(a.total_fees_usd for a in individual_attributions)
@@ -185,4 +172,3 @@ def test_truth_layer_portfolio_attribution_aggregation(truth_layer):
     # Check no duplicate ledger entries in aggregated result
     entry_ids = [entry.entry_id for entry in agg.ledger_entries]
     assert len(entry_ids) == len(set(entry_ids))
-

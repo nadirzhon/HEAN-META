@@ -1,6 +1,10 @@
 """Capital routing and allocation."""
 
-from hean.process_factory.schemas import DailyCapitalPlan, ProcessPortfolioEntry, ProcessPortfolioState
+from hean.process_factory.schemas import (
+    DailyCapitalPlan,
+    ProcessPortfolioEntry,
+    ProcessPortfolioState,
+)
 
 
 class CapitalRouter:
@@ -50,9 +54,7 @@ class CapitalRouter:
 
         # Separate processes by state
         core_processes = [p for p in portfolio if p.state == ProcessPortfolioState.CORE]
-        testing_processes = [
-            p for p in portfolio if p.state == ProcessPortfolioState.TESTING
-        ]
+        testing_processes = [p for p in portfolio if p.state == ProcessPortfolioState.TESTING]
         new_processes = [p for p in portfolio if p.state == ProcessPortfolioState.NEW]
 
         allocations: dict[str, float] = {}
@@ -122,4 +124,3 @@ class CapitalRouter:
             return False
 
         return True
-

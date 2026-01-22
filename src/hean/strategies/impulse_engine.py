@@ -47,7 +47,9 @@ class ImpulseEngine(BaseStrategy):
         self._window_size = 10  # Lookback window
         self._long_window = 50  # Long window for volatility calculation
         # AGGRESSIVE MODE: Lower threshold in DEBUG_MODE (0.1% instead of 0.5%)
-        self._impulse_threshold = 0.001 if settings.debug_mode else 0.005  # 0.1% in debug, 0.5% normally
+        self._impulse_threshold = (
+            0.001 if settings.debug_mode else 0.005
+        )  # 0.1% in debug, 0.5% normally
         self._spread_gate = settings.impulse_max_spread_bps / 10000.0  # Convert bps to decimal
         self._volatility_spike_threshold = settings.impulse_max_volatility_spike
         self._max_time_in_trade = timedelta(seconds=settings.impulse_max_time_in_trade_sec)
@@ -82,7 +84,9 @@ class ImpulseEngine(BaseStrategy):
         self._tick_count: dict[str, int] = {}  # Track tick count per symbol
         # AGGRESSIVE MODE: Much more frequent forced signals in DEBUG_MODE
         if settings.debug_mode:
-            self._force_signal_interval = 1000  # Force signal every 1000 ticks (very frequent for testing)
+            self._force_signal_interval = (
+                1000  # Force signal every 1000 ticks (very frequent for testing)
+            )
         else:
             # Настройка для ~5 сделок за 10 дней (1,728,000 тиков / 5 = ~345,600 тиков на сигнал)
             self._force_signal_interval = 300000  # Force signal every 300k ticks (~2 дня на символ)
@@ -177,7 +181,9 @@ class ImpulseEngine(BaseStrategy):
         """
         # AGGRESSIVE MODE: Bypass all no-trade zone checks in DEBUG_MODE
         if settings.debug_mode:
-            logger.debug(f"[AGGRESSIVE] No-trade zone completely bypassed for {tick.symbol} (DEBUG_MODE=True)")
+            logger.debug(
+                f"[AGGRESSIVE] No-trade zone completely bypassed for {tick.symbol} (DEBUG_MODE=True)"
+            )
             return False
 
         # Check spread
@@ -299,7 +305,9 @@ class ImpulseEngine(BaseStrategy):
         else:
             # Check if strategy is allowed in current regime (only if not in DEBUG_MODE)
             if current_regime not in self._allowed_regimes:
-                logger.debug(f"Signal blocked: {symbol} regime {current_regime.value} not in allowed {self._allowed_regimes}")
+                logger.debug(
+                    f"Signal blocked: {symbol} regime {current_regime.value} not in allowed {self._allowed_regimes}"
+                )
                 return
 
         if symbol not in self._price_history:
@@ -323,7 +331,9 @@ class ImpulseEngine(BaseStrategy):
         # AGGRESSIVE MODE: Bypass volume spike requirement in DEBUG_MODE
         if settings.debug_mode:
             volume_spike = True  # Always pass volume check
-            logger.debug(f"[AGGRESSIVE] Volume spike requirement bypassed for {symbol} (DEBUG_MODE=True)")
+            logger.debug(
+                f"[AGGRESSIVE] Volume spike requirement bypassed for {symbol} (DEBUG_MODE=True)"
+            )
         else:
             volume_spike = recent_volume > avg_volume * 1.2  # 20% above average
 
@@ -411,7 +421,7 @@ class ImpulseEngine(BaseStrategy):
         # AGGRESSIVE MODE: In DEBUG_MODE, use much lower threshold and bypass volume requirement
         threshold = self._impulse_threshold  # Already set to 0.1% in DEBUG_MODE
         require_volume = volume_spike  # Already set to True in DEBUG_MODE
-        
+
         if abs(return_pct) > threshold and require_volume:
             side = "buy" if return_pct > 0 else "sell"
             logger.info(f"[FORCED] Impulse detected: {symbol} side={side} return={return_pct:.4f}")
@@ -483,7 +493,9 @@ class ImpulseEngine(BaseStrategy):
             # AGGRESSIVE MODE: Completely bypass all filters in DEBUG_MODE
             if settings.debug_mode:
                 filter_result = True  # Force allow
-                logger.debug(f"[AGGRESSIVE] All filters completely bypassed for {symbol} (DEBUG_MODE=True)")
+                logger.debug(
+                    f"[AGGRESSIVE] All filters completely bypassed for {symbol} (DEBUG_MODE=True)"
+                )
             else:
                 filter_result = self._filter_pipeline.allow(tick, context)
                 if not filter_result:
@@ -494,7 +506,7 @@ class ImpulseEngine(BaseStrategy):
                     reason = context.get("filter_reason", "filter_reject")
                     no_trade_report.increment(reason, symbol, self.strategy_id)
                     return
-            
+
             # Ensure filter_result is checked (should always be True in DEBUG_MODE now)
             if not filter_result:
                 return
@@ -530,7 +542,9 @@ class ImpulseEngine(BaseStrategy):
             # In IMPULSE regime, check maker edge
             # AGGRESSIVE MODE: Bypass maker edge check in DEBUG_MODE
             if settings.debug_mode:
-                logger.debug(f"[AGGRESSIVE] Maker edge check bypassed for {symbol} (DEBUG_MODE=True)")
+                logger.debug(
+                    f"[AGGRESSIVE] Maker edge check bypassed for {symbol} (DEBUG_MODE=True)"
+                )
             elif current_regime == Regime.IMPULSE:
                 if tick.bid and tick.ask and tick.price and tick.price > 0:
                     # Calculate maker edge
@@ -579,7 +593,9 @@ class ImpulseEngine(BaseStrategy):
             # Check execution edge before edge confirmation
             # AGGRESSIVE MODE: Bypass edge estimator check in DEBUG_MODE
             if settings.debug_mode:
-                logger.debug(f"[AGGRESSIVE] Edge estimator check bypassed for {symbol} (DEBUG_MODE=True)")
+                logger.debug(
+                    f"[AGGRESSIVE] Edge estimator check bypassed for {symbol} (DEBUG_MODE=True)"
+                )
                 edge_allowed = True  # Force allow
             else:
                 edge_allowed = self._edge_estimator.should_emit_signal(signal, tick, current_regime)

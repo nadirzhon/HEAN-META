@@ -17,25 +17,19 @@ from hean.process_factory.schemas import ProcessDefinition
 class ProcessQualityScore(BaseModel):
     """Quality score for a process definition."""
 
-    overall_score: float = Field(
-        ..., ge=0, le=1, description="Overall quality score (0-1)"
-    )
+    overall_score: float = Field(..., ge=0, le=1, description="Overall quality score (0-1)")
     measurability_score: float = Field(
         ..., ge=0, le=1, description="Measurability completeness (0-1)"
     )
     safety_score: float = Field(..., ge=0, le=1, description="Safety completeness (0-1)")
-    testability_score: float = Field(
-        ..., ge=0, le=1, description="Testability score (0-1)"
-    )
+    testability_score: float = Field(..., ge=0, le=1, description="Testability score (0-1)")
     capital_efficiency_score: float = Field(
         ..., ge=0, le=1, description="Capital efficiency score (0-1)"
     )
     reasons: list[str] = Field(
         default_factory=list, description="Reasons for score (positive and negative)"
     )
-    accepted: bool = Field(
-        default=False, description="Whether process meets acceptance threshold"
-    )
+    accepted: bool = Field(default=False, description="Whether process meets acceptance threshold")
 
 
 class ProcessQualityScorer:
@@ -66,10 +60,7 @@ class ProcessQualityScorer:
 
         # Normalize weights
         total_weight = (
-            measurability_weight
-            + safety_weight
-            + testability_weight
-            + capital_efficiency_weight
+            measurability_weight + safety_weight + testability_weight + capital_efficiency_weight
         )
         if total_weight > 0:
             self.measurability_weight /= total_weight
@@ -115,7 +106,9 @@ class ProcessQualityScorer:
         accepted = overall_score >= self.acceptance_threshold
 
         if accepted:
-            reasons.append(f"Overall score {overall_score:.2f} meets threshold {self.acceptance_threshold}")
+            reasons.append(
+                f"Overall score {overall_score:.2f} meets threshold {self.acceptance_threshold}"
+            )
         else:
             reasons.append(
                 f"Overall score {overall_score:.2f} below threshold {self.acceptance_threshold}"
@@ -131,9 +124,7 @@ class ProcessQualityScorer:
             accepted=accepted,
         )
 
-    def _score_measurability(
-        self, process: ProcessDefinition
-    ) -> tuple[float, list[str]]:
+    def _score_measurability(self, process: ProcessDefinition) -> tuple[float, list[str]]:
         """Score measurability completeness.
 
         Args:
@@ -176,9 +167,7 @@ class ProcessQualityScorer:
 
         return min(score, 1.0), reasons
 
-    def _score_safety(
-        self, process: ProcessDefinition
-    ) -> tuple[float, list[str]]:
+    def _score_safety(self, process: ProcessDefinition) -> tuple[float, list[str]]:
         """Score safety completeness.
 
         Args:
@@ -240,9 +229,7 @@ class ProcessQualityScorer:
 
         return min(score, 1.0), reasons
 
-    def _score_testability(
-        self, process: ProcessDefinition
-    ) -> tuple[float, list[str]]:
+    def _score_testability(self, process: ProcessDefinition) -> tuple[float, list[str]]:
         """Score testability (clear kill conditions).
 
         Args:
@@ -290,9 +277,7 @@ class ProcessQualityScorer:
 
         return min(score, 1.0), reasons
 
-    def _score_capital_efficiency(
-        self, process: ProcessDefinition
-    ) -> tuple[float, list[str]]:
+    def _score_capital_efficiency(self, process: ProcessDefinition) -> tuple[float, list[str]]:
         """Score capital efficiency (time/risk).
 
         Args:
@@ -307,9 +292,7 @@ class ProcessQualityScorer:
         # Check time estimate (if available in description or actions)
         # Estimate based on number of actions and types
         action_count = len(process.actions)
-        human_task_count = sum(
-            1 for a in process.actions if a.kind.value == "HUMAN_TASK"
-        )
+        human_task_count = sum(1 for a in process.actions if a.kind.value == "HUMAN_TASK")
 
         # More actions = potentially longer time, but also more complete
         if action_count <= 5:
@@ -354,4 +337,3 @@ class ProcessQualityScorer:
             reasons.append(f"High capital requirement: ${max_capital:.2f}")
 
         return min(score, 1.0), reasons
-

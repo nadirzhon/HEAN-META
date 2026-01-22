@@ -104,4 +104,3 @@ def test_rank_opportunities_min_score():
     ranked = rank_opportunities(opportunities, min_score=10.0)
     assert len(ranked) == 1
     assert ranked[0][0].id == "high"
-

@@ -128,8 +128,10 @@ class KillSwitch:
             profit_above_initial = False
             if self._initial_capital is not None and self._initial_capital > 0:
                 profit_pct = ((equity - self._initial_capital) / self._initial_capital) * 100
-                profit_above_initial = equity > self._initial_capital * 1.05  # At least 5% above initial
-                
+                profit_above_initial = (
+                    equity > self._initial_capital * 1.05
+                )  # At least 5% above initial
+
                 # If we have significant profit (>50%), allow larger drawdown from daily high
                 if profit_pct > 50.0:
                     logger.debug(

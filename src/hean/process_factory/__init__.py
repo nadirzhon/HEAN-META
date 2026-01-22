@@ -37,4 +37,3 @@ __all__ = [
     "PortfolioEvaluator",
     "ProcessQualityScorer",
 ]
-

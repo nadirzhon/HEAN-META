@@ -265,9 +265,3 @@ async def test_maker_fill_rate_tracking() -> None:
 
     await broker.stop()
     await bus.stop()
-
-
-
-
-
-

@@ -256,4 +256,3 @@ def test_selector_promotes_after_min_sample_size(selector):
     assert new_state == ProcessPortfolioState.TESTING, (
         f"Process with {entry.runs_count} runs and good performance should be eligible for scaling"
     )
-

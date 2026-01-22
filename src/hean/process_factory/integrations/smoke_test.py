@@ -37,8 +37,7 @@ async def run_smoke_test() -> dict[str, Any]:
     # Validate flags
     if not settings.process_factory_enabled:
         raise ValueError(
-            "PROCESS_FACTORY_ENABLED must be true. "
-            "Set PROCESS_FACTORY_ENABLED=true in config."
+            "PROCESS_FACTORY_ENABLED must be true. Set PROCESS_FACTORY_ENABLED=true in config."
         )
     if not settings.process_factory_allow_actions:
         raise ValueError(
@@ -46,10 +45,7 @@ async def run_smoke_test() -> dict[str, Any]:
             "Set PROCESS_FACTORY_ALLOW_ACTIONS=true in config."
         )
     if settings.dry_run:
-        raise ValueError(
-            "DRY_RUN must be false for smoke test. "
-            "Set DRY_RUN=false in config."
-        )
+        raise ValueError("DRY_RUN must be false for smoke test. Set DRY_RUN=false in config.")
 
     symbol = settings.execution_smoke_test_symbol
     notional_usd = settings.execution_smoke_test_notional_usd
@@ -86,9 +82,7 @@ async def run_smoke_test() -> dict[str, Any]:
 
         # Validate notional meets minimum
         if notional_usd < min_notional:
-            result["error"] = (
-                f"Notional ${notional_usd} below minimum ${min_notional}"
-            )
+            result["error"] = f"Notional ${notional_usd} below minimum ${min_notional}"
             result["error_type"] = "min_notional"
             return result
 
@@ -105,7 +99,9 @@ async def run_smoke_test() -> dict[str, Any]:
             ask_price = last_price * 1.0001
 
         if not last_price or last_price <= 0:
-            result["error"] = f"Invalid price from ticker: {ticker if settings.is_live else 'paper mode'}"
+            result["error"] = (
+                f"Invalid price from ticker: {ticker if settings.is_live else 'paper mode'}"
+            )
             result["error_type"] = "ticker_error"
             return result
 

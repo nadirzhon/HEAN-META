@@ -25,7 +25,9 @@ def score_opportunity(
         confidence = confidence_calibration(opportunity)
 
     numerator = opportunity.expected_profit_usd * confidence
-    denominator = max(1e-6, opportunity.time_hours * opportunity.risk_factor * opportunity.complexity)
+    denominator = max(
+        1e-6, opportunity.time_hours * opportunity.risk_factor * opportunity.complexity
+    )
 
     return numerator / denominator
 
@@ -45,10 +47,7 @@ def rank_opportunities(
     Returns:
         List of (opportunity, score) tuples sorted by score descending
     """
-    scored = [
-        (opp, score_opportunity(opp, confidence_calibration))
-        for opp in opportunities
-    ]
+    scored = [(opp, score_opportunity(opp, confidence_calibration)) for opp in opportunities]
     filtered = [(opp, score) for opp, score in scored if score >= min_score]
     return sorted(filtered, key=lambda x: x[1], reverse=True)
 
@@ -65,6 +64,7 @@ def create_confidence_calibration(
     Returns:
         Calibration function that adjusts confidence based on historical performance
     """
+
     def calibrate(opportunity: Opportunity) -> float:
         """Calibrate confidence based on historical outcomes."""
         base_confidence = opportunity.confidence
@@ -83,4 +83,3 @@ def create_confidence_calibration(
         return base_confidence
 
     return calibrate
-

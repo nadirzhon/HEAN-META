@@ -32,7 +32,9 @@ async def get_strategies(request: Request) -> list[dict]:
 
 
 @router.post("/{strategy_id}/enable")
-async def enable_strategy(strategy_id: str, request: Request, payload: StrategyEnableRequest) -> dict:
+async def enable_strategy(
+    strategy_id: str, request: Request, payload: StrategyEnableRequest
+) -> dict:
     """Enable or disable a strategy."""
     engine_facade = _get_facade(request)
 
@@ -45,7 +47,9 @@ async def enable_strategy(strategy_id: str, request: Request, payload: StrategyE
 
 
 @router.post("/{strategy_id}/params")
-async def update_strategy_params(strategy_id: str, request: Request, payload: StrategyParamsRequest) -> dict:
+async def update_strategy_params(
+    strategy_id: str, request: Request, payload: StrategyParamsRequest
+) -> dict:
     """Update strategy parameters."""
     _ = _get_facade(request)
 

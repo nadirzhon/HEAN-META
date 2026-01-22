@@ -7,6 +7,7 @@ from typing import Optional
 try:
     # Try to import the compiled C++ module
     import graph_engine_py  # type: ignore
+
     _CPP_AVAILABLE = True
 except ImportError:
     _CPP_AVAILABLE = False
@@ -36,7 +37,7 @@ class GraphEngineWrapper:
         self._symbols = symbols or self._get_top_50_assets()
         self._window_size = window_size
         self._cpp_available = _CPP_AVAILABLE
-        
+
         if self._cpp_available:
             try:
                 self._engine = graph_engine_py.GraphEngine(window_size=window_size)
@@ -48,7 +49,7 @@ class GraphEngineWrapper:
         else:
             logger.warning("C++ Graph Engine not available. Using Python CorrelationEngine.")
             self._engine = CorrelationEngine(bus, self._symbols)
-        
+
         # Initialize assets in C++ engine
         if self._cpp_available:
             for symbol in self._symbols:
@@ -58,17 +59,61 @@ class GraphEngineWrapper:
     def _get_top_50_assets(self) -> list[str]:
         """Get top 50+ crypto assets by market cap."""
         return [
-            "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-            "ADAUSDT", "DOGEUSDT", "TRXUSDT", "LINKUSDT", "AVAXUSDT",
-            "DOTUSDT", "MATICUSDT", "SHIBUSDT", "LTCUSDT", "UNIUSDT",
-            "ATOMUSDT", "ETCUSDT", "XLMUSDT", "BCHUSDT", "FILUSDT",
-            "NEARUSDT", "APTUSDT", "HBARUSDT", "VETUSDT", "ICPUSDT",
-            "OPUSDT", "ARBUSDT", "MKRUSDT", "INJUSDT", "ALGOUSDT",
-            "AAVEUSDT", "GRTUSDT", "SANDUSDT", "MANAUSDT", "THETAUSDT",
-            "AXSUSDT", "FLOWUSDT", "EGLDUSDT", "XTZUSDT", "EOSUSDT",
-            "FTMUSDT", "CHZUSDT", "ENJUSDT", "ZILUSDT", "ROSEUSDT",
-            "WAVESUSDT", "ZECUSDT", "BATUSDT", "ZENUSDT", "CRVUSDT",
-            "1INCHUSDT", "SNXUSDT", "COMPUSDT", "YFIUSDT", "SUSHIUSDT"
+            "BTCUSDT",
+            "ETHUSDT",
+            "BNBUSDT",
+            "SOLUSDT",
+            "XRPUSDT",
+            "ADAUSDT",
+            "DOGEUSDT",
+            "TRXUSDT",
+            "LINKUSDT",
+            "AVAXUSDT",
+            "DOTUSDT",
+            "MATICUSDT",
+            "SHIBUSDT",
+            "LTCUSDT",
+            "UNIUSDT",
+            "ATOMUSDT",
+            "ETCUSDT",
+            "XLMUSDT",
+            "BCHUSDT",
+            "FILUSDT",
+            "NEARUSDT",
+            "APTUSDT",
+            "HBARUSDT",
+            "VETUSDT",
+            "ICPUSDT",
+            "OPUSDT",
+            "ARBUSDT",
+            "MKRUSDT",
+            "INJUSDT",
+            "ALGOUSDT",
+            "AAVEUSDT",
+            "GRTUSDT",
+            "SANDUSDT",
+            "MANAUSDT",
+            "THETAUSDT",
+            "AXSUSDT",
+            "FLOWUSDT",
+            "EGLDUSDT",
+            "XTZUSDT",
+            "EOSUSDT",
+            "FTMUSDT",
+            "CHZUSDT",
+            "ENJUSDT",
+            "ZILUSDT",
+            "ROSEUSDT",
+            "WAVESUSDT",
+            "ZECUSDT",
+            "BATUSDT",
+            "ZENUSDT",
+            "CRVUSDT",
+            "1INCHUSDT",
+            "SNXUSDT",
+            "COMPUSDT",
+            "YFIUSDT",
+            "SUSHIUSDT",
         ]
 
     async def start(self) -> None:
@@ -77,7 +122,7 @@ class GraphEngineWrapper:
             self._bus.subscribe(EventType.TICK, self._handle_tick_cpp)
         else:
             # Use existing CorrelationEngine start method
-            if hasattr(self._engine, 'start'):
+            if hasattr(self._engine, "start"):
                 await self._engine.start()
         logger.info("Graph Engine started")
 
@@ -86,40 +131,41 @@ class GraphEngineWrapper:
         if self._cpp_available:
             self._bus.unsubscribe(EventType.TICK, self._handle_tick_cpp)
         else:
-            if hasattr(self._engine, 'stop'):
+            if hasattr(self._engine, "stop"):
                 await self._engine.stop()
         logger.info("Graph Engine stopped")
 
     async def _handle_tick_cpp(self, event: Event) -> None:
         """Handle tick events for C++ engine."""
         tick: Tick = event.data["tick"]
-        
+
         if tick.symbol not in self._symbols:
             return
-        
+
         # Update price in C++ engine
         import time
+
         timestamp_ns = int(time.time_ns())
         self._engine.update_price(tick.symbol, float(tick.price), timestamp_ns)
-        
+
         # Recalculate matrix periodically (every 10 ticks per symbol)
-        if not hasattr(self, '_tick_counts'):
+        if not hasattr(self, "_tick_counts"):
             self._tick_counts = {}
         self._tick_counts[tick.symbol] = self._tick_counts.get(tick.symbol, 0) + 1
-        
+
         if self._tick_counts[tick.symbol] % 10 == 0:
             self._engine.recalculate()
 
     def get_feature_vector(self, size: int = 5000) -> list[float]:
         """Get high-dimensional feature vector for neural network input.
-        
+
         Returns flattened adjacency matrix + metadata as a feature vector.
         """
         if self._cpp_available:
             try:
                 arr = self._engine.get_feature_vector(size)
                 # Handle numpy array or list
-                if hasattr(arr, 'tolist'):
+                if hasattr(arr, "tolist"):
                     return arr.tolist()
                 return list(arr) if isinstance(arr, (list, tuple)) else [0.0] * size
             except Exception as e:
@@ -127,7 +173,7 @@ class GraphEngineWrapper:
                 return [0.0] * size
         else:
             # Fallback: construct from Python correlation engine
-            if hasattr(self._engine, 'get_correlation_matrix'):
+            if hasattr(self._engine, "get_correlation_matrix"):
                 matrix = self._engine.get_correlation_matrix()
                 # Flatten matrix (simplified)
                 features = []
@@ -155,13 +201,13 @@ class GraphEngineWrapper:
         """Get correlation between two assets."""
         if self._cpp_available:
             return self._engine.get_correlation(symbol_a, symbol_b)
-        elif hasattr(self._engine, 'get_correlation'):
+        elif hasattr(self._engine, "get_correlation"):
             return self._engine.get_correlation(symbol_a, symbol_b)
         return 0.0
 
     def get_lead_lag(self, symbol_a: str, symbol_b: str) -> float:
         """Get lead-lag relationship.
-        
+
         Returns:
             Positive value = a leads b
             Negative value = b leads a

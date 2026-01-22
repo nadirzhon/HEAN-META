@@ -19,7 +19,9 @@ class LeverageEngine:
 
     def __init__(self) -> None:
         """Initialize leverage engine."""
-        self._capability_graph: dict[str, set[str]] = {}  # capability -> set of unlocked opportunities
+        self._capability_graph: dict[
+            str, set[str]
+        ] = {}  # capability -> set of unlocked opportunities
 
     def propose_capability_upgrades(
         self,
@@ -208,4 +210,3 @@ class LeverageEngine:
                 multiplier *= 1.2  # 20% boost for access leverage
 
         return multiplier
-

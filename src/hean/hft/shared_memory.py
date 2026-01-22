@@ -37,7 +37,9 @@ ORDERBOOK_TENSOR_SHM_NAME = "/hean_orderbook_tensor"
 ORDERBOOK_TENSOR_LEVEL_SIZE = 16  # bytes per level (8 bytes price + 8 bytes size)
 MAX_ORDERBOOK_LEVELS = 50  # Max depth per side (50 bids + 50 asks = 100 levels)
 MAX_ORDERBOOK_SYMBOLS = 100  # Support up to 100 symbols simultaneously
-ORDERBOOK_TENSOR_SIZE = ORDERBOOK_TENSOR_LEVEL_SIZE * MAX_ORDERBOOK_LEVELS * 2 * MAX_ORDERBOOK_SYMBOLS  # ~160KB total
+ORDERBOOK_TENSOR_SIZE = (
+    ORDERBOOK_TENSOR_LEVEL_SIZE * MAX_ORDERBOOK_LEVELS * 2 * MAX_ORDERBOOK_SYMBOLS
+)  # ~160KB total
 
 
 class MarketDataEntry(Structure):
@@ -56,17 +58,17 @@ class MarketDataEntry(Structure):
 
 class TDAPointCloudEntry(Structure):
     """TDA point cloud entry for lock-free access (C-compatible).
-    
+
     Optimized for Persistent Homology computation on L2 orderbook.
     Each entry represents a single point in the orderbook manifold.
     """
-    
+
     _fields_ = [
         ("symbol_hash", c_uint64),  # Hash of symbol
-        ("price", c_double),        # Normalized price coordinate
-        ("size", c_double),         # Normalized size coordinate (liquidity)
+        ("price", c_double),  # Normalized price coordinate
+        ("size", c_double),  # Normalized size coordinate (liquidity)
         ("timestamp_ns", c_int64),  # Nanoseconds since epoch
-        ("valid", c_uint64),        # 1 if valid, 0 if invalid (lock-free marker)
+        ("valid", c_uint64),  # 1 if valid, 0 if invalid (lock-free marker)
     ]
 
 

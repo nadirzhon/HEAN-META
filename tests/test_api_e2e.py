@@ -42,4 +42,3 @@ async def test_e2e_smoke():
     response = client.get("/metrics")
     assert response.status_code == 200
     assert "hean_engine_status" in response.text
-

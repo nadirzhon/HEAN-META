@@ -32,7 +32,7 @@ class ProcessReportGenerator:
         suggested_processes: list[str] | None = None,
     ) -> tuple[Path, Path] | None:
         """Generate daily report (markdown and JSON).
-        
+
         Idempotent: returns existing paths if report already exists for today.
 
         Args:
@@ -84,7 +84,9 @@ class ProcessReportGenerator:
             "suggested_processes": suggested_processes or [],
             "summary": {
                 "total_processes": len(portfolio),
-                "core_processes": len([p for p in portfolio if p.state == ProcessPortfolioState.CORE]),
+                "core_processes": len(
+                    [p for p in portfolio if p.state == ProcessPortfolioState.CORE]
+                ),
                 "testing_processes": len(
                     [p for p in portfolio if p.state == ProcessPortfolioState.TESTING]
                 ),
@@ -129,9 +131,7 @@ class ProcessReportGenerator:
         # Top Processes by Contribution
         lines.append("## Top Processes by Contribution")
         lines.append("")
-        sorted_portfolio = sorted(
-            portfolio, key=lambda p: p.pnl_sum, reverse=True
-        )[:10]
+        sorted_portfolio = sorted(portfolio, key=lambda p: p.pnl_sum, reverse=True)[:10]
         lines.append("| Process ID | State | PnL | Runs | ROI | Fail Rate |")
         lines.append("|------------|-------|-----|------|-----|-----------|")
         for entry in sorted_portfolio:
@@ -184,4 +184,3 @@ class ProcessReportGenerator:
             lines.append("")
 
         return "\n".join(lines)
-
