@@ -425,6 +425,60 @@ class HEANSettings(BaseSettings):
         description="Minimum edge in bps for RANGE regime (lowered for more trades)",
     )
 
+    # SMALL CAPITAL PROFIT MODE - Cost-aware execution filters
+    small_capital_mode: bool = Field(
+        default=True,
+        description="Enable Small Capital Mode: enforces cost/edge gating, maker-first, explainable no-trade decisions",
+    )
+    min_notional_usd: float = Field(
+        default=10.0,
+        gt=0,
+        description="Minimum order notional value in USD (Bybit minimum ~10 USD)",
+    )
+    maker_only_default: bool = Field(
+        default=True,
+        description="Default to maker-only (post-only) orders in Small Capital Mode",
+    )
+    cost_edge_multiplier: float = Field(
+        default=4.0,
+        gt=0,
+        description="Required edge multiplier over cost: edge >= cost * multiplier (e.g., 4x)",
+    )
+    max_spread_bps: float = Field(
+        default=8.0,
+        gt=0,
+        description="Maximum allowed spread in bps for Small Capital Mode (hard filter)",
+    )
+    max_slippage_estimate_bps: float = Field(
+        default=20.0,
+        gt=0,
+        description="Maximum estimated slippage in bps (conservative proxy, blocks if exceeded)",
+    )
+    stale_tick_max_age_sec: int = Field(
+        default=2,
+        gt=0,
+        description="Maximum age of market tick in seconds before considered stale",
+    )
+    allow_taker_if_edge_strong: bool = Field(
+        default=False,
+        description="Allow taker orders if edge is significantly higher (requires taker_edge_multiplier)",
+    )
+    taker_edge_multiplier: float = Field(
+        default=8.0,
+        gt=0,
+        description="Required edge multiplier for taker orders (higher than cost_edge_multiplier)",
+    )
+    maker_limit_chase_retries: int = Field(
+        default=2,
+        ge=0,
+        description="Number of maker order retries before giving up or falling back to taker",
+    )
+    maker_limit_chase_timeout_sec: int = Field(
+        default=5,
+        gt=0,
+        description="Timeout in seconds for each maker order attempt before retry/cancel",
+    )
+
     # Income streams - enable/disable and budgets
     stream_funding_enabled: bool = Field(default=True, description="Enable funding income stream")
     stream_maker_rebate_enabled: bool = Field(
