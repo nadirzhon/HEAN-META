@@ -16,9 +16,10 @@ These files are part of Node.js documentation shipped with Node installations an
 
 ## Solution
 
-Configured ruff to exclude vendor/external directories from linting:
+**Two-part fix to ensure vendor directories are excluded:**
 
-**Added to `pyproject.toml`:**
+### 1. Added exclude list to `pyproject.toml`
+
 ```toml
 [tool.ruff]
 line-length = 100
@@ -39,6 +40,23 @@ exclude = [
     ".pytest_cache/**",
 ]
 ```
+
+### 2. Updated CI workflow with explicit --exclude flags
+
+**Changed `.github/workflows/ci.yml`:**
+
+```diff
+- name: Run ruff
+-  run: ruff check src/
++  run: |
++    ruff check . --exclude externals --exclude node_modules --exclude dist --exclude build --exclude .venv --exclude venv
++    ruff format . --check --exclude externals --exclude node_modules --exclude dist --exclude build --exclude .venv --exclude venv
+```
+
+**Why both changes?**
+- `pyproject.toml` exclude works for local development
+- Explicit `--exclude` in CI ensures vendor dirs are always skipped, even if config isn't fully respected
+- CI now scans entire repo (`.`) but explicitly skips vendor directories
 
 ## Changes
 
