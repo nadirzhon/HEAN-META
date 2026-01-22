@@ -2,7 +2,6 @@
 
 import uvicorn
 
-from hean.api.app import app
 from hean.config import settings
 
 if __name__ == "__main__":

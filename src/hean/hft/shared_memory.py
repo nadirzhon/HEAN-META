@@ -6,10 +6,7 @@ ultra-low latency data exchange between components.
 
 import mmap
 import os
-import struct
-from ctypes import Structure, c_double, c_int64, c_uint64, Array, POINTER
-from typing import Optional, List, Tuple
-import numpy as np
+from ctypes import Structure, c_double, c_int64, c_uint64
 
 from hean.logging import get_logger
 
@@ -56,11 +53,11 @@ class MarketDataEntry(Structure):
 
 class TDAPointCloudEntry(Structure):
     """TDA point cloud entry for lock-free access (C-compatible).
-    
+
     Optimized for Persistent Homology computation on L2 orderbook.
     Each entry represents a single point in the orderbook manifold.
     """
-    
+
     _fields_ = [
         ("symbol_hash", c_uint64),  # Hash of symbol
         ("price", c_double),        # Normalized price coordinate
@@ -96,7 +93,7 @@ class SharedMemoryMarketData:
         """
         self.shm_name = shm_name
         self.shm_size = MARKET_DATA_ENTRY_SIZE * MAX_MARKET_DATA_ENTRIES
-        self._mmap: Optional[mmap.mmap] = None
+        self._mmap: mmap.mmap | None = None
         self._initialized = False
 
     def initialize(self) -> bool:
@@ -176,7 +173,7 @@ class SharedMemoryMarketData:
             logger.error(f"Failed to write tick to shared memory: {e}")
             return False
 
-    def read_tick(self, symbol: str) -> Optional[dict]:
+    def read_tick(self, symbol: str) -> dict | None:
         """Read tick data from shared memory (zero-copy).
 
         Args:
@@ -239,7 +236,7 @@ class SharedMemoryRiskState:
         """
         self.shm_name = shm_name
         self.shm_size = RISK_STATE_SIZE
-        self._mmap: Optional[mmap.mmap] = None
+        self._mmap: mmap.mmap | None = None
         self._initialized = False
 
     def initialize(self) -> bool:
@@ -266,7 +263,7 @@ class SharedMemoryRiskState:
             logger.error(f"Failed to initialize risk state shared memory: {e}")
             return False
 
-    def read_risk_state(self) -> Optional[dict]:
+    def read_risk_state(self) -> dict | None:
         """Read risk state from shared memory.
 
         Returns:

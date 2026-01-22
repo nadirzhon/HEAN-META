@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from datetime import datetime
-from typing import Any, Deque
+from typing import Any
 
 from hean.core.timeframes import Candle
 from hean.core.types import Tick
@@ -25,7 +25,7 @@ class MarketDataStore:
     """Lightweight ring-buffer store for market data snapshots."""
 
     def __init__(self, max_candles: int = 1000) -> None:
-        self._candles: dict[tuple[str, str], Deque[dict[str, Any]]] = {}
+        self._candles: dict[tuple[str, str], deque[dict[str, Any]]] = {}
         self._last_tick: dict[str, dict[str, Any]] = {}
         self._max_candles = max_candles
         self._lock = asyncio.Lock()

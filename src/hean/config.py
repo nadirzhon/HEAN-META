@@ -693,7 +693,7 @@ class HEANSettings(BaseSettings):
         if self.paper_trade_assist:
             is_paper_safe = self.dry_run or self.bybit_testnet
             is_live_unsafe = not self.dry_run and self.live_confirm == "YES"
-            
+
             if is_live_unsafe:
                 raise ValueError(
                     "PAPER_TRADE_ASSIST=true is FORBIDDEN in live trading. "
@@ -701,7 +701,7 @@ class HEANSettings(BaseSettings):
                     f"Current: DRY_RUN={self.dry_run}, LIVE_CONFIRM={self.live_confirm}, "
                     f"bybit_testnet={self.bybit_testnet}"
                 )
-            
+
             if not is_paper_safe:
                 raise ValueError(
                     "PAPER_TRADE_ASSIST=true requires DRY_RUN=true OR bybit_testnet=true. "

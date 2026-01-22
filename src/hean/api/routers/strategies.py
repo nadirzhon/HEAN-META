@@ -1,6 +1,6 @@
 """Strategies management router."""
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request
 
 import hean.api.state as state
 from hean.api.schemas import StrategyEnableRequest, StrategyParamsRequest

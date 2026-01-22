@@ -4,10 +4,8 @@ from hean.config import settings
 from hean.core.regime import Regime
 from hean.core.types import Signal
 from hean.logging import get_logger
-from hean.portfolio.accounting import PortfolioAccounting
 from hean.risk.capital_preservation import CapitalPreservationMode
 from hean.risk.dynamic_risk import DynamicRiskManager
-from hean.risk.kelly_criterion import KellyCriterion
 from hean.risk.smart_leverage import SmartLeverageManager
 
 logger = get_logger(__name__)
@@ -143,7 +141,7 @@ class PositionSizer:
                 f"protection_mult={protection_multiplier:.2f}, leverage={leverage:.2f}x, "
                 f"size={position_size:.6f}"
             )
-            
+
             # CRITICAL: Ensure size doesn't become 0 after multipliers
             if position_size <= 0:
                 min_size_value = (equity * 0.001) / current_price

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
-
 
 ALLOWED_SEVERITIES = {"INFO", "WARN", "ERROR"}
 
@@ -16,7 +15,7 @@ class EventEnvelope(BaseModel):
 
     seq: int = Field(default=0, description="Monotonic sequence number for lossless replay")
     ts: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         description="Event timestamp (UTC). Accepts ISO string or unix ms.",
     )
     type: str = Field(..., description="Logical event type, e.g., HEARTBEAT, CONTROL_RESULT")
@@ -31,13 +30,13 @@ class EventEnvelope(BaseModel):
     def _coerce_ts(cls, value: Any) -> datetime:
         """Accept unix ms or ISO strings in addition to datetime."""
         if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(value / 1000.0, tz=timezone.utc)
+            return datetime.fromtimestamp(value / 1000.0, tz=UTC)
         if isinstance(value, str):
             try:
                 return datetime.fromisoformat(value.replace("Z", "+00:00"))
             except Exception:
                 # Fallback: assume seconds
-                return datetime.fromtimestamp(float(value), tz=timezone.utc)
+                return datetime.fromtimestamp(float(value), tz=UTC)
         return value
 
     @field_validator("severity")

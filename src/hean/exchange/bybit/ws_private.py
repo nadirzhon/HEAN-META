@@ -87,7 +87,7 @@ class BybitPrivateWebSocket:
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
-                
+
                 self._websocket = await websockets.connect(
                     self._ws_url,
                     ssl=ssl_context
@@ -385,7 +385,9 @@ class BybitPrivateWebSocket:
             await self._websocket.send(json.dumps(subscribe_msg))
             logger.info("Subscribed to execution updates")
         except Exception as e:
-            logger.error(f"Failed to subscribe to executions: {e}")    async def subscribe_all(self) -> None:
+            logger.error(f"Failed to subscribe to executions: {e}")
+
+    async def subscribe_all(self) -> None:
         """Subscribe to all available updates (orders, positions, executions)."""
         await self.subscribe_orders()
         await self.subscribe_positions()

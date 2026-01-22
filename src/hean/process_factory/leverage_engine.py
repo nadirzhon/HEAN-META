@@ -1,6 +1,5 @@
 """Leverage-of-Process Engine: self-amplifying loops."""
 
-from typing import Any
 
 from hean.logging import get_logger
 from hean.process_factory.schemas import (
@@ -8,7 +7,6 @@ from hean.process_factory.schemas import (
     ProcessDefinition,
     ProcessPortfolioEntry,
     ProcessRun,
-    ProcessRunStatus,
 )
 
 logger = get_logger(__name__)
@@ -202,7 +200,7 @@ class LeverageEngine:
         capability_gaps = self._identify_capability_gaps(snapshot, portfolio)
         # Check if this process addresses capability gaps
         process_outputs = set(process.expected_outputs)
-        for capability, opportunities in capability_gaps.items():
+        for _capability, _opportunities in capability_gaps.items():
             # Simplified check: if process outputs could help with opportunities
             if any("opportunity" in output.lower() for output in process_outputs):
                 multiplier *= 1.2  # 20% boost for access leverage

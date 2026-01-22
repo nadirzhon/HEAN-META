@@ -8,6 +8,7 @@ from typing import Any
 
 from hean.config import settings
 from hean.core.bus import EventBus
+
 try:
     from hean.core.execution.iceberg import IcebergOrder
 except ImportError:  # Optional Phase 3 component
@@ -15,6 +16,7 @@ except ImportError:  # Optional Phase 3 component
 from hean.core.ofi import OrderFlowImbalance
 from hean.core.regime import RegimeDetector
 from hean.core.types import Event, EventType, Order, OrderRequest, OrderStatus, Tick
+
 try:
     from hean.exchange.bybit.http import BybitHTTPClient
 except ImportError:  # Optional live trading dependency
@@ -95,7 +97,7 @@ class ExecutionRouter:
 
         # Original order requests for retry queue
         self._order_requests: dict[str, OrderRequest] = {}
-        
+
         # Phase 3: Smart Limit Engine, OFI, and Iceberg
         self._smart_executor: SmartLimitExecutor | None = None
         self._ofi: OrderFlowImbalance | None = None
@@ -137,7 +139,7 @@ class ExecutionRouter:
         self._bus.subscribe(EventType.ORDER_FILLED, self._handle_order_filled)
         self._bus.subscribe(EventType.ORDER_CANCELLED, self._handle_order_cancelled)
         self._running = True
-        
+
         # Initialize Phase 3 components
         if self._phase3_enabled:
             self._ofi = OrderFlowImbalance(
@@ -163,7 +165,7 @@ class ExecutionRouter:
             )
             await self._smart_executor.start()
             logger.info("Phase 3 components initialized: Smart Limit Engine, OFI, Iceberg")
-        
+
         if settings.maker_first:
             self._ttl_check_task = asyncio.create_task(self._check_maker_ttl_loop())
             self._retry_check_task = asyncio.create_task(self._check_retry_queue_loop())
@@ -198,7 +200,7 @@ class ExecutionRouter:
 
         if settings.dry_run:
             await self._paper_broker.stop()
-        
+
         # Stop Phase 3 components
         if self._smart_executor:
             await self._smart_executor.stop()
@@ -221,7 +223,7 @@ class ExecutionRouter:
         # Update volatility history for adaptive logic
         if tick.price:
             self._update_volatility_history(tick.symbol, tick.price)
-        
+
         # OFI updates are handled by the OFI monitor's own subscriptions.
 
     async def _handle_order_filled(self, event: Event) -> None:
@@ -280,19 +282,19 @@ class ExecutionRouter:
 
     async def _route_maker_first(self, order_request: OrderRequest) -> None:
         """Route order using maker-first policy with adaptive placement and volatility gating.
-        
+
         Phase 3: Integrates Smart Limit Engine, OFI, and Iceberg for optimal execution.
         """
         symbol = order_request.symbol
         side = order_request.side
-        
+
         # Phase 3: Check if order should be iceberg split
         if self._phase3_enabled and self._iceberg:
             current_price = self._current_prices.get(symbol) or order_request.price
             if current_price:
                 # Process through iceberg (may split into micro-batches)
                 micro_requests = await self._iceberg.process_order(order_request, current_price)
-                
+
                 if len(micro_requests) > 1:
                     # Order was split into iceberg batches
                     logger.info(
@@ -304,24 +306,24 @@ class ExecutionRouter:
                 else:
                     # Order not split, use as-is
                     order_request = micro_requests[0]
-        
+
         # Phase 3: Use Smart Limit Executor with OFI
         if self._phase3_enabled and self._smart_executor and self._ofi:
             # Get OFI aggression factor
             ofi_aggression = self._ofi.get_aggression_factor(symbol, side)
-            
+
             # Place Post-Only order with price improvement via Smart Limit Executor
             try:
                 order = await self._smart_executor.place_post_only_order(
                     order_request,
                     ofi_aggression=ofi_aggression,
                 )
-                
+
                 # Register with order manager
                 self._order_manager.register_order(order)
                 self._maker_orders[order.order_id] = order
                 self._order_requests[order.order_id] = order_request
-                
+
                 # Submit to broker (real or paper)
                 if not settings.dry_run and settings.is_live and self._bybit_http:
                     bybit_order_request = OrderRequest(
@@ -339,7 +341,7 @@ class ExecutionRouter:
                     await self._route_to_bybit(bybit_order_request)
                 else:
                     await self._paper_broker.submit_order(order)
-                
+
                 logger.info(
                     f"Smart Limit order placed: {order.order_id} {side} {order.size} {symbol} @ {order.price:.6f} "
                     f"(OFI aggression={ofi_aggression:.3f})"
@@ -975,28 +977,28 @@ class ExecutionRouter:
 
     def get_orderbook_presence(self, symbol: str | None = None) -> dict[str, Any] | list[dict[str, Any]]:
         """Get our orderbook presence (Phase 3).
-        
+
         Args:
             symbol: Optional symbol filter. If None, returns presence for all symbols.
-        
+
         Returns:
             Orderbook presence dictionary for a symbol, or list of dictionaries for all symbols.
         """
         if not self._phase3_enabled or not self._smart_executor:
             return {} if symbol else []
-        
+
         if symbol:
             return self._smart_executor.get_orderbook_presence(symbol)
-        
+
         # Get presence for all symbols we have orders for
         all_presence = []
         active_orders = self._smart_executor.get_active_orders()
-        symbols = set(o.symbol for o in active_orders)
+        symbols = {o.symbol for o in active_orders}
         for sym in symbols:
             presence = self._smart_executor.get_orderbook_presence(sym)
             if presence and presence.get("num_orders", 0) > 0:
                 all_presence.append(presence)
-        
+
         return all_presence
 
     def get_iceberg_detections(self, limit: int = 20) -> list[dict[str, Any]]:

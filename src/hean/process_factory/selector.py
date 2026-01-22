@@ -27,7 +27,7 @@ class ProcessSelector:
         holdout_window_days: float = 7.0,
     ) -> None:
         """Initialize process selector.
-        
+
         Args:
             kill_fail_rate_threshold: Kill if fail_rate > this (default 0.7)
             kill_negative_pnl_runs: Kill if pnl_sum negative after N runs (default 10)
@@ -76,7 +76,7 @@ class ProcessSelector:
         self, entry: ProcessPortfolioEntry, runs: list[ProcessRun]
     ) -> ProcessPortfolioEntry:
         """Update portfolio entry metrics based on runs with decay weighting.
-        
+
         Also stores runs for holdout check in evaluate_process.
         """
         # Store runs for holdout check

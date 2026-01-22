@@ -10,8 +10,8 @@ from hean.api.routers import (
     risk,
     strategies,
     system,
-    trading,
     telemetry,
+    trading,
 )
 
 __all__ = [

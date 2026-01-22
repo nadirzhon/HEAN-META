@@ -1,12 +1,10 @@
 """System endpoints including AI Catalyst changelog."""
 
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
-import hean.api.state as state
 from hean.logging import get_logger
 
 logger = get_logger(__name__)
@@ -17,7 +15,7 @@ router = APIRouter(prefix="/system", tags=["system"])
 @router.get("/changelog/today")
 async def get_changelog_today(request: Request) -> dict:
     """Get today's changelog from git log or changelog_today.json.
-    
+
     Returns:
         Dictionary with available flag, entries, and reason if unavailable.
     """
@@ -31,7 +29,7 @@ async def get_changelog_today(request: Request) -> dict:
                 timeout=5,
                 cwd=Path(__file__).parent.parent.parent.parent,
             )
-            
+
             if result.returncode == 0 and result.stdout.strip():
                 entries = []
                 for line in result.stdout.strip().split("\n"):
@@ -44,7 +42,7 @@ async def get_changelog_today(request: Request) -> dict:
                                 "author": parts[2],
                                 "date": parts[3],
                             })
-                
+
                 return {
                     "available": True,
                     "source": "git",
@@ -53,7 +51,7 @@ async def get_changelog_today(request: Request) -> dict:
                 }
         except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
             logger.debug(f"Git log not available: {e}")
-        
+
         # Fallback to changelog_today.json
         changelog_path = Path(__file__).parent.parent.parent.parent / "changelog_today.json"
         if changelog_path.exists():
@@ -66,7 +64,7 @@ async def get_changelog_today(request: Request) -> dict:
                     "entries": data.get("entries", []),
                     "count": len(data.get("entries", [])),
                 }
-        
+
         # Not available
         return {
             "available": False,

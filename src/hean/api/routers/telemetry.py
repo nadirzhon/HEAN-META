@@ -1,6 +1,6 @@
 """Telemetry and portfolio snapshot endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -25,7 +25,7 @@ def _ws_client_count() -> int:
 @router.get("/telemetry/ping")
 async def telemetry_ping() -> dict[str, Any]:
     """Lightweight smoke endpoint."""
-    return {"status": "ok", "ts": datetime.now(timezone.utc).isoformat()}
+    return {"status": "ok", "ts": datetime.now(UTC).isoformat()}
 
 
 @router.get("/telemetry/summary")

@@ -1,6 +1,6 @@
 """Canary Tester - Monitors canary performance and triggers promotion/rollback."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from hean.config import settings

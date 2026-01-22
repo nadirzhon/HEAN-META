@@ -3,7 +3,6 @@
 from hean.process_factory.schemas import (
     ActionStep,
     ActionStepKind,
-    KillCondition,
     MeasurementSpec,
     ProcessDefinition,
     ProcessType,

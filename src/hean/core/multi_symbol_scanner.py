@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 class MultiSymbolScanner:
     """Scans multiple symbols and classifies market regime per symbol.
-    
+
     Minimal implementation that:
     - Scans symbols sequentially
     - Classifies regime: TREND|RANGE|LOW_LIQ|STALE_DATA
@@ -22,7 +22,7 @@ class MultiSymbolScanner:
 
     def __init__(self, bus: EventBus) -> None:
         """Initialize multi-symbol scanner.
-        
+
         Args:
             bus: Event bus for publishing events
         """
@@ -48,25 +48,25 @@ class MultiSymbolScanner:
 
     async def scan_symbol(self, symbol: str, current_price: float | None = None) -> dict[str, Any]:
         """Scan a single symbol and return market analysis.
-        
+
         Args:
             symbol: Symbol to scan
             current_price: Current price (if available)
-        
+
         Returns:
             Dictionary with market_regime, market_metrics_short, last_tick_age_sec
         """
         now = datetime.utcnow()
-        
+
         # Get last tick age
         last_tick_age_sec = None
         if symbol in self._last_tick_at:
             last_tick_age_sec = (now - self._last_tick_at[symbol]).total_seconds()
-        
+
         # Classify regime
         market_regime = "RANGE"  # Default
         market_metrics_short = {}
-        
+
         # Check for stale data
         if last_tick_age_sec is not None and last_tick_age_sec > 30:
             market_regime = "STALE_DATA"
@@ -78,14 +78,14 @@ class MultiSymbolScanner:
                     market_regime = "TREND"
                 else:
                     market_regime = "RANGE"
-            
+
             # Update last price
             if current_price:
                 self._last_prices[symbol] = current_price
-        
+
         # Store regime
         self._regimes[symbol] = market_regime
-        
+
         return {
             "market_regime": market_regime,
             "market_metrics_short": market_metrics_short,
@@ -96,7 +96,7 @@ class MultiSymbolScanner:
         """Handle tick event to update last_tick_at."""
         tick: Tick = event.data["tick"]
         self._last_tick_at[tick.symbol] = datetime.utcnow()
-        
+
         # Update last price
         if tick.price:
             self._last_prices[tick.symbol] = tick.price
@@ -105,7 +105,7 @@ class MultiSymbolScanner:
         """Start the scanner."""
         if not self._enabled:
             return
-        
+
         # Subscribe to tick events
         self._bus.subscribe(EventType.TICK, self.handle_tick)
         logger.info(f"Multi-symbol scanner started: {len(self._symbols)} symbols")
@@ -114,7 +114,7 @@ class MultiSymbolScanner:
         """Stop the scanner."""
         if not self._enabled:
             return
-        
+
         self._bus.unsubscribe(EventType.TICK, self.handle_tick)
         logger.info("Multi-symbol scanner stopped")
 

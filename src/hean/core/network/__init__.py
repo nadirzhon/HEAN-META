@@ -2,8 +2,6 @@
 Phase 16-19: Network optimization and distributed execution modules.
 """
 
-from hean.core.network.shared_memory_bridge import SharedMemoryBridge, TickData
-from hean.core.network.scouter import DynamicAPIScouter, NodeLatency
 from hean.core.network.global_sync import (
     DistributedNodeManager,
     NodeRegion,
@@ -12,11 +10,13 @@ from hean.core.network.global_sync import (
     TradeExecutionRequest,
 )
 from hean.core.network.proxy_sharding import (
-    ProxyShardingManager,
     ProxyConfig,
+    ProxyShardingManager,
     ProxyState,
     ProxyType,
 )
+from hean.core.network.scouter import DynamicAPIScouter, NodeLatency
+from hean.core.network.shared_memory_bridge import SharedMemoryBridge, TickData
 
 __all__ = [
     "SharedMemoryBridge",

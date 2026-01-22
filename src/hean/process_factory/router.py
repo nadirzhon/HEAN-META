@@ -1,6 +1,10 @@
 """Capital routing and allocation."""
 
-from hean.process_factory.schemas import DailyCapitalPlan, ProcessPortfolioEntry, ProcessPortfolioState
+from hean.process_factory.schemas import (
+    DailyCapitalPlan,
+    ProcessPortfolioEntry,
+    ProcessPortfolioState,
+)
 
 
 class CapitalRouter:

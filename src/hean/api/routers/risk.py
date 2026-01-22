@@ -1,6 +1,6 @@
 """Risk management router."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request, status
 
@@ -104,12 +104,12 @@ async def get_decision_memory_blocks(request: Request) -> dict:
         return {"blocked": []}
 
     decision_memory = engine_facade._trading_system._decision_memory
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     blocked = []
     for (strategy_id, context_key), stats in getattr(decision_memory, "_stats", {}).items():
         block_until = getattr(stats, "block_until", None)
         if block_until and isinstance(block_until, datetime):
-            remaining = (block_until.replace(tzinfo=timezone.utc) - now).total_seconds()
+            remaining = (block_until.replace(tzinfo=UTC) - now).total_seconds()
             if remaining > 0:
                 blocked.append(
                     {
@@ -163,7 +163,7 @@ async def get_killswitch_status(request: Request) -> dict:
             }
 
         trading_system = engine_facade._trading_system
-        
+
         # Get killswitch status
         killswitch_status = {
             "triggered": False,
@@ -172,19 +172,19 @@ async def get_killswitch_status(request: Request) -> dict:
             "thresholds": {},
             "current_metrics": {}
         }
-        
+
         if hasattr(trading_system, "_killswitch"):
             killswitch = trading_system._killswitch
             accounting = trading_system._accounting
             equity = accounting.get_equity()
             drawdown_amount, drawdown_pct = accounting.get_drawdown(equity)
-            
+
             killswitch_status["triggered"] = killswitch.is_triggered()
             killswitch_status["reasons"] = getattr(killswitch, "_reasons", []) or ([killswitch.get_reason()] if killswitch.get_reason() else [])
             killswitch_status["triggered_at"] = getattr(killswitch, "_triggered_at", None)
             if killswitch_status["triggered_at"]:
                 killswitch_status["triggered_at"] = killswitch_status["triggered_at"].isoformat()
-            
+
             # Get thresholds from settings
             from hean.config import settings
             adaptive_limit = killswitch.get_adaptive_drawdown_limit(equity)
@@ -194,7 +194,7 @@ async def get_killswitch_status(request: Request) -> dict:
                 "max_loss": getattr(settings, "max_loss_threshold", 0),
                 "risk_limit": getattr(settings, "risk_limit_threshold", 0)
             }
-            
+
             # Get current metrics
             peak_equity = getattr(accounting, "_peak_equity", equity)
             max_drawdown_pct = ((peak_equity - equity) / peak_equity * 100) if peak_equity > 0 else 0.0
@@ -204,7 +204,7 @@ async def get_killswitch_status(request: Request) -> dict:
                 "max_drawdown_pct": max_drawdown_pct,
                 "peak_equity": peak_equity
             }
-        
+
         return killswitch_status
     except Exception as e:
         logger.error(f"Failed to get killswitch status: {e}", exc_info=True)
@@ -227,19 +227,19 @@ async def reset_killswitch(request: Request, confirm: bool = False) -> dict:
             raise HTTPException(status_code=500, detail="Engine not running")
 
         trading_system = engine_facade._trading_system
-        
+
         # Reset killswitch
         if hasattr(trading_system, "_killswitch"):
             trading_system._killswitch.reset()
             logger.info("Killswitch reset via API")
-        
+
         # Reset stop_trading flag
         trading_system._stop_trading = False
         logger.info("Stop trading flag reset via API")
-        
+
         await _log_control_event("killswitch_reset", "command", request, detail="killswitch/reset")
         await _log_control_event("killswitch_reset", "result", request, success=True, extra={"result": "Killswitch and stop_trading flags reset"})
-        
+
         return {
             "status": "success",
             "message": "Killswitch and stop_trading flags reset",

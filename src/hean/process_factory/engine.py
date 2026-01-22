@@ -1,6 +1,5 @@
 """Process Engine: orchestrator for planning/running processes."""
 
-import uuid
 from datetime import datetime
 from typing import Any
 
@@ -15,11 +14,9 @@ from hean.process_factory.schemas import (
     DailyCapitalPlan,
     Opportunity,
     OpportunitySource,
-    ProcessDefinition,
     ProcessPortfolioEntry,
     ProcessPortfolioState,
     ProcessRun,
-    ProcessRunStatus,
 )
 from hean.process_factory.scorer import rank_opportunities
 from hean.process_factory.selector import ProcessSelector
@@ -130,7 +127,7 @@ class ProcessEngine:
 
         Returns:
             Process run result
-            
+
         Raises:
             ValueError: If snapshot is stale (prevents run)
         """
@@ -161,7 +158,7 @@ class ProcessEngine:
             )
             if exists:
                 logger.info(
-                    f"Process run already exists for today (idempotency check)",
+                    "Process run already exists for today (idempotency check)",
                     extra={
                         "process_id": process_id,
                         "daily_run_key": daily_run_key,
@@ -175,7 +172,7 @@ class ProcessEngine:
 
         # Structured log: run started
         logger.info(
-            f"Process run started",
+            "Process run started",
             extra={
                 "process_id": process_id,
                 "run_mode": mode,
@@ -269,7 +266,7 @@ class ProcessEngine:
                 )
             if new_state == ProcessPortfolioState.KILLED:
                 logger.warning(
-                    f"Process killed",
+                    "Process killed",
                     extra={
                         "process_id": process_id,
                         "reason": "evaluation",

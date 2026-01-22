@@ -4,12 +4,11 @@ HWID (Hardware ID) validation with self-destruct on unauthorized execution
 """
 
 import hashlib
+import os
 import platform
+import shutil
 import subprocess
 import sys
-import os
-import shutil
-from typing import Optional
 from pathlib import Path
 
 from hean.config import settings
@@ -23,11 +22,11 @@ class SecurityHardening:
     Security Hardening: Obfuscated execution and self-destruct mechanism.
     Validates HWID and wipes sensitive data if unauthorized.
     """
-    
-    def __init__(self, authorized_hwids: Optional[list[str]] = None):
+
+    def __init__(self, authorized_hwids: list[str] | None = None):
         """
         Initialize security hardening.
-        
+
         Args:
             authorized_hwids: List of authorized hardware IDs. If None, uses settings.
         """
@@ -35,42 +34,42 @@ class SecurityHardening:
         self.current_hwid = self._get_hardware_id()
         self.api_keys_path = Path.home() / '.hean' / 'api_keys'
         self.shared_memory_path = Path('/dev/shm/hean_shared_memory')
-        
+
     def _get_hardware_id(self) -> str:
         """
         Generate Hardware ID (HWID) from system characteristics.
-        
+
         Returns:
             SHA256 hash of system identifiers
         """
         try:
             # Collect system identifiers
             identifiers = []
-            
+
             # CPU ID
             try:
                 if platform.system() == 'Linux':
-                    with open('/proc/cpuinfo', 'r') as f:
+                    with open('/proc/cpuinfo') as f:
                         for line in f:
                             if 'Serial' in line or 'Model' in line:
                                 identifiers.append(line.strip())
                 elif platform.system() == 'Darwin':  # macOS
-                    result = subprocess.run(['sysctl', '-n', 'machdep.cpu.brand_string'], 
+                    result = subprocess.run(['sysctl', '-n', 'machdep.cpu.brand_string'],
                                           capture_output=True, text=True)
                     if result.returncode == 0:
                         identifiers.append(result.stdout.strip())
             except Exception:
                 pass
-            
+
             # MAC address (first network interface)
             try:
                 if platform.system() == 'Linux':
-                    result = subprocess.run(['cat', '/sys/class/net/eth0/address'], 
+                    result = subprocess.run(['cat', '/sys/class/net/eth0/address'],
                                           capture_output=True, text=True)
                     if result.returncode == 0:
                         identifiers.append(result.stdout.strip())
                 elif platform.system() == 'Darwin':
-                    result = subprocess.run(['ifconfig', 'en0'], 
+                    result = subprocess.run(['ifconfig', 'en0'],
                                           capture_output=True, text=True)
                     if result.returncode == 0:
                         for line in result.stdout.split('\n'):
@@ -79,29 +78,29 @@ class SecurityHardening:
                                 break
             except Exception:
                 pass
-            
+
             # Machine hostname
             identifiers.append(platform.node())
-            
+
             # Platform info
             identifiers.append(f"{platform.system()}-{platform.machine()}")
-            
+
             # Combine and hash
             combined = '|'.join(identifiers)
             hwid = hashlib.sha256(combined.encode()).hexdigest()
-            
+
             logger.debug(f"Generated HWID: {hwid[:16]}...")
             return hwid
-            
+
         except Exception as e:
             logger.error(f"Error generating HWID: {e}")
             # Fallback: use hostname only
             return hashlib.sha256(platform.node().encode()).hexdigest()
-    
+
     def validate_hwid(self) -> bool:
         """
         Validate current HWID against authorized list.
-        
+
         Returns:
             True if authorized, False otherwise
         """
@@ -109,21 +108,21 @@ class SecurityHardening:
             # If no authorized HWIDs set, allow execution (development mode)
             logger.warning("No authorized HWIDs configured. Allowing execution (dev mode).")
             return True
-        
+
         if self.current_hwid in self.authorized_hwids:
             logger.info(f"HWID validation passed: {self.current_hwid[:16]}...")
             return True
-        
+
         logger.error(f"UNAUTHORIZED HWID DETECTED: {self.current_hwid[:16]}...")
         return False
-    
+
     def self_destruct(self) -> None:
         """
         Self-destruct mechanism: Wipe API keys and clear shared memory.
         Called when unauthorized HWID is detected.
         """
         logger.critical("SELF-DESTRUCT INITIATED: Unauthorized execution detected")
-        
+
         try:
             # Wipe API keys file
             if self.api_keys_path.exists():
@@ -132,7 +131,7 @@ class SecurityHardening:
                 with open(self.api_keys_path, 'wb') as f:
                     f.write(os.urandom(1024))  # Overwrite with random bytes
                 os.remove(self.api_keys_path)
-            
+
             # Clear shared memory
             if self.shared_memory_path.exists():
                 logger.critical(f"Clearing shared memory: {self.shared_memory_path}")
@@ -143,15 +142,15 @@ class SecurityHardening:
                         shutil.rmtree(self.shared_memory_path)
                 except Exception as e:
                     logger.error(f"Error clearing shared memory: {e}")
-            
+
             # Clear environment variables
-            sensitive_vars = ['BYBIT_API_KEY', 'BYBIT_SECRET', 'OPENAI_API_KEY', 
+            sensitive_vars = ['BYBIT_API_KEY', 'BYBIT_SECRET', 'OPENAI_API_KEY',
                             'ANTHROPIC_API_KEY', 'HEAN_API_KEY']
             for var in sensitive_vars:
                 if var in os.environ:
                     logger.critical(f"Clearing environment variable: {var}")
                     os.environ.pop(var, None)
-            
+
             # Clear config directory
             config_dir = Path.home() / '.hean'
             if config_dir.exists():
@@ -166,16 +165,16 @@ class SecurityHardening:
                         file.unlink()
                 except Exception as e:
                     logger.error(f"Error clearing config directory: {e}")
-            
+
             logger.critical("Self-destruct completed. Sensitive data wiped.")
-            
+
         except Exception as e:
             logger.error(f"Error during self-destruct: {e}")
-    
+
     def initialize(self) -> bool:
         """
         Initialize security hardening: Validate HWID and self-destruct if unauthorized.
-        
+
         Returns:
             True if authorized and initialization successful, False otherwise
         """
@@ -183,14 +182,14 @@ class SecurityHardening:
             logger.critical("UNAUTHORIZED EXECUTION DETECTED")
             self.self_destruct()
             sys.exit(1)  # Exit immediately after self-destruct
-        
+
         logger.info("Security hardening initialized successfully")
         return True
-    
+
     def get_hwid(self) -> str:
         """
         Get current hardware ID (for configuration purposes).
-        
+
         Returns:
             Current HWID
         """
@@ -198,16 +197,16 @@ class SecurityHardening:
 
 
 # Global security instance
-_security: Optional[SecurityHardening] = None
+_security: SecurityHardening | None = None
 
 
-def initialize_security(authorized_hwids: Optional[list[str]] = None) -> bool:
+def initialize_security(authorized_hwids: list[str] | None = None) -> bool:
     """
     Initialize security hardening globally.
-    
+
     Args:
         authorized_hwids: List of authorized hardware IDs
-        
+
     Returns:
         True if authorized, False otherwise (will exit if unauthorized)
     """
@@ -216,10 +215,10 @@ def initialize_security(authorized_hwids: Optional[list[str]] = None) -> bool:
     return _security.initialize()
 
 
-def get_current_hwid() -> Optional[str]:
+def get_current_hwid() -> str | None:
     """
     Get current hardware ID.
-    
+
     Returns:
         Current HWID, or None if not initialized
     """

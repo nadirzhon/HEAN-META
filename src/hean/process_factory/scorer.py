@@ -1,6 +1,6 @@
 """Scoring and ranking functions for opportunities."""
 
-from typing import Callable
+from collections.abc import Callable
 
 from hean.process_factory.schemas import Opportunity
 

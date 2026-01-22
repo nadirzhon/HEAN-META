@@ -7,9 +7,8 @@ Split/Monster Factory pattern:
 4. Quality gate → promote to production or rollback
 """
 
-import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
 from hean.config import settings
 from hean.core.bus import EventBus

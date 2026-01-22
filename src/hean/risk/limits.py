@@ -10,7 +10,6 @@ from hean.paper_trade_assist import (
     get_cooldown_multiplier,
     get_daily_attempts_multiplier,
     get_max_open_positions_override,
-    is_paper_assist_enabled,
     log_allow_reason,
     log_block_reason,
 )
@@ -42,7 +41,7 @@ class RiskLimits:
         override = get_max_open_positions_override()
         if override is not None:
             max_positions = override
-        
+
         if len(self._open_positions) >= max_positions:
             reason = f"Max open positions ({max_positions}) reached"
             log_block_reason(
@@ -83,11 +82,11 @@ class RiskLimits:
             # Stricter limit in IMPULSE regime
             if regime and regime.value == "impulse":
                 max_attempts = int(max_attempts * 0.8)  # 20% reduction
-            
+
             # Apply paper assist multiplier
             multiplier = get_daily_attempts_multiplier()
             max_attempts = int(max_attempts * multiplier)
-            
+
             if self._daily_attempts[strategy_id] >= max_attempts:
                 reason = f"Daily attempt limit ({max_attempts}) reached for {strategy_id}"
                 log_block_reason(
@@ -110,7 +109,7 @@ class RiskLimits:
         if settings.debug_mode:
             log_allow_reason("cooldown_bypassed_debug", strategy_id=strategy_id, note="DEBUG_MODE bypass")
             return True, ""
-        
+
         if strategy_id == "impulse_engine":
             cooldown_threshold = settings.impulse_cooldown_after_losses
             # Apply paper assist multiplier (shorter cooldown)
@@ -120,7 +119,7 @@ class RiskLimits:
                 log_allow_reason("cooldown_bypassed_aggressive", strategy_id=strategy_id, note="Aggressive Mode")
                 return True, ""
             effective_threshold = int(cooldown_threshold / multiplier) if multiplier > 0 else cooldown_threshold
-            
+
             if self._consecutive_losses[strategy_id] >= effective_threshold:
                 reason = f"Cooldown active: {effective_threshold} consecutive losses"
                 log_block_reason(
@@ -130,7 +129,7 @@ class RiskLimits:
                     strategy_id=strategy_id,
                 )
                 return False, reason
-        
+
         log_allow_reason("cooldown_ok", strategy_id=strategy_id)
         return True, ""
 

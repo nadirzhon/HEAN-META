@@ -5,7 +5,6 @@ when critical thresholds are exceeded. It uses shared memory for communication.
 """
 
 import time
-from typing import Optional
 
 from hean.hft.shared_memory import SharedMemoryRiskState
 from hean.logging import get_logger
@@ -56,7 +55,7 @@ class CircuitBreaker:
         self._order_timestamps: list[int] = []
         self._rate_window_seconds = 1.0
 
-    def check(self) -> tuple[bool, Optional[str]]:
+    def check(self) -> tuple[bool, str | None]:
         """Check circuit breaker status.
 
         Returns:
@@ -161,7 +160,7 @@ class CircuitBreaker:
                 current_order_rate=current_rate,
             )
 
-    def _update_circuit_breaker_state(self, active: bool, reason: Optional[str]) -> None:
+    def _update_circuit_breaker_state(self, active: bool, reason: str | None) -> None:
         """Update circuit breaker state in shared memory."""
         risk_state = self._risk_shm.read_risk_state()
         if risk_state:

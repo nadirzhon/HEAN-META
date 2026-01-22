@@ -32,7 +32,7 @@ class BybitHTTPClient:
             self._base_url = "https://api.bybit.com"
 
         self._client: httpx.AsyncClient | None = None
-        
+
         # Phase 16: Dynamic endpoint switching support
         self._dynamic_endpoint: str | None = None
 
@@ -277,8 +277,8 @@ class BybitHTTPClient:
 
         # CRITICAL: Generate unique orderLinkId for idempotency
         # Format: {strategy_id}_{symbol}_{timestamp_ms}_{random}
-        import uuid
         import time
+        import uuid
         order_link_id = (
             f"{order_request.strategy_id}_{order_request.symbol}_"
             f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
@@ -494,13 +494,13 @@ class BybitHTTPClient:
         instruments = response.get("list", [])
         if not instruments:
             raise ValueError(f"Instrument info not found for symbol: {symbol}")
-        
+
         instrument = instruments[0]
-        
+
         # Extract trading rules
         lot_size_filter = instrument.get("lotSizeFilter", {})
         price_filter = instrument.get("priceFilter", {})
-        
+
         rules = {
             "minQty": float(lot_size_filter.get("minQty", "0.001")),
             "qtyStep": float(lot_size_filter.get("qtyStep", "0.001")),
@@ -509,12 +509,12 @@ class BybitHTTPClient:
             "tickSize": float(price_filter.get("tickSize", "0.01")),
             "pricePrecision": len(str(price_filter.get("tickSize", "0.01")).split(".")[-1]) if "." in str(price_filter.get("tickSize", "0.01")) else 0,
         }
-        
+
         logger.info(
             f"Fetched symbol rules for {symbol}: minQty={rules['minQty']}, "
             f"qtyStep={rules['qtyStep']}, minNotional={rules['minNotional']}"
         )
-        
+
         return rules
 
     async def get_earn_products(
@@ -566,10 +566,10 @@ class BybitHTTPClient:
 
         response = await self._request("GET", "/v5/earn/holding", params=params)
         return response.get("rows", [])
-    
+
     def set_endpoint(self, rest_url: str) -> None:
         """Phase 16: Set dynamic REST endpoint (called by API Scouter).
-        
+
         Args:
             rest_url: New REST API base URL (e.g., "https://api.bybit.com")
         """

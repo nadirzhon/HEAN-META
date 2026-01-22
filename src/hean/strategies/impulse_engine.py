@@ -411,7 +411,7 @@ class ImpulseEngine(BaseStrategy):
         # AGGRESSIVE MODE: In DEBUG_MODE, use much lower threshold and bypass volume requirement
         threshold = self._impulse_threshold  # Already set to 0.1% in DEBUG_MODE
         require_volume = volume_spike  # Already set to True in DEBUG_MODE
-        
+
         if abs(return_pct) > threshold and require_volume:
             side = "buy" if return_pct > 0 else "sell"
             logger.info(f"[FORCED] Impulse detected: {symbol} side={side} return={return_pct:.4f}")
@@ -494,7 +494,7 @@ class ImpulseEngine(BaseStrategy):
                     reason = context.get("filter_reason", "filter_reject")
                     no_trade_report.increment(reason, symbol, self.strategy_id)
                     return
-            
+
             # Ensure filter_result is checked (should always be True in DEBUG_MODE now)
             if not filter_result:
                 return

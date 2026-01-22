@@ -3,12 +3,12 @@
 import asyncio
 from typing import Any, Literal
 
-from hean.config import settings
-from hean.logging import get_logger
-from hean.core.bus import EventBus
-from hean.main import TradingSystem
 from hean.api.telemetry import telemetry_service
+from hean.config import settings
+from hean.core.bus import EventBus
 from hean.core.types import Event, EventType, OrderStatus
+from hean.logging import get_logger
+from hean.main import TradingSystem
 
 logger = get_logger(__name__)
 
@@ -24,7 +24,7 @@ class EngineFacade:
         self._bus = bus
         self._state = "STOPPED"
         telemetry_service.set_engine_state(self._state)
-        
+
         # Expose advanced systems (will be set when trading system starts)
         self._meta_learning_engine = None
         self._causal_inference_engine = None
@@ -44,7 +44,7 @@ class EngineFacade:
                 # Create and start trading system
                 self._trading_system = TradingSystem(mode="run", bus=self._bus)
                 await self._trading_system.start()
-                
+
                 # Expose advanced systems for API access
                 if hasattr(self._trading_system, '_meta_learning_engine'):
                     self._meta_learning_engine = self._trading_system._meta_learning_engine
@@ -52,7 +52,7 @@ class EngineFacade:
                     self._causal_inference_engine = self._trading_system._causal_inference_engine
                 if hasattr(self._trading_system, '_multimodal_swarm'):
                     self._multimodal_swarm = self._trading_system._multimodal_swarm
-                
+
                 self._running = True
                 self._state = "RUNNING"
                 telemetry_service.set_engine_state("RUNNING")
@@ -343,7 +343,6 @@ class EngineFacade:
             }
 
         killswitch = self._trading_system._killswitch
-        risk_limits = self._trading_system._risk_limits
         accounting = self._trading_system._accounting
         equity = accounting.get_equity()
         drawdown_amount, drawdown_pct = accounting.get_drawdown(equity)
@@ -411,16 +410,16 @@ class EngineFacade:
 
     async def get_orderbook_presence(self, symbol: str | None = None) -> dict | list[dict]:
         """Get orderbook presence (Phase 3: Smart Limit Engine).
-        
+
         Args:
             symbol: Optional symbol filter
-        
+
         Returns:
             Orderbook presence data
         """
         if not self._running or self._trading_system is None:
             return {} if symbol else []
-        
+
         execution_router = self._trading_system._execution_router
         return execution_router.get_orderbook_presence(symbol)
 

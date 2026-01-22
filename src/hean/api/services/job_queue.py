@@ -3,7 +3,6 @@
 import asyncio
 import uuid
 from datetime import datetime
-from enum import Enum
 from typing import Any
 
 from hean.api.schemas import JobStatus

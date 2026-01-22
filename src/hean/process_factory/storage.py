@@ -272,8 +272,8 @@ class SQLiteStorage(Storage):
         }
         if self._use_async:
             await conn.execute(  # type: ignore
-                """INSERT OR REPLACE INTO runs 
-                   (run_id, process_id, started_at, finished_at, status, metrics, logs_ref, 
+                """INSERT OR REPLACE INTO runs
+                   (run_id, process_id, started_at, finished_at, status, metrics, logs_ref,
                     inputs, outputs, error, capital_allocated_usd, daily_run_key)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
@@ -295,7 +295,7 @@ class SQLiteStorage(Storage):
             if daily_run_key:
                 date_str = run.started_at.date().isoformat()
                 await conn.execute(  # type: ignore
-                    """INSERT OR REPLACE INTO daily_run_keys 
+                    """INSERT OR REPLACE INTO daily_run_keys
                        (daily_run_key, process_id, date, run_id)
                        VALUES (?, ?, ?, ?)""",
                     (daily_run_key, run.process_id, date_str, run.run_id),
@@ -303,8 +303,8 @@ class SQLiteStorage(Storage):
             await conn.commit()  # type: ignore
         else:
             conn.execute(
-                """INSERT OR REPLACE INTO runs 
-                   (run_id, process_id, started_at, finished_at, status, metrics, logs_ref, 
+                """INSERT OR REPLACE INTO runs
+                   (run_id, process_id, started_at, finished_at, status, metrics, logs_ref,
                     inputs, outputs, error, capital_allocated_usd, daily_run_key)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
@@ -326,7 +326,7 @@ class SQLiteStorage(Storage):
             if daily_run_key:
                 date_str = run.started_at.date().isoformat()
                 conn.execute(
-                    """INSERT OR REPLACE INTO daily_run_keys 
+                    """INSERT OR REPLACE INTO daily_run_keys
                        (daily_run_key, process_id, date, run_id)
                        VALUES (?, ?, ?, ?)""",
                     (daily_run_key, run.process_id, date_str, run.run_id),
@@ -443,7 +443,7 @@ class SQLiteStorage(Storage):
             }
             if self._use_async:
                 await conn.execute(  # type: ignore
-                    """INSERT OR REPLACE INTO portfolio 
+                    """INSERT OR REPLACE INTO portfolio
                        (process_id, state, weight, runs_count, wins, losses, pnl_sum, max_dd,
                         avg_roi, fail_rate, time_efficiency, last_run_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -465,7 +465,7 @@ class SQLiteStorage(Storage):
                 await conn.commit()  # type: ignore
             else:
                 conn.execute(
-                    """INSERT OR REPLACE INTO portfolio 
+                    """INSERT OR REPLACE INTO portfolio
                        (process_id, state, weight, runs_count, wins, losses, pnl_sum, max_dd,
                         avg_roi, fail_rate, time_efficiency, last_run_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",

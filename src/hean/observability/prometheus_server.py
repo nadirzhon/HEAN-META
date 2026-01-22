@@ -1,8 +1,6 @@
 """Prometheus metrics endpoint server."""
 
-import asyncio
 from aiohttp import web
-from typing import Any
 
 from hean.logging import get_logger
 from hean.observability.metrics_exporter import get_exporter

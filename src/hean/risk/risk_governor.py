@@ -9,7 +9,7 @@ Provides graduated risk levels:
 
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Literal
+from typing import Any
 
 from hean.config import settings
 from hean.core.bus import EventBus

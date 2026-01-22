@@ -5,9 +5,7 @@ Monitors real-time slippage and switches to 'Hidden-Liquidity' mode when needed.
 
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Optional
-import asyncio
+from datetime import datetime
 
 from hean.core.bus import EventBus
 from hean.core.types import Event, EventType, Order
@@ -26,7 +24,7 @@ class SlippageMetrics:
     order_size: float
     timestamp: datetime
     order_id: str
-    
+
     def calculate_slippage_bps(self) -> float:
         """Calculate slippage in basis points."""
         if self.expected_price > 0:
@@ -37,7 +35,7 @@ class SlippageMetrics:
 
 class HiddenLiquidityConfig:
     """Configuration for hidden liquidity mode."""
-    
+
     def __init__(
         self,
         min_fragment_size: float = 0.01,  # Minimum size per fragment
@@ -54,11 +52,11 @@ class HiddenLiquidityConfig:
 class FeedbackAgent:
     """
     Feedback-Agent that monitors slippage and adapts execution strategy.
-    
+
     If slippage increases, automatically switches to 'Hidden-Liquidity' mode,
     splitting orders into even smaller fragments.
     """
-    
+
     def __init__(
         self,
         bus: EventBus,
@@ -67,7 +65,7 @@ class FeedbackAgent:
         lookback_window: int = 50,  # Number of recent trades to analyze
     ):
         """Initialize the feedback agent.
-        
+
         Args:
             bus: Event bus for publishing events
             slippage_threshold_bps: Slippage threshold in basis points to trigger hidden liquidity mode
@@ -78,44 +76,44 @@ class FeedbackAgent:
         self._slippage_threshold_bps = slippage_threshold_bps
         self._high_slippage_threshold_bps = high_slippage_threshold_bps
         self._lookback_window = lookback_window
-        
+
         # Slippage tracking per symbol
         self._slippage_history: dict[str, deque[SlippageMetrics]] = {}
-        
+
         # Current execution mode per symbol
         self._execution_modes: dict[str, str] = {}  # "normal" or "hidden_liquidity"
-        
+
         # Hidden liquidity configuration per symbol
         self._hidden_liquidity_configs: dict[str, HiddenLiquidityConfig] = {}
-        
+
         # Slippage statistics
         self._avg_slippage: dict[str, float] = {}
         self._max_slippage: dict[str, float] = {}
-        
+
         self._running = False
-        
+
     async def start(self) -> None:
         """Start the feedback agent."""
         self._running = True
         self._bus.subscribe(EventType.ORDER_PLACED, self._handle_order_placed)
         self._bus.subscribe(EventType.ORDER_FILLED, self._handle_order_filled)
         logger.info("Feedback Agent started - monitoring slippage and adapting execution")
-    
+
     async def stop(self) -> None:
         """Stop the feedback agent."""
         self._running = False
         self._bus.unsubscribe(EventType.ORDER_PLACED, self._handle_order_placed)
         self._bus.unsubscribe(EventType.ORDER_FILLED, self._handle_order_filled)
         logger.info("Feedback Agent stopped")
-    
+
     async def _handle_order_placed(self, event: Event) -> None:
         """Handle order placed event to track expected price."""
         order: Order = event.data.get("order")
         if not order:
             return
-        
+
         symbol = order.symbol
-        
+
         # Initialize tracking if needed
         if symbol not in self._slippage_history:
             self._slippage_history[symbol] = deque(maxlen=self._lookback_window)
@@ -123,19 +121,19 @@ class FeedbackAgent:
             self._hidden_liquidity_configs[symbol] = HiddenLiquidityConfig()
             self._avg_slippage[symbol] = 0.0
             self._max_slippage[symbol] = 0.0
-    
+
     async def _handle_order_filled(self, event: Event) -> None:
         """Handle order filled event to calculate slippage."""
         order: Order = event.data.get("order")
         if not order or not order.filled_at:
             return
-        
+
         symbol = order.symbol
-        
+
         # Calculate slippage
         expected_price = order.price if order.price else order.filled_price
         actual_price = order.filled_price
-        
+
         if expected_price and actual_price and expected_price > 0:
             metrics = SlippageMetrics(
                 symbol=symbol,
@@ -147,49 +145,49 @@ class FeedbackAgent:
                 order_id=order.order_id
             )
             metrics.slippage_bps = metrics.calculate_slippage_bps()
-            
+
             # Update history
             if symbol in self._slippage_history:
                 self._slippage_history[symbol].append(metrics)
-                
+
                 # Update statistics
                 self._update_slippage_statistics(symbol)
-                
+
                 # Check if we need to switch to hidden liquidity mode
                 await self._check_and_adapt(symbol)
-                
+
                 logger.debug(
                     f"Order {order.order_id} filled: slippage={metrics.slippage_bps:.2f} bps, "
                     f"mode={self._execution_modes.get(symbol, 'normal')}"
                 )
-    
+
     def _update_slippage_statistics(self, symbol: str) -> None:
         """Update slippage statistics for a symbol."""
         if symbol not in self._slippage_history:
             return
-        
+
         history = self._slippage_history[symbol]
         if not history:
             return
-        
+
         # Calculate average and max slippage
         slippages = [m.slippage_bps for m in history]
         self._avg_slippage[symbol] = sum(slippages) / len(slippages)
         self._max_slippage[symbol] = max(slippages)
-    
+
     async def _check_and_adapt(self, symbol: str) -> None:
         """Check slippage and adapt execution mode if needed."""
         if symbol not in self._slippage_history:
             return
-        
+
         history = self._slippage_history[symbol]
         if len(history) < 3:  # Need minimum history
             return
-        
+
         current_mode = self._execution_modes.get(symbol, "normal")
         avg_slippage = self._avg_slippage.get(symbol, 0.0)
         max_slippage = self._max_slippage.get(symbol, 0.0)
-        
+
         # Decision logic: switch to hidden liquidity if slippage exceeds threshold
         if current_mode == "normal" and avg_slippage > self._slippage_threshold_bps:
             # Switch to hidden liquidity mode
@@ -198,7 +196,7 @@ class FeedbackAgent:
                 f"Switching {symbol} to HIDDEN_LIQUIDITY mode: "
                 f"avg_slippage={avg_slippage:.2f} bps > threshold={self._slippage_threshold_bps:.2f} bps"
             )
-            
+
             # Adjust configuration based on slippage severity
             config = self._hidden_liquidity_configs[symbol]
             if max_slippage > self._high_slippage_threshold_bps:
@@ -210,7 +208,7 @@ class FeedbackAgent:
                     f"Aggressive fragmentation enabled for {symbol}: "
                     f"max_slippage={max_slippage:.2f} bps"
                 )
-            
+
             # Publish mode change event
             await self._bus.publish(Event(
                 event_type=EventType.CONTEXT_UPDATE,
@@ -225,7 +223,7 @@ class FeedbackAgent:
                     }
                 }
             ))
-        
+
         elif current_mode == "hidden_liquidity" and avg_slippage < self._slippage_threshold_bps * 0.5:
             # Switch back to normal mode if slippage improves significantly
             self._execution_modes[symbol] = "normal"
@@ -233,13 +231,13 @@ class FeedbackAgent:
                 f"Switching {symbol} back to NORMAL mode: "
                 f"avg_slippage={avg_slippage:.2f} bps < threshold={self._slippage_threshold_bps * 0.5:.2f} bps"
             )
-            
+
             # Reset configuration
             config = self._hidden_liquidity_configs[symbol]
             config.min_fragment_size = 0.01
             config.max_fragments = 10
             config.fragment_interval_ms = 100
-            
+
             await self._bus.publish(Event(
                 event_type=EventType.CONTEXT_UPDATE,
                 data={
@@ -248,15 +246,15 @@ class FeedbackAgent:
                     "reason": f"slippage_improved: {avg_slippage:.2f} bps"
                 }
             ))
-    
+
     def get_execution_mode(self, symbol: str) -> str:
         """Get current execution mode for a symbol."""
         return self._execution_modes.get(symbol, "normal")
-    
-    def get_hidden_liquidity_config(self, symbol: str) -> Optional[HiddenLiquidityConfig]:
+
+    def get_hidden_liquidity_config(self, symbol: str) -> HiddenLiquidityConfig | None:
         """Get hidden liquidity configuration for a symbol."""
         return self._hidden_liquidity_configs.get(symbol)
-    
+
     def get_slippage_statistics(self, symbol: str) -> dict:
         """Get slippage statistics for a symbol."""
         return {
@@ -265,7 +263,7 @@ class FeedbackAgent:
             "mode": self._execution_modes.get(symbol, "normal"),
             "recent_trades": len(self._slippage_history.get(symbol, deque()))
         }
-    
+
     def should_use_hidden_liquidity(self, symbol: str) -> bool:
         """Check if hidden liquidity mode should be used for a symbol."""
         return self.get_execution_mode(symbol) == "hidden_liquidity"

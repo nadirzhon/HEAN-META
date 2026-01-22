@@ -3,15 +3,13 @@ Enhanced Swarm Intelligence with C++ Consensus Engine Integration
 Multi-Agent Swarm Logic with Fast-Voting Mechanism (>80% consensus triggers execution)
 """
 
-from typing import Any, Optional
-from dataclasses import dataclass, field
-from datetime import datetime
 from collections import deque
-import numpy as np
+from dataclasses import dataclass
+from datetime import datetime
 
 from hean.core.bus import EventBus
+from hean.core.ofi import OrderFlowImbalance
 from hean.core.types import Event, EventType, Signal, Tick
-from hean.core.ofi import OrderFlowImbalance, OFIResult
 from hean.logging import get_logger
 
 logger = get_logger(__name__)
@@ -35,17 +33,17 @@ class ConsensusSignal:
 class ConsensusSwarmIntelligence:
     """
     Enhanced Swarm Intelligence with C++ Consensus Engine.
-    
+
     Features:
     - 100+ lightweight Decision Agents analyzing Orderflow sub-features
     - Fast-Voting: If >80% of agents signal 'Buy', trigger execution
     - Specialized agents: Delta, OFI, VPIN, Micro-Momentum
     - Collective intelligence ensures absolute dominance over market noise
     """
-    
+
     def __init__(self, bus: EventBus, num_agents: int = 100, consensus_threshold: float = 0.80) -> None:
         """Initialize the consensus swarm intelligence system.
-        
+
         Args:
             bus: Event bus for publishing signals
             num_agents: Number of decision agents (default: 100)
@@ -55,7 +53,7 @@ class ConsensusSwarmIntelligence:
         self._num_agents = num_agents
         self._consensus_threshold = consensus_threshold
         self._running = False
-        
+
         # Try to import C++ SwarmManager
         self._cpp_swarm = None
         try:
@@ -67,84 +65,84 @@ class ConsensusSwarmIntelligence:
                 logger.warning("C++ SwarmManager not available, using Python fallback")
         except ImportError:
             logger.warning("graph_engine_py not available, using Python fallback")
-        
+
         # OFI Monitor integration
-        self._ofi_monitor: Optional[OrderFlowImbalance] = None
-        
+        self._ofi_monitor: OrderFlowImbalance | None = None
+
         # Consensus history
         self._consensus_history: dict[str, deque[ConsensusSignal]] = {}
-        
+
         # Current consensus state per symbol
         self._current_consensus: dict[str, dict] = {}
-    
+
     def set_ofi_monitor(self, ofi_monitor: OrderFlowImbalance) -> None:
         """Set the OFI monitor instance."""
         self._ofi_monitor = ofi_monitor
         logger.info("OFI Monitor integrated with Swarm Intelligence")
-    
+
     async def start(self) -> None:
         """Start the consensus swarm intelligence system."""
         self._running = True
-        
+
         if self._cpp_swarm:
             # Initialize C++ swarm if available
             try:
                 self._cpp_swarm.initialize_swarm()
             except Exception as e:
                 logger.warning(f"Failed to initialize C++ swarm: {e}")
-        
+
         self._bus.subscribe(EventType.TICK, self._handle_tick)
         self._bus.subscribe(EventType.ORDER_BOOK_UPDATE, self._handle_orderbook_update)
         logger.info("Consensus Swarm Intelligence system started")
-    
+
     async def stop(self) -> None:
         """Stop the consensus swarm intelligence system."""
         self._running = False
         self._bus.unsubscribe(EventType.TICK, self._handle_tick)
         self._bus.unsubscribe(EventType.ORDER_BOOK_UPDATE, self._handle_orderbook_update)
         logger.info("Consensus Swarm Intelligence system stopped")
-    
+
     async def _handle_tick(self, event: Event) -> None:
         """Handle tick events to update orderflow features."""
         tick: Tick = event.data.get("tick")
         if not tick:
             return
-        
+
         symbol = tick.symbol
-        
+
         # Update orderflow snapshot for C++ swarm
         if self._cpp_swarm and self._ofi_monitor:
             await self._update_orderflow_snapshot(symbol, tick.price)
-    
+
     async def _handle_orderbook_update(self, event: Event) -> None:
         """Handle orderbook updates to feed swarm agents."""
         orderbook_data = event.data.get("orderbook", {})
         symbol = orderbook_data.get("symbol")
-        
+
         if not symbol:
             return
-        
+
         # Update OFI monitor
         if self._ofi_monitor:
             # OFI monitor handles its own orderbook updates via subscription
             pass
-        
+
         # Update orderflow snapshot if we have price data
         bids = orderbook_data.get("bids", [])
         asks = orderbook_data.get("asks", [])
         if bids and asks:
             mid_price = (float(bids[0][0]) + float(asks[0][0])) / 2.0
             await self._update_orderflow_snapshot(symbol, mid_price)
-    
+
     async def _update_orderflow_snapshot(self, symbol: str, price: float) -> None:
         """Update orderflow snapshot for swarm agents."""
         if not self._cpp_swarm or not self._ofi_monitor:
             return
-        
+
         try:
             # Get OFI result
             ofi_result = self._ofi_monitor.calculate_ofi(symbol)
-            
+
             # Create orderflow snapshot for C++ swarm
             import graph_engine_py
             snapshot = graph_engine_py.OrderflowSnapshot()
@@ -153,11 +151,11 @@ class ConsensusSwarmIntelligence:
             snapshot.delta = ofi_result.delta
             snapshot.buy_pressure = ofi_result.buy_pressure
             snapshot.sell_pressure = ofi_result.sell_pressure
-            
+
             # Calculate VPIN (Volume-synchronized PIN) - simplified
             # VPIN = ratio of imbalanced volume to total volume
             snapshot.vpin = ofi_result.imbalance_strength
-            
+
             # Calculate micro-momentum (simplified: based on OFI change rate)
             # This would be improved with actual tick-level momentum calculation
             if symbol not in self._current_consensus:
@@ -165,37 +163,37 @@ class ConsensusSwarmIntelligence:
             else:
                 prev_ofi = self._current_consensus[symbol].get("ofi", 0.0)
                 snapshot.micro_momentum = ofi_result.ofi_value - prev_ofi
-            
+
             # Calculate volumes
             # This is simplified - in production, would track actual volumes
             total_volume = abs(ofi_result.delta) * 2.0  # Approximate
             snapshot.bid_volume = total_volume * ofi_result.buy_pressure
             snapshot.ask_volume = total_volume * ofi_result.sell_pressure
-            
+
             # Use current timestamp
             import time
             snapshot.timestamp_ns = int(time.time_ns())
-            
+
             # Update C++ swarm
             self._cpp_swarm.update_orderflow(symbol, snapshot)
-            
+
         except Exception as e:
             logger.warning(f"Failed to update orderflow snapshot for {symbol}: {e}")
-    
-    def get_consensus(self, symbol: str, strategy_id: str = "swarm_consensus") -> Optional[Signal]:
+
+    def get_consensus(self, symbol: str, strategy_id: str = "swarm_consensus") -> Signal | None:
         """
         Get consensus decision from swarm.
-        
+
         Returns Signal if >80% consensus reached, None otherwise.
         """
         if not self._cpp_swarm:
             # Python fallback
             return self._get_consensus_python_fallback(symbol, strategy_id)
-        
+
         try:
             # Get consensus from C++ swarm
             consensus_result = self._cpp_swarm.get_consensus(symbol)
-            
+
             # Check if consensus reached (>80%)
             if not consensus_result.consensus_reached:
                 logger.debug(
@@ -204,18 +202,18 @@ class ConsensusSwarmIntelligence:
                     f"sell={consensus_result.sell_vote_percentage:.1f}%"
                 )
                 return None
-            
+
             # Determine side based on consensus
             side = "buy" if consensus_result.consensus == 1 else "sell"  # BUY=1, SELL=-1
-            
+
             # Get current price (simplified - would get from orderbook)
             # For now, use OFI monitor if available
             current_price = 0.0
             if self._ofi_monitor:
-                ofi_result = self._ofi_monitor.calculate_ofi(symbol)
+                self._ofi_monitor.calculate_ofi(symbol)
                 # Approximate price from OFI (in production, use actual orderbook)
                 current_price = 50000.0  # Placeholder
-            
+
             # Store consensus state
             self._current_consensus[symbol] = {
                 "consensus": side,
@@ -228,7 +226,7 @@ class ConsensusSwarmIntelligence:
                 "ofi": consensus_result.execution_signal_strength,  # Store for momentum calc
                 "timestamp": datetime.utcnow()
             }
-            
+
             # Create consensus signal
             consensus_signal = ConsensusSignal(
                 symbol=symbol,
@@ -242,12 +240,12 @@ class ConsensusSwarmIntelligence:
                 total_agents=consensus_result.total_agents,
                 timestamp=datetime.utcnow()
             )
-            
+
             # Store in history
             if symbol not in self._consensus_history:
                 self._consensus_history[symbol] = deque(maxlen=100)
             self._consensus_history[symbol].append(consensus_signal)
-            
+
             # Generate Signal
             signal = Signal(
                 strategy_id=strategy_id,
@@ -264,32 +262,32 @@ class ConsensusSwarmIntelligence:
                     "total_agents": consensus_signal.total_agents,
                 }
             )
-            
+
             logger.info(
                 f"Swarm CONSENSUS REACHED for {symbol}: {side.upper()} "
                 f"({consensus_signal.consensus_percentage:.1f}% consensus, "
                 f"confidence={consensus_signal.average_confidence:.3f}, "
                 f"strength={consensus_signal.execution_signal_strength:.3f})"
             )
-            
+
             return signal
-            
+
         except Exception as e:
             logger.error(f"Failed to get consensus from C++ swarm for {symbol}: {e}")
             return self._get_consensus_python_fallback(symbol, strategy_id)
-    
-    def _get_consensus_python_fallback(self, symbol: str, strategy_id: str) -> Optional[Signal]:
+
+    def _get_consensus_python_fallback(self, symbol: str, strategy_id: str) -> Signal | None:
         """Python fallback consensus calculation."""
         if not self._ofi_monitor:
             return None
-        
+
         # Use OFI as simple consensus indicator
         ofi_result = self._ofi_monitor.calculate_ofi(symbol)
-        
+
         # Simple threshold: strong imbalance = consensus
         if ofi_result.imbalance_strength > 0.7:  # 70% threshold for fallback
             side = "buy" if ofi_result.ofi_value > 0 else "sell"
-            
+
             signal = Signal(
                 strategy_id=strategy_id,
                 symbol=symbol,
@@ -302,31 +300,31 @@ class ConsensusSwarmIntelligence:
                     "imbalance_strength": ofi_result.imbalance_strength,
                 }
             )
-            
+
             return signal
-        
+
         return None
-    
+
     def get_consensus_confidence(self, symbol: str) -> float:
         """Get consensus confidence level for a symbol (0.0 to 1.0)."""
         if symbol in self._current_consensus:
             return self._current_consensus[symbol].get("confidence", 0.0)
-        
+
         if self._cpp_swarm:
             try:
                 return self._cpp_swarm.get_consensus_confidence(symbol)
             except Exception:
                 pass
-        
+
         return 0.0
-    
+
     def get_consensus_details(self, symbol: str) -> dict:
         """Get detailed consensus information for a symbol."""
         if symbol in self._current_consensus:
             return self._current_consensus[symbol].copy()
-        
+
         return {}
-    
+
     def get_consensus_history(self, symbol: str, limit: int = 10) -> list[ConsensusSignal]:
         """Get consensus history for a symbol."""
         if symbol in self._consensus_history:
