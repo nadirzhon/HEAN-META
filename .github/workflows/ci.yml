@@ -20,7 +20,9 @@ jobs:
         run: |
           pip install -e ".[dev]"
       - name: Run ruff
-        run: ruff check src/
+        run: |
+          ruff check . --exclude externals --exclude node_modules --exclude dist --exclude build --exclude .venv --exclude venv
+          ruff format . --check --exclude externals --exclude node_modules --exclude dist --exclude build --exclude .venv --exclude venv
       - name: Run mypy
         run: mypy src/
 
