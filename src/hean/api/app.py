@@ -84,6 +84,7 @@ async def add_request_id(request: Request, call_next):
 # Include routers
 app.include_router(engine.router)
 app.include_router(trading.router)
+app.include_router(trading.why_router)  # /trading/why endpoint
 app.include_router(strategies.router)
 app.include_router(risk.router)
 app.include_router(analytics.router)

@@ -221,6 +221,30 @@ class HEANSettings(BaseSettings):
         description="List of trading symbols to monitor and trade (e.g., ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'])",
     )
 
+    # Multi-Symbol Support (AFO-Director feature)
+    multi_symbol_enabled: bool = Field(
+        default=False,
+        description="Enable multi-symbol scanning and trading (default False). When enabled, scans all symbols in SYMBOLS list.",
+    )
+    symbols: list[str] = Field(
+        default=[
+            "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
+            "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "TONUSDT",
+        ],
+        description="List of symbols for multi-symbol scanning (default: 10 symbols). Used when MULTI_SYMBOL_ENABLED=true.",
+    )
+
+    @field_validator("symbols", mode="before")
+    @classmethod
+    def parse_symbols(cls, v: Any) -> Any:
+        """Parse symbols from env, handling empty strings and JSON."""
+        if v is None or v == "":
+            return [
+                "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
+                "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "TONUSDT",
+            ]
+        return parse_list_env(v)
+
     # Paper mode data source
     paper_use_live_feed: bool = Field(
         default=False,

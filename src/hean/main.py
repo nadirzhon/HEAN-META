@@ -18,6 +18,7 @@ from hean.backtest.metrics import BacktestMetrics
 from hean.config import settings
 from hean.core.bus import EventBus
 from hean.core.clock import Clock
+from hean.core.multi_symbol_scanner import MultiSymbolScanner
 from hean.core.regime import Regime, RegimeDetector
 from hean.core.timeframes import CandleAggregator
 from hean.core.trade_density import trade_density
@@ -120,6 +121,7 @@ class TradingSystem:
         self._execution_router = ExecutionRouter(
             self._bus, self._order_manager, self._regime_detector
         )
+        self._multi_symbol_scanner = MultiSymbolScanner(self._bus)
         self._price_feed: SyntheticPriceFeed | None = None
         self._strategies: list = []
         self._income_streams: list = []
@@ -398,6 +400,9 @@ class TradingSystem:
         # Start regime detector
         await self._regime_detector.start()
         self._bus.subscribe(EventType.REGIME_UPDATE, self._handle_regime_update)
+        
+        # Start multi-symbol scanner
+        await self._multi_symbol_scanner.start()
         
         # Phase: Oracle Engine Integration (Algorithmic Fingerprinting + TCN)
         if self._mode == "run" and getattr(settings, 'oracle_engine_enabled', True):

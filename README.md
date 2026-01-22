@@ -118,6 +118,27 @@ curl http://localhost:8000/orders
 
 See [docs/API.md](docs/API.md) for complete API documentation.
 
+### New Endpoints (AFO-Director)
+
+- `GET /trading/why`: Comprehensive diagnostics explaining why trading may have stopped. Returns engine state, killswitch, last activity timestamps, top reason codes, profit capture state, execution quality, and multi-symbol status.
+- `GET /system/changelog/today`: Get today's improvements/changelog from git log or changelog_today.json. Returns `available: false` if git/changelog not available (no fiction).
+
+### Smoke Test
+
+Run the smoke test to verify all features:
+
+```bash
+./scripts/smoke_test.sh
+```
+
+The smoke test checks:
+- REST endpoints (`/telemetry/ping`, `/telemetry/summary`, `/trading/why`, `/portfolio/summary`)
+- WebSocket connection and subscription
+- Engine control (pause/resume)
+- Multi-symbol support
+
+**Important**: Only rebuild Docker after smoke test PASSES. If smoke fails, fix issues first, then rebuild.
+
 ### Running with Docker Compose
 
 ```bash
@@ -476,6 +497,24 @@ See `.env.example` for all available options. Key variables:
 - `INITIAL_CAPITAL`: Starting capital in USDT (default: 10000)
 - `MAX_DAILY_DRAWDOWN_PCT`: Maximum daily drawdown percentage (default: 5.0)
 - `MAX_TRADE_RISK_PCT`: Maximum risk per trade (default: 1.0)
+
+### AFO-Director Features
+
+**Profit Capture** (disabled by default):
+- `PROFIT_CAPTURE_ENABLED=false`: Enable profit capture (default: false)
+- `PROFIT_CAPTURE_TARGET_PCT=20`: Target percentage growth to trigger (default: 20%)
+- `PROFIT_CAPTURE_TRAIL_PCT=10`: Trail percentage drawdown to trigger (default: 10%)
+- `PROFIT_CAPTURE_MODE=full|partial`: Capture mode - full closes all, partial reduces exposure (default: full)
+- `PROFIT_CAPTURE_AFTER_ACTION=pause|continue`: Action after capture - pause stops trading, continue with reduced risk (default: pause)
+- `PROFIT_CAPTURE_CONTINUE_RISK_MULT=0.25`: Risk multiplier when continuing after capture (default: 0.25 = 25%)
+
+**Multi-Symbol Support**:
+- `MULTI_SYMBOL_ENABLED=false`: Enable multi-symbol scanning (default: false)
+- `SYMBOLS="BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,ADAUSDT,DOGEUSDT,AVAXUSDT,LINKUSDT,TONUSDT"`: List of symbols to scan (default: 10 symbols)
+
+**WebSocket Topics**:
+- `order_decisions`: Real-time ORDER_DECISION events with reason_codes, gating_flags, market_regime, advisory
+- `ai_catalyst`: AI Catalyst events (AGENT_STATUS, AGENT_STEP) - see `/system/changelog/today` for today's improvements
 
 ## Docker
 

@@ -1631,6 +1631,21 @@ async def websocket_endpoint(websocket: WebSocket):
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
                             },
                         )
+                    elif topic == "ai_catalyst":
+                        # Send initial snapshot for AI Catalyst
+                        await connection_manager.send_to_connection(
+                            connection_id,
+                            {
+                                "topic": "ai_catalyst",
+                                "data": {
+                                    "type": "ai_catalyst_snapshot",
+                                    "agents": [],  # Will be populated by agent registry
+                                    "events": [],
+                                    "note": "AI Catalyst topic subscribed",
+                                },
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            },
+                        )
                     
             elif action == "unsubscribe":
                 topic = data.get("topic")
