@@ -77,7 +77,21 @@ run_test "System agents" "check_json '$BASE_URL/system/agents' 'agents'"
 
 echo ""
 echo "-------------------------------------------------------------------"
-echo "3. WEBSOCKET CONNECTION"
+echo "3. MARKET DATA"
+echo "-------------------------------------------------------------------"
+
+run_test "Market ticker" "check_http '$BASE_URL/market/ticker?symbol=BTCUSDT' 200"
+
+echo ""
+echo "-------------------------------------------------------------------"
+echo "4. RISK GOVERNOR"
+echo "-------------------------------------------------------------------"
+
+run_test "Risk governor status" "check_json '$BASE_URL/risk/governor/status' 'risk_state'"
+
+echo ""
+echo "-------------------------------------------------------------------"
+echo "5. WEBSOCKET CONNECTION"
 echo "-------------------------------------------------------------------"
 
 # Test WebSocket connection (basic ping)
@@ -99,7 +113,7 @@ run_test "WebSocket connection" "ws_test"
 
 echo ""
 echo "-------------------------------------------------------------------"
-echo "4. ENGINE CONTROL (if available)"
+echo "6. ENGINE CONTROL (if available)"
 echo "-------------------------------------------------------------------"
 
 # Try pause (may fail if not running, that's OK for smoke test)
@@ -113,7 +127,7 @@ run_test "Engine pause endpoint" "pause_test"
 
 echo ""
 echo "-------------------------------------------------------------------"
-echo "5. MULTI-SYMBOL SUPPORT"
+echo "7. MULTI-SYMBOL SUPPORT"
 echo "-------------------------------------------------------------------"
 
 # Check if trading/why returns multi_symbol data
