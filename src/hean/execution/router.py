@@ -29,6 +29,11 @@ from hean.execution.paper_broker import PaperBroker
 from hean.logging import get_logger
 from hean.observability.no_trade_report import no_trade_report
 
+# Small Capital Mode imports
+from hean.execution.cost_engine import CostEngine
+from hean.execution.market_filters import MarketFilters
+from hean.execution.trade_gating import TradeGating
+
 logger = get_logger(__name__)
 
 
@@ -95,12 +100,21 @@ class ExecutionRouter:
 
         # Original order requests for retry queue
         self._order_requests: dict[str, OrderRequest] = {}
-        
+
         # Phase 3: Smart Limit Engine, OFI, and Iceberg
         self._smart_executor: SmartLimitExecutor | None = None
         self._ofi: OrderFlowImbalance | None = None
         self._iceberg: Any | None = None
         self._phase3_enabled = True  # Enable Phase 3 features
+
+        # Small Capital Mode: Trade gating with cost/edge analysis
+        self._cost_engine = CostEngine()
+        self._market_filters = MarketFilters()
+        self._trade_gating = TradeGating(
+            cost_engine=self._cost_engine,
+            edge_estimator=None,  # Will use existing edge estimator from execution context
+            market_filters=self._market_filters,
+        )
 
     async def start(self) -> None:
         """Start the execution router."""

@@ -502,7 +502,46 @@ async def why_not_trading(request: Request) -> dict:
             if hasattr(settings, "multi_symbol_enabled") and settings.multi_symbol_enabled:
                 multi_symbol["enabled"] = True
                 multi_symbol["symbols_count"] = len(getattr(settings, "symbols", []))
-        
+
+        # Small Capital Mode metrics
+        small_capital_mode = {
+            "enabled": settings.small_capital_mode if hasattr(settings, "small_capital_mode") else False,
+            "avg_cost_bps": None,
+            "avg_edge_bps": None,
+            "edge_cost_ratio": None,
+            "top_block_reasons": [],
+            "maker_fill_rate": None,
+            "decision_counts": {"create": 0, "skip": 0, "block": 0, "total": 0},
+            "min_notional_usd": settings.min_notional_usd if hasattr(settings, "min_notional_usd") else None,
+            "maker_only_default": settings.maker_only_default if hasattr(settings, "maker_only_default") else None,
+        }
+        if facade.is_running and small_capital_mode["enabled"]:
+            try:
+                trading_system = getattr(facade, "_trading_system", None)
+                if trading_system and hasattr(trading_system, "_execution_router"):
+                    router = trading_system._execution_router
+                    # Try to get trade_gating metrics if available
+                    if hasattr(router, "_trade_gating"):
+                        gating_metrics = router._trade_gating.get_metrics()
+                        cost_metrics = gating_metrics.get("cost_metrics", {})
+                        edge_metrics = gating_metrics.get("edge_metrics", {})
+
+                        avg_cost = cost_metrics.get("avg_cost_bps", 0.0)
+                        avg_edge = edge_metrics.get("avg_edge_bps", 0.0)
+
+                        small_capital_mode["avg_cost_bps"] = round(avg_cost, 2) if avg_cost else None
+                        small_capital_mode["avg_edge_bps"] = round(avg_edge, 2) if avg_edge else None
+                        small_capital_mode["edge_cost_ratio"] = round(avg_edge / avg_cost, 2) if avg_cost > 0 else None
+                        small_capital_mode["top_block_reasons"] = gating_metrics.get("top_block_reasons", [])
+                        small_capital_mode["decision_counts"] = gating_metrics.get("decisions", {})
+
+                    # Try to get fill quality metrics
+                    if hasattr(router, "get_fill_quality_metrics"):
+                        fill_metrics = router.get_fill_quality_metrics()
+                        small_capital_mode["maker_fill_rate"] = fill_metrics.get("maker_fill_rate")
+            except Exception as e:
+                logger.debug(f"Could not get small capital mode metrics: {e}")
+
         return {
             "engine_state": engine_state,
             "killswitch_state": killswitch_state,
@@ -523,6 +562,7 @@ async def why_not_trading(request: Request) -> dict:
             "profit_capture_state": profit_capture_state,
             "execution_quality": execution_quality,
             "multi_symbol": multi_symbol,
+            "small_capital_mode": small_capital_mode,
         }
     except Exception as e:
         logger.error(f"Failed to get why_not_trading: {e}", exc_info=True)
@@ -546,6 +586,7 @@ async def why_not_trading(request: Request) -> dict:
             "profit_capture_state": {"enabled": False},
             "execution_quality": {},
             "multi_symbol": {"enabled": False},
+            "small_capital_mode": {"enabled": False},
         }
 
 
