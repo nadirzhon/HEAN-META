@@ -546,6 +546,8 @@ make dev
 
 This project was developed with the assistance of **Claude AI** (Anthropic). Claude helped with architecture design, code implementation, testing, and documentation throughout the development process.
 
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for more details.
+
 ## License
 
 MIT

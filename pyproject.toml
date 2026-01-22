@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hean"
 version = "0.1.0"
-description = "Production-grade event-driven crypto trading research system for Bybit"
+description = "Production-grade event-driven crypto trading research system for Bybit. Developed with assistance from Claude AI (Anthropic)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
