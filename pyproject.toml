@@ -64,6 +64,53 @@ onnx = [
 viz = [
     "d3>=7.0.0",  # For visualization (installed via npm for web)
 ]
+ml = [
+    # Core ML
+    "pandas>=2.0.0",
+    "scipy>=1.10.0",
+    "scikit-learn>=1.3.0",
+    # Technical Analysis
+    "TA-Lib>=0.4.28",  # Requires system library
+    # Ensemble ML
+    "lightgbm>=4.1.0",
+    "xgboost>=2.0.0",
+    "catboost>=1.2.0",
+    # Backtesting & Optimization
+    "vectorbt>=0.26.0",
+    "optuna>=3.5.0",
+    "bayesian-optimization>=1.4.3",
+    # Analytics
+    "duckdb>=0.9.0",
+    "pyarrow>=14.0.0",
+    # Logging & Utils
+    "loguru>=0.7.2",
+    "pyyaml>=6.0.1",
+    "joblib>=1.3.0",
+    "tqdm>=4.66.0",
+    # Visualization
+    "matplotlib>=3.8.0",
+    "seaborn>=0.13.0",
+    "plotly>=5.18.0",
+    # Statistical
+    "statsmodels>=0.14.0",
+]
+ml-dl = [
+    # Deep Learning (extends ml)
+    "torch>=2.1.0",
+    "pytorch-forecasting>=1.0.0",
+    "transformers>=4.35.0",
+    "sentencepiece>=0.1.99",
+]
+ml-rl = [
+    # Reinforcement Learning (extends ml)
+    "stable-baselines3>=2.2.0",
+    "gymnasium>=0.29.0",
+    "tensorboard>=2.15.0",
+]
+ml-full = [
+    # All ML dependencies
+    "hean[ml,ml-dl,ml-rl]",
+]
 
 [tool.setuptools]
 packages = ["hean"]
@@ -102,6 +149,21 @@ module = [
     "graph_engine_py",
     "hean.core.intelligence.graph_engine",
     "hean.core.intelligence.codegen_engine",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "talib",
+    "vectorbt",
+    "lightgbm",
+    "xgboost",
+    "catboost",
+    "optuna",
+    "duckdb",
+    "torch",
+    "stable_baselines3",
+    "gymnasium",
 ]
 ignore_missing_imports = true
 
