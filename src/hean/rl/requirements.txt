@@ -1,0 +1,30 @@
+# RL Trading Agent Requirements
+
+# Core RL framework
+ray[rllib]==2.9.0
+ray[tune]==2.9.0
+
+# Deep learning
+torch>=2.1.0
+torchvision>=0.16.0
+
+# Gymnasium (OpenAI Gym replacement)
+gymnasium>=0.29.0
+
+# Data processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# API clients (optional, for data loading)
+python-binance>=1.0.19
+aiohttp>=3.9.0
+
+# Progress bars
+tqdm>=4.65.0
+
+# Configuration
+pyyaml>=6.0
