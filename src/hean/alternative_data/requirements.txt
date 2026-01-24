@@ -1,0 +1,18 @@
+# Alternative Data Dependencies
+
+# Sentiment Analysis
+transformers>=4.30.0
+torch>=2.0.0
+sentencepiece>=0.1.99
+
+# APIs and Data Collection
+requests>=2.31.0
+redis>=4.5.0
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Optional: For accelerated inference
+# accelerate>=0.20.0
+# bitsandbytes>=0.40.0
