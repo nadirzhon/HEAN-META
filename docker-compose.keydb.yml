@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  # Backend API
+  api:
+    image: hean-api:latest
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: hean-api
+    env_file:
+      - backend.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - PYTHONPATH=/app/src
+      - FUNDING_HARVESTER_ENABLED=true
+      - BASIS_ARBITRAGE_ENABLED=true
+      - IMPULSE_ENGINE_ENABLED=true
+      - REDIS_URL=redis://keydb:6379  # Updated to use KeyDB
+    volumes:
+      - ./src:/app/src:ro
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - hean-network
+    depends_on:
+      keydb:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # React/Vite UI (production)
+  ui:
+    image: hean-ui:latest
+    build:
+      context: ./apps/ui
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+        VITE_WS_URL: ${VITE_WS_URL:-/ws}
+    container_name: hean-ui
+    env_file:
+      - ui.env
+    ports:
+      - "3000:80"
+    networks:
+      - hean-network
+    depends_on:
+      - api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # KeyDB - Multi-threaded Redis alternative
+  keydb:
+    image: eqalpha/keydb:latest
+    container_name: hean-keydb
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./keydb.conf:/etc/keydb/keydb.conf:ro
+      - keydb-data:/data
+    command: keydb-server /etc/keydb/keydb.conf
+    networks:
+      - hean-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "keydb-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '4'       # KeyDB can use multiple cores!
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 512M
+
+networks:
+  hean-network:
+    driver: bridge
+
+volumes:
+  keydb-data:

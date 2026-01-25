@@ -1,0 +1,264 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # BACKEND SERVICES
+  # ============================================================================
+
+  # FastAPI Backend
+  api:
+    image: hean-api:latest
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: hean-api
+    env_file:
+      - backend.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+      - PYTHONPATH=/app/src
+      - REDIS_URL=redis://keydb:6379
+      - FUNDING_HARVESTER_ENABLED=true
+      - BASIS_ARBITRAGE_ENABLED=true
+      - IMPULSE_ENGINE_ENABLED=true
+    volumes:
+      - ./src:/app/src:ro
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - hean-network
+    depends_on:
+      keydb:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Rust Market Data Service
+  market-data:
+    build:
+      context: ./market-data-service
+      dockerfile: Dockerfile
+    container_name: hean-meta-market-data
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    environment:
+      - RUST_LOG=info
+      - SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT
+    networks:
+      - hean-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 256M
+
+  # ============================================================================
+  # FRONTEND
+  # ============================================================================
+
+  ui:
+    image: hean-ui:latest
+    build:
+      context: ./apps/ui
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+        VITE_WS_URL: ${VITE_WS_URL:-/ws}
+    container_name: hean-ui
+    env_file:
+      - ui.env
+    ports:
+      - "3000:80"
+    networks:
+      - hean-network
+    depends_on:
+      - api
+      - market-data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ============================================================================
+  # DATABASES & CACHE
+  # ============================================================================
+
+  keydb:
+    image: eqalpha/keydb:latest
+    container_name: hean-keydb
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./keydb.conf:/etc/keydb/keydb.conf:ro
+      - keydb-data:/data
+    command: keydb-server /etc/keydb/keydb.conf
+    networks:
+      - hean-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "keydb-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 512M
+
+  # ============================================================================
+  # MONITORING STACK
+  # ============================================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hean-meta-prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - hean-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: hean-meta-grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    ports:
+      - "3001:3000"
+    networks:
+      - hean-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: hean-node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "9100:9100"
+    networks:
+      - hean-network
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: hean-cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "8081:8080"
+    networks:
+      - hean-network
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: hean-redis-exporter
+    environment:
+      - REDIS_ADDR=keydb:6379
+    ports:
+      - "9121:9121"
+    networks:
+      - hean-network
+    restart: unless-stopped
+    depends_on:
+      - keydb
+
+# ============================================================================
+# NETWORKS & VOLUMES
+# ============================================================================
+
+networks:
+  hean-network:
+    driver: bridge
+
+volumes:
+  keydb-data:
+  prometheus-data:
+  grafana-data:

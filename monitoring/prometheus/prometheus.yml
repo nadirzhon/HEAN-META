@@ -1,0 +1,76 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'hean-meta-production'
+    environment: 'production'
+
+# Alert manager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+# rule_files:
+#   - "alerts/*.yml"
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Node Exporter (system metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node-exporter'
+
+  # cAdvisor (Docker container metrics)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          service: 'cadvisor'
+
+  # HEAN-META FastAPI Backend
+  - job_name: 'hean-meta-api'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['api:8000']
+        labels:
+          service: 'hean-meta-api'
+          component: 'backend'
+    metrics_path: '/metrics'
+
+  # Rust Market Data Service
+  - job_name: 'market-data-service'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['market-data:8080']
+        labels:
+          service: 'market-data-service'
+          component: 'rust'
+    metrics_path: '/metrics'
+
+  # KeyDB metrics (via Redis Exporter)
+  - job_name: 'keydb'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'keydb'
+          component: 'database'
+
+  # Trading metrics exporter (custom Python exporter)
+  - job_name: 'trading-metrics'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['trading-metrics-exporter:8001']
+        labels:
+          service: 'trading-metrics'
+          component: 'custom'
