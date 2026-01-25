@@ -212,23 +212,21 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), 8000);
 
+  const fetchOptions: RequestInit = {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    signal: controller.signal,
+  };
+
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
-      signal: controller.signal,
-    });
+    const response = await fetch(`${API_BASE}${path}`, fetchOptions);
 
     if (!response.ok) {
-      let body: any = null;
-      try {
-        body = await response.json();
-      } catch {
-        body = await response.text();
-      }
+      const rawBody = await readResponseText(response);
+      const body = parseBody(rawBody);
       const message =
         (body && (body.detail || body.message)) ||
         (typeof body === "string" && body) ||
@@ -243,6 +241,23 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
     return (await response.json()) as T;
   } finally {
     clearTimeout(id);
+  }
+}
+
+function parseBody(rawBody: string): any {
+  if (!rawBody) return rawBody;
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    return rawBody;
+  }
+}
+
+async function readResponseText(response: Response): Promise<string> {
+  try {
+    return await response.clone().text();
+  } catch {
+    return "";
   }
 }
 

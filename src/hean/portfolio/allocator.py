@@ -320,6 +320,8 @@ class CapitalAllocator:
 
     def get_strategy_memory(self) -> StrategyMemory:
         """Get the strategy memory instance for external updates."""
-        return self._strategy_memory    def get_capital_pressure(self) -> CapitalPressure:
+        return self._strategy_memory
+
+    def get_capital_pressure(self) -> CapitalPressure:
         """Get the capital pressure instance for external updates/tests."""
         return self._capital_pressure

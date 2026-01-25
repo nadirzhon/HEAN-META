@@ -122,6 +122,7 @@ See [docs/API.md](docs/API.md) for complete API documentation.
 
 - `GET /trading/why`: Comprehensive diagnostics explaining why trading may have stopped. Returns engine state, killswitch, last activity timestamps, top reason codes, profit capture state, execution quality, and multi-symbol status.
 - `GET /system/changelog/today`: Get today's improvements/changelog from git log or changelog_today.json. Returns `available: false` if git/changelog not available (no fiction).
+- `GET /system/v1/dashboard`: Legacy dashboard payload consumed by the UI (`account_state`, `metrics`, `positions`, `orders`, `status`). The UI falls back to it whenever `/portfolio/summary` or `/telemetry/summary` are temporarily unreachable.
 
 ### Smoke Test
 
@@ -152,7 +153,47 @@ docker-compose logs -f
 docker-compose down
 ```
 
+Ports that are published by the default compose stack:
+- `8000` → FastAPI backend
+- `3000` → Trading Command Center UI (nginx + bundled UI)
+- `6379` → Redis state and pub/sub
+
+The UI image consumes `VITE_API_BASE` and `VITE_WS_URL` build args/env vars
+(see `apps/ui/Dockerfile` and `ui.env`). Defaults point to `/api` and `/ws`, so
+the nginx proxy correctly forwards REST calls and WebSocket upgrades into
+`hean-api`. Override them when the UI is hosted in another path or on another host,
+for example `VITE_API_BASE=https://api.example.com` and
+`VITE_WS_URL=wss://api.example.com/ws`.
+
 See [DOCKER_GUIDE.md](DOCKER_GUIDE.md) for detailed Docker instructions.
+
+### Health & WebSocket sanity checks
+
+Before declaring the stack healthy, execute the following from the host to exercise REST, proxy, and WebSocket paths:
+
+```bash
+docker compose down --remove-orphans
+docker compose up -d --build
+docker compose ps
+curl -f http://localhost:8000/health
+curl -f http://localhost:8000/telemetry/summary
+curl -f http://localhost:8000/portfolio/summary
+curl -f http://localhost:3000/api/telemetry/summary
+curl -f http://localhost:3000/api/portfolio/summary
+python3 - <<'PY'
+import asyncio, json, websockets
+
+async def main():
+    uri = "ws://localhost:8000/ws"
+    async with websockets.connect(uri) as ws:
+        await ws.send(json.dumps({"action": "subscribe", "topic": "system_status"}))
+        print(await ws.recv())
+
+asyncio.run(main())
+PY
+```
+
+The last script mimics the UI's WebSocket handshake (subscribe to `system_status`) so you can confirm the heartbeat payload arrives.
 
 ### Backtesting
 

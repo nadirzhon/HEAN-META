@@ -385,7 +385,9 @@ class BybitPrivateWebSocket:
             await self._websocket.send(json.dumps(subscribe_msg))
             logger.info("Subscribed to execution updates")
         except Exception as e:
-            logger.error(f"Failed to subscribe to executions: {e}")    async def subscribe_all(self) -> None:
+            logger.error(f"Failed to subscribe to executions: {e}")
+
+    async def subscribe_all(self) -> None:
         """Subscribe to all available updates (orders, positions, executions)."""
         await self.subscribe_orders()
         await self.subscribe_positions()

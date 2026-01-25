@@ -3,10 +3,12 @@
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
 import hean.api.state as state
+from hean.config import settings
 from hean.logging import get_logger
 
 logger = get_logger(__name__)
@@ -82,3 +84,42 @@ async def get_changelog_today(request: Request) -> dict:
             "entries": [],
             "count": 0,
         }
+
+
+@router.get("/v1/dashboard")
+async def get_dashboard(request: Request) -> dict[str, Any]:
+    """Return a lightweight dashboard snapshot for legacy UI polling."""
+    engine_facade = state.get_engine_facade(request)
+    if engine_facade is None:
+        raise HTTPException(status_code=500, detail="Engine facade is not ready")
+
+    status = await engine_facade.get_status()
+    snapshot = await engine_facade.get_trading_state()
+    account_state = snapshot.get("account_state")
+    positions = snapshot.get("positions") or []
+    orders = snapshot.get("orders") or []
+
+    equity = (
+        status.get("equity")
+        or (account_state or {}).get("equity")
+        or settings.initial_capital
+    )
+    initial_capital = status.get("initial_capital") or settings.initial_capital or 1
+    daily_pnl = status.get("daily_pnl") or 0.0
+    return_pct = ((equity - initial_capital) / initial_capital * 100) if initial_capital else 0.0
+
+    return {
+        "account_state": account_state,
+        "metrics": {
+            "equity": equity,
+            "daily_pnl": daily_pnl,
+            "return_pct": return_pct,
+            "open_positions": len(positions),
+        },
+        "positions": positions,
+        "orders": orders,
+        "status": {
+            "engine_running": bool(status.get("running")),
+            "trading_mode": status.get("trading_mode") or settings.trading_mode,
+        },
+    }
