@@ -6,11 +6,11 @@ from datetime import datetime
 from hean.config import settings
 from hean.core.types import OrderRequest, Position
 from hean.logging import get_logger
+from hean.observability.signal_rejection_telemetry import signal_rejection_telemetry
 from hean.paper_trade_assist import (
     get_cooldown_multiplier,
     get_daily_attempts_multiplier,
     get_max_open_positions_override,
-    is_paper_assist_enabled,
     log_allow_reason,
     log_block_reason,
 )
@@ -42,7 +42,7 @@ class RiskLimits:
         override = get_max_open_positions_override()
         if override is not None:
             max_positions = override
-        
+
         if len(self._open_positions) >= max_positions:
             reason = f"Max open positions ({max_positions}) reached"
             log_block_reason(
@@ -51,6 +51,12 @@ class RiskLimits:
                 threshold=max_positions,
                 symbol=order_request.symbol,
                 strategy_id=order_request.strategy_id,
+            )
+            signal_rejection_telemetry.record_rejection(
+                reason="risk_limits_reject",
+                symbol=order_request.symbol,
+                strategy_id=order_request.strategy_id,
+                details={"current": len(self._open_positions), "max": max_positions},
             )
             return False, reason
 
@@ -63,11 +69,39 @@ class RiskLimits:
                 symbol=order_request.symbol,
                 strategy_id=order_request.strategy_id,
             )
+            signal_rejection_telemetry.record_rejection(
+                reason="position_size_reject",
+                symbol=order_request.symbol,
+                strategy_id=order_request.strategy_id,
+                details={"existing_position": existing_pos.position_id},
+            )
             return False, reason
 
-        # Check leverage (would need position value calculation)
-        # This is simplified - in production, calculate total position value
-        # and compare to equity * max_leverage
+        # HEAN v2 Iron Rule #5: Minimum R:R = 1:2
+        if order_request.stop_loss is not None and order_request.take_profit is not None:
+            entry_price = order_request.price or 0.0
+            if entry_price > 0:
+                risk = abs(entry_price - order_request.stop_loss)
+                reward = abs(order_request.take_profit - entry_price)
+                if risk > 0:
+                    rr_ratio = reward / risk
+                    min_rr = settings.min_risk_reward_ratio
+                    if rr_ratio < min_rr:
+                        reason = f"R:R ratio {rr_ratio:.2f} below minimum {min_rr:.1f}"
+                        log_block_reason(
+                            "rr_ratio_too_low",
+                            measured_value=rr_ratio,
+                            threshold=min_rr,
+                            symbol=order_request.symbol,
+                            strategy_id=order_request.strategy_id,
+                        )
+                        signal_rejection_telemetry.record_rejection(
+                            reason="rr_ratio_reject",
+                            symbol=order_request.symbol,
+                            strategy_id=order_request.strategy_id,
+                            details={"rr_ratio": rr_ratio, "min_rr": min_rr},
+                        )
+                        return False, reason
 
         log_allow_reason("risk_limits_ok", symbol=order_request.symbol, strategy_id=order_request.strategy_id)
         return True, ""
@@ -76,30 +110,34 @@ class RiskLimits:
         """Check if strategy has exceeded daily attempt limit."""
         self._reset_daily_counters_if_needed()
 
-        # This is strategy-specific, so we check per strategy
-        # For impulse engine, use its specific limit
-        if strategy_id == "impulse_engine":
-            max_attempts = settings.impulse_max_attempts_per_day
-            # Stricter limit in IMPULSE regime
-            if regime and regime.value == "impulse":
-                max_attempts = int(max_attempts * 0.8)  # 20% reduction
-            
-            # Apply paper assist multiplier
-            multiplier = get_daily_attempts_multiplier()
-            max_attempts = int(max_attempts * multiplier)
-            
-            if self._daily_attempts[strategy_id] >= max_attempts:
-                reason = f"Daily attempt limit ({max_attempts}) reached for {strategy_id}"
-                log_block_reason(
-                    "daily_attempts",
-                    measured_value=self._daily_attempts[strategy_id],
-                    threshold=max_attempts,
-                    strategy_id=strategy_id,
-                )
-                return False, reason
-        else:
-            # Other strategies have no specific limit (or use a default)
-            pass
+        # Universal daily attempts limit for all strategies
+        attempts_map = {
+            "impulse_engine": settings.impulse_max_attempts_per_day,
+            "hf_scalping": 60,
+            "momentum_trader": 40,
+            "paper_assist_micro": 100,
+        }
+
+        max_attempts = attempts_map.get(strategy_id, 50)  # default: 50
+
+        # Stricter limit in IMPULSE regime (only for impulse_engine)
+        if strategy_id == "impulse_engine" and regime and regime.value == "impulse":
+            max_attempts = int(max_attempts * 0.8)  # 20% reduction
+
+        if self._daily_attempts[strategy_id] >= max_attempts:
+            reason = f"Daily attempt limit ({max_attempts}) reached for {strategy_id}"
+            log_block_reason(
+                "daily_attempts",
+                measured_value=self._daily_attempts[strategy_id],
+                threshold=max_attempts,
+                strategy_id=strategy_id,
+            )
+            signal_rejection_telemetry.record_rejection(
+                reason="daily_attempts_reject",
+                strategy_id=strategy_id,
+                details={"current": self._daily_attempts[strategy_id], "max": max_attempts},
+            )
+            return False, reason
 
         log_allow_reason("daily_attempts_ok", strategy_id=strategy_id)
         return True, ""
@@ -110,27 +148,35 @@ class RiskLimits:
         if settings.debug_mode:
             log_allow_reason("cooldown_bypassed_debug", strategy_id=strategy_id, note="DEBUG_MODE bypass")
             return True, ""
-        
-        if strategy_id == "impulse_engine":
-            cooldown_threshold = settings.impulse_cooldown_after_losses
-            # Apply paper assist multiplier (shorter cooldown)
-            multiplier = get_cooldown_multiplier()
-            # If multiplier is 0, bypass cooldown
-            if multiplier == 0.0:
-                log_allow_reason("cooldown_bypassed_aggressive", strategy_id=strategy_id, note="Aggressive Mode")
-                return True, ""
-            effective_threshold = int(cooldown_threshold / multiplier) if multiplier > 0 else cooldown_threshold
-            
-            if self._consecutive_losses[strategy_id] >= effective_threshold:
-                reason = f"Cooldown active: {effective_threshold} consecutive losses"
-                log_block_reason(
-                    "cooldown",
-                    measured_value=self._consecutive_losses[strategy_id],
-                    threshold=effective_threshold,
-                    strategy_id=strategy_id,
-                )
-                return False, reason
-        
+
+        # Universal cooldown for all strategies
+        cooldown_map = {
+            "impulse_engine": settings.impulse_cooldown_after_losses,
+            "hf_scalping": 2,
+            "momentum_trader": 3,
+            "paper_assist_micro": 5,
+        }
+
+        threshold = cooldown_map.get(strategy_id, 3)  # default: 3
+
+        if self._consecutive_losses[strategy_id] >= threshold:
+            reason = f"Cooldown: {threshold} consecutive losses for {strategy_id}"
+            log_block_reason(
+                "cooldown",
+                measured_value=self._consecutive_losses[strategy_id],
+                threshold=threshold,
+                strategy_id=strategy_id,
+            )
+            signal_rejection_telemetry.record_rejection(
+                reason="cooldown_reject",
+                strategy_id=strategy_id,
+                details={
+                    "consecutive_losses": self._consecutive_losses[strategy_id],
+                    "threshold": threshold,
+                },
+            )
+            return False, reason
+
         log_allow_reason("cooldown_ok", strategy_id=strategy_id)
         return True, ""
 

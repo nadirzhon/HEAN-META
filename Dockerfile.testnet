@@ -1,0 +1,67 @@
+# HEAN SYMBIONT X - Bybit Testnet Docker Image
+
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install additional dependencies for Bybit
+RUN pip install --no-cache-dir \
+    pybit>=5.6.0 \
+    websockets>=12.0 \
+    aiohttp>=3.9.0 \
+    python-dotenv>=1.0.0
+
+# Copy source code (only production files, .dockerignore handles exclusions)
+COPY src/ ./src/
+COPY live_testnet_real.py ./
+# NOTE: .env.symbiont загружается через docker-compose.yml (env_file), не копируем в образ
+
+# Create data and logs directories
+RUN mkdir -p /app/data/historical
+RUN mkdir -p /app/logs
+
+# Set environment variables
+ENV PYTHONPATH=/app/src
+ENV PYTHONUNBUFFERED=1
+
+# Create healthcheck script that verifies trading process is running
+RUN echo '#!/bin/bash\n\
+MAIN_PID=$(pgrep -f "python.*live_testnet" | head -1)\n\
+if [ -z "$MAIN_PID" ]; then\n\
+    echo "UNHEALTHY: Trading process not running"\n\
+    exit 1\n\
+fi\n\
+# Check if process is responsive (not stuck)\n\
+if [ -f /app/logs/heartbeat.txt ]; then\n\
+    LAST_HEARTBEAT=$(stat -c %Y /app/logs/heartbeat.txt 2>/dev/null || echo 0)\n\
+    NOW=$(date +%s)\n\
+    AGE=$((NOW - LAST_HEARTBEAT))\n\
+    if [ "$AGE" -gt 300 ]; then\n\
+        echo "UNHEALTHY: Heartbeat stale ($AGE seconds old)"\n\
+        exit 1\n\
+    fi\n\
+fi\n\
+echo "HEALTHY: Trading process running (PID: $MAIN_PID)"\n\
+exit 0' > /app/healthcheck.sh && chmod +x /app/healthcheck.sh
+
+# Healthcheck - verify trading process is alive and responsive
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD /app/healthcheck.sh
+
+# Default command - run REAL Bybit Testnet (NO SIMULATION)
+CMD ["python", "live_testnet_real.py"]

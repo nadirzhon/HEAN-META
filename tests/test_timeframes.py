@@ -1,12 +1,12 @@
 """Tests for multi-timeframe candle aggregation."""
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from hean.core.bus import EventBus
-from hean.core.timeframes import CandleAggregator, Candle
+from hean.core.timeframes import Candle, CandleAggregator
 from hean.core.types import Event, EventType, Tick
 
 
@@ -27,7 +27,7 @@ async def test_candle_boundaries_and_aggregation() -> None:
     bus.subscribe(EventType.CANDLE, on_candle)
 
     # Use a fixed reference time at exact minute boundary
-    base = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
 
     # Generate ticks within first minute [00:00:00, 00:01:00)
     ticks = [

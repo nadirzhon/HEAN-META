@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import is_dataclass
 from datetime import datetime, timedelta
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import pytest
 
 from hean.core.bus import Event, EventBus, EventType
-from hean.core.contracts import AlphaModule, Diagnostics, IncomeStream, PriceFeed
 from hean.core.context import ContextBuilder, MarketContext
+from hean.core.contracts import AlphaModule, Diagnostics, IncomeStream, PriceFeed
 from hean.core.regime import Regime, RegimeDetector
 from hean.core.types import Signal, Tick
 from hean.portfolio.decision_memory import DecisionMemory

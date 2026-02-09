@@ -4,19 +4,17 @@ When a Python exception or C++ crash occurs, pipes the log directly to a local L
 to suggest immediate code fixes. In 'Auto-Dev' mode, applies the patch automatically.
 """
 
-import asyncio
 import ast
+import asyncio
 import json
 import os
 import re
-import subprocess
 import traceback
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from hean.config import settings
 from hean.logging import get_logger
 
 logger = get_logger(__name__)
@@ -41,17 +39,17 @@ class ErrorContext:
     error_type: str
     error_message: str
     stack_trace: str
-    source_file: Optional[str] = None
-    source_line: Optional[int] = None
-    source_code: Optional[str] = None
+    source_file: str | None = None
+    source_line: int | None = None
+    source_code: str | None = None
     timestamp: datetime = None
-    module_name: Optional[str] = None
-    function_name: Optional[str] = None
-    
+    module_name: str | None = None
+    function_name: str | None = None
+
     def __post_init__(self) -> None:
         """Initialize timestamp if not provided."""
         if self.timestamp is None:
-            self.timestamp = datetime.now(timezone.utc)
+            self.timestamp = datetime.now(UTC)
 
 
 @dataclass
@@ -67,14 +65,14 @@ class FixSuggestion:
 
 class ErrorAnalyzer:
     """Analyzes errors and suggests fixes using LLM.
-    
+
     Features:
     - Automatically analyzes Python exceptions and C++ crash logs
     - Uses LLM (OpenAI/Anthropic) to suggest code fixes
     - In Auto-Dev mode, automatically applies patches
     - Validates fixes before applying
     """
-    
+
     def __init__(
         self,
         auto_dev_mode: bool = False,
@@ -82,7 +80,7 @@ class ErrorAnalyzer:
         model: str = "gpt-4",
     ) -> None:
         """Initialize error analyzer.
-        
+
         Args:
             auto_dev_mode: If True, automatically apply fixes (default: False)
             llm_provider: LLM provider ("openai" or "anthropic")
@@ -91,10 +89,10 @@ class ErrorAnalyzer:
         self._auto_dev_mode = auto_dev_mode
         self._llm_provider = llm_provider
         self._model = model
-        self._client: Optional[Any] = None
+        self._client: Any | None = None
         self._project_root = Path(__file__).parent.parent.parent.parent
         self._fix_history: list[FixSuggestion] = []
-        
+
         # Initialize LLM client
         if llm_provider == "openai" and OPENAI_AVAILABLE:
             api_key = os.getenv("OPENAI_API_KEY")
@@ -115,47 +113,47 @@ class ErrorAnalyzer:
                 f"LLM provider {llm_provider} not available. "
                 "Error analyzer will only log errors without suggesting fixes."
             )
-    
+
     async def analyze_error(
         self,
         error: Exception,
-        context: Optional[dict[str, Any]] = None,
-    ) -> Optional[FixSuggestion]:
+        context: dict[str, Any] | None = None,
+    ) -> FixSuggestion | None:
         """Analyze an error and suggest a fix.
-        
+
         Args:
             error: Exception that occurred
             context: Additional context (e.g., function arguments, state)
-            
+
         Returns:
             Fix suggestion if available, None otherwise
         """
         # Extract error context
         error_context = self._extract_error_context(error, context)
-        
+
         logger.error(
             f"Error detected: {error_context.error_type} - {error_context.error_message}\n"
             f"Stack trace:\n{error_context.stack_trace}"
         )
-        
+
         if not self._client:
             logger.warning("LLM client not available, cannot suggest fixes")
             return None
-        
+
         # Get source code if available
         if error_context.source_file:
             error_context.source_code = self._read_source_code(
                 error_context.source_file,
                 error_context.source_line,
             )
-        
+
         # Generate fix suggestion using LLM
         try:
             fix = await self._generate_fix_suggestion(error_context)
-            
+
             if fix:
                 self._fix_history.append(fix)
-                
+
                 logger.info(
                     f"Fix suggestion generated:\n"
                     f"  File: {fix.file_path}\n"
@@ -164,7 +162,7 @@ class ErrorAnalyzer:
                     f"  Risk: {fix.risk_level}\n"
                     f"  Reasoning: {fix.reasoning}"
                 )
-                
+
                 # Auto-apply if in auto-dev mode
                 if self._auto_dev_mode and fix.risk_level == "low":
                     success = await self._apply_fix(fix)
@@ -172,35 +170,35 @@ class ErrorAnalyzer:
                         logger.info(f"Auto-applied fix to {fix.file_path}")
                     else:
                         logger.warning(f"Failed to apply fix to {fix.file_path}")
-                
+
                 return fix
-            
+
         except Exception as e:
             logger.error(f"Failed to generate fix suggestion: {e}", exc_info=True)
-        
+
         return None
-    
+
     def _extract_error_context(
         self,
         error: Exception,
-        context: Optional[dict[str, Any]],
+        context: dict[str, Any] | None,
     ) -> ErrorContext:
         """Extract error context from exception."""
         tb = error.__traceback__
         stack_trace = "".join(traceback.format_exception(type(error), error, tb))
-        
+
         # Extract source file and line from traceback
         source_file = None
         source_line = None
         module_name = None
         function_name = None
-        
+
         if tb:
             frame = tb
             while frame:
                 filename = frame.tb_frame.f_code.co_filename
                 lineno = frame.tb_lineno
-                
+
                 # Check if it's a project file
                 if "hean" in filename or str(self._project_root) in filename:
                     source_file = filename
@@ -208,9 +206,9 @@ class ErrorAnalyzer:
                     module_name = frame.tb_frame.f_globals.get("__name__")
                     function_name = frame.tb_frame.f_code.co_name
                     break
-                
+
                 frame = frame.tb_next
-        
+
         return ErrorContext(
             error_type=type(error).__name__,
             error_message=str(error),
@@ -220,50 +218,50 @@ class ErrorAnalyzer:
             module_name=module_name,
             function_name=function_name,
         )
-    
+
     def _read_source_code(
         self,
         file_path: str,
-        line_number: Optional[int],
+        line_number: int | None,
         context_lines: int = 20,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Read source code around the error line."""
         try:
             path = Path(file_path)
             if not path.exists():
                 return None
-            
-            with open(path, "r", encoding="utf-8") as f:
+
+            with open(path, encoding="utf-8") as f:
                 lines = f.readlines()
-            
+
             if line_number is None:
                 return "".join(lines)
-            
+
             # Extract context around error line
             start = max(0, line_number - context_lines)
             end = min(len(lines), line_number + context_lines)
-            
-            context_code = "".join(lines[start:end])
-            
+
+            "".join(lines[start:end])
+
             # Add line numbers
             numbered_lines = []
             for i, line in enumerate(lines[start:end], start=start + 1):
                 marker = " >>> " if i == line_number else "     "
                 numbered_lines.append(f"{i}{marker}{line}")
-            
+
             return "".join(numbered_lines)
-            
+
         except Exception as e:
             logger.warning(f"Failed to read source code: {e}")
             return None
-    
+
     async def _generate_fix_suggestion(
         self,
         error_context: ErrorContext,
-    ) -> Optional[FixSuggestion]:
+    ) -> FixSuggestion | None:
         """Generate fix suggestion using LLM."""
         prompt = self._build_fix_prompt(error_context)
-        
+
         try:
             if self._llm_provider == "openai":
                 response = await self._client.chat.completions.create(
@@ -297,15 +295,15 @@ class ErrorAnalyzer:
                 content = response.content[0].text
             else:
                 return None
-            
+
             # Parse response
             fix = self._parse_fix_response(content, error_context)
             return fix
-            
+
         except Exception as e:
             logger.error(f"LLM request failed: {e}", exc_info=True)
             return None
-    
+
     def _build_fix_prompt(self, error_context: ErrorContext) -> str:
         """Build prompt for LLM."""
         prompt = f"""
@@ -318,17 +316,17 @@ STACK TRACE:
 {error_context.stack_trace}
 
 """
-        
+
         if error_context.source_file:
             prompt += f"SOURCE FILE: {error_context.source_file}\n"
             if error_context.source_line:
                 prompt += f"ERROR LINE: {error_context.source_line}\n"
             if error_context.function_name:
                 prompt += f"FUNCTION: {error_context.function_name}\n"
-        
+
         if error_context.source_code:
             prompt += f"\nSOURCE CODE (around error line):\n```python\n{error_context.source_code}\n```\n"
-        
+
         prompt += """
 Please provide a fix suggestion in the following JSON format:
 {
@@ -346,14 +344,14 @@ Ensure the fix:
 3. Follows Python/C++ best practices
 4. Is minimal and focused
 """
-        
+
         return prompt
-    
+
     def _parse_fix_response(
         self,
         response: str,
         error_context: ErrorContext,
-    ) -> Optional[FixSuggestion]:
+    ) -> FixSuggestion | None:
         """Parse LLM response into FixSuggestion."""
         # Try to extract JSON from response
         json_match = re.search(r'\{[^}]+\}', response, re.DOTALL)
@@ -370,7 +368,7 @@ Ensure the fix:
                 )
             except (json.JSONDecodeError, KeyError, ValueError) as e:
                 logger.warning(f"Failed to parse LLM response as JSON: {e}")
-        
+
         # Fallback: extract code block if present
         code_block_match = re.search(r'```(?:python|cpp)?\n(.*?)\n```', response, re.DOTALL)
         if code_block_match:
@@ -383,20 +381,20 @@ Ensure the fix:
                 reasoning=response[:500],  # First 500 chars as reasoning
                 risk_level="medium",
             )
-        
+
         logger.warning("Could not parse LLM response into fix suggestion")
         return None
-    
+
     async def _apply_fix(self, fix: FixSuggestion) -> bool:
         """Apply a fix suggestion to the source file.
-        
+
         Returns:
             True if fix was applied successfully, False otherwise
         """
         if not fix.file_path or not Path(fix.file_path).exists():
             logger.warning(f"Fix file path does not exist: {fix.file_path}")
             return False
-        
+
         try:
             # Validate fix by parsing
             if fix.file_path.endswith(".py"):
@@ -406,7 +404,7 @@ Ensure the fix:
                 except SyntaxError:
                     logger.warning("Fix code patch has syntax errors, not applying")
                     return False
-            
+
             # Apply fix (this is a simplified implementation)
             # In production, you'd use proper diff/patch tools
             logger.info(f"Applying fix to {fix.file_path}")
@@ -414,14 +412,14 @@ Ensure the fix:
                 "Auto-apply is experimental. Manual review recommended. "
                 "Fix will be logged but not applied automatically."
             )
-            
+
             # For safety, we don't auto-apply. Instead, save the suggestion.
             fix_log_path = self._project_root / "logs" / "fix_suggestions.log"
             fix_log_path.parent.mkdir(exist_ok=True)
-            
+
             with open(fix_log_path, "a", encoding="utf-8") as f:
                 f.write(f"\n{'='*80}\n")
-                f.write(f"Timestamp: {datetime.now(timezone.utc).isoformat()}\n")
+                f.write(f"Timestamp: {datetime.now(UTC).isoformat()}\n")
                 f.write(f"File: {fix.file_path}\n")
                 f.write(f"Description: {fix.fix_description}\n")
                 f.write(f"Confidence: {fix.confidence}\n")
@@ -429,34 +427,34 @@ Ensure the fix:
                 f.write(f"Reasoning: {fix.reasoning}\n")
                 f.write(f"\nCode Patch:\n{fix.code_patch}\n")
                 f.write(f"{'='*80}\n")
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to apply fix: {e}", exc_info=True)
             return False
-    
+
     def get_fix_history(self) -> list[FixSuggestion]:
         """Get history of fix suggestions."""
         return self._fix_history.copy()
 
 
 # Global instance
-_error_analyzer: Optional[ErrorAnalyzer] = None
+_error_analyzer: ErrorAnalyzer | None = None
 
 
 def get_error_analyzer(
     auto_dev_mode: bool = False,
-    llm_provider: Optional[str] = None,
+    llm_provider: str | None = None,
 ) -> ErrorAnalyzer:
     """Get or create global error analyzer.
-    
+
     Args:
         auto_dev_mode: Enable auto-apply mode
         llm_provider: LLM provider ("openai" or "anthropic"), defaults to env config
     """
     global _error_analyzer
-    
+
     if _error_analyzer is None:
         provider = llm_provider or os.getenv("LLM_PROVIDER", "openai")
         model = os.getenv("LLM_MODEL", "gpt-4" if provider == "openai" else "claude-3-opus-20240229")
@@ -465,7 +463,7 @@ def get_error_analyzer(
             llm_provider=provider,
             model=model,
         )
-    
+
     return _error_analyzer
 
 
@@ -473,14 +471,14 @@ def get_error_analyzer(
 def setup_exception_hook(auto_dev_mode: bool = False) -> None:
     """Set up global exception hook for automatic error analysis."""
     import sys
-    
+
     original_excepthook = sys.excepthook
-    
+
     def exception_hook(exc_type, exc_value, exc_traceback):
         """Custom exception hook that analyzes errors."""
         # Call original hook first
         original_excepthook(exc_type, exc_value, exc_traceback)
-        
+
         # Analyze error asynchronously
         async def analyze():
             try:
@@ -488,7 +486,7 @@ def setup_exception_hook(auto_dev_mode: bool = False) -> None:
                 await analyzer.analyze_error(exc_value)
             except Exception as e:
                 logger.error(f"Error analyzer failed: {e}", exc_info=True)
-        
+
         # Run analysis in background
         try:
             loop = asyncio.get_event_loop()
@@ -498,6 +496,6 @@ def setup_exception_hook(auto_dev_mode: bool = False) -> None:
                 loop.run_until_complete(analyze())
         except Exception:
             pass  # Ignore errors in exception hook
-    
+
     sys.excepthook = exception_hook
     logger.info("Exception hook installed for automatic error analysis")

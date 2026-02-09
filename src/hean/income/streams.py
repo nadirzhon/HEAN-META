@@ -30,7 +30,7 @@ class StreamBudget:
     max_positions: int
 
 
-class IncomeStream(ABC):
+class IncomeStream(ABC):  # noqa: B024
     """Base class for all income streams.
 
     Implementations MUST:
@@ -83,13 +83,13 @@ class IncomeStream(ABC):
     # ------------------------------------------------------------------ Hooks for subclasses
     async def on_context_update(self, event: Event) -> None:
         """Handle CONTEXT_UPDATE events (override in subclass if used)."""
-        # Default: no‑op
-        return None
+        # Default: no-op (override in subclass)
+        pass
 
     async def on_candle(self, event: Event) -> None:
         """Handle CANDLE events (override in subclass if used)."""
-        # Default: no‑op
-        return None
+        # Default: no-op (override in subclass)
+        pass
 
     # ------------------------------------------------------------------ Budget helpers
     def can_open_position(self) -> bool:
@@ -201,7 +201,10 @@ class FundingHarvesterStream(IncomeStream):
 
         side = "sell" if rate > 0 else "buy"
         # Paper-mode deterministic price anchor (these are synthetic anyway).
-        price = ctx.get("price") or (50000.0 if "BTC" in symbol else 3000.0)
+        price = ctx.get("price")
+        if price is None or price <= 0:
+            logger.warning(f"Stream {self.stream_id}: no price for {symbol}, skipping signal")
+            return
         stop = price * (0.98 if side == "buy" else 1.02)
         tp = price * (1.01 if side == "buy" else 0.99)
 
@@ -232,41 +235,9 @@ class MakerRebateStream(IncomeStream):
         self._last_side: dict[str, str] = {}
 
     async def on_context_update(self, event: Event) -> None:
-        ctx = event.data
-        symbol: str | None = ctx.get("symbol")
-        if symbol is None or symbol not in self._symbols:
-            return
-
-        regime = ctx.get("regime")
-        if isinstance(regime, Regime):
-            is_range = regime == Regime.RANGE
-        else:
-            is_range = str(regime).lower() == "range"
-
-        if not is_range:
-            return
-
-        price = ctx.get("price")
-        if price is None:
-            price = 50000.0 if "BTC" in symbol else 3000.0
-
-        # Alternate sides to harvest both maker rebates over time.
-        prev = self._last_side.get(symbol, "sell")
-        side = "buy" if prev == "sell" else "sell"
-        self._last_side[symbol] = side
-
-        # Very tight stop/TP; primary objective is fill / rebate, not direction.
-        stop = price * (0.999 if side == "buy" else 1.001)
-        tp = price * (1.001 if side == "buy" else 0.999)
-
-        await self._emit_signal(
-            symbol=symbol,
-            side=side,
-            entry_price=price,
-            stop_loss=stop,
-            take_profit=tp,
-            metadata={"reason": "maker_rebate"},
-        )
+        # Disabled: no regime data provider for this stream
+        # Enable when CONTEXT_UPDATE publishes required fields
+        return
 
 
 class BasisHedgeStream(IncomeStream):
@@ -285,36 +256,9 @@ class BasisHedgeStream(IncomeStream):
         self._symbols = symbols
 
     async def on_context_update(self, event: Event) -> None:
-        ctx = event.data
-        symbol: str | None = ctx.get("symbol")
-        if symbol is None or symbol not in self._symbols:
-            return
-
-        basis = ctx.get("basis")
-        if basis is None:
-            return
-
-        threshold = 0.002  # 0.2%
-        if abs(basis) < threshold:
-            return
-
-        price = ctx.get("price")
-        if price is None:
-            price = 50000.0 if "BTC" in symbol else 3000.0
-
-        # Positive basis: lean short perp; negative basis: lean long perp.
-        side = "sell" if basis > 0 else "buy"
-        tp = price * (1.001 if side == "buy" else 0.999)
-        stop = price * (0.995 if side == "buy" else 1.005)
-
-        await self._emit_signal(
-            symbol=symbol,
-            side=side,
-            entry_price=price,
-            stop_loss=stop,
-            take_profit=tp,
-            metadata={"basis": basis},
-        )
+        # Disabled: no basis data provider for this stream
+        # Enable when CONTEXT_UPDATE publishes required fields
+        return
 
 
 class VolatilityHarvestStream(IncomeStream):
@@ -329,49 +273,6 @@ class VolatilityHarvestStream(IncomeStream):
         self._symbols = symbols
 
     async def on_context_update(self, event: Event) -> None:
-        ctx = event.data
-        symbol: str | None = ctx.get("symbol")
-        if symbol is None or symbol not in self._symbols:
-            return
-
-        # Expect contextual volatility info from upstream (e.g. RegimeDetector / trade_density).
-        vol_short = ctx.get("vol_short")
-        vol_long = ctx.get("vol_long")
-        mean_price = ctx.get("mean_price")
-        last_price = ctx.get("price")
-
-        if last_price is None or mean_price is None:
-            return
-
-        # Simple mean‑reversion rule: buy below band, sell above band.
-        band_width = 0.003  # 0.3% around mean
-        lower = mean_price * (1 - band_width)
-        upper = mean_price * (1 + band_width)
-
-        if last_price < lower:
-            side = "buy"
-        elif last_price > upper:
-            side = "sell"
-        else:
-            return
-
-        stop = (
-            mean_price * (1 - 2 * band_width)
-            if side == "buy"
-            else mean_price * (1 + 2 * band_width)
-        )
-        tp = mean_price
-
-        await self._emit_signal(
-            symbol=symbol,
-            side=side,
-            entry_price=last_price,
-            stop_loss=stop,
-            take_profit=tp,
-            metadata={
-                "vol_short": vol_short,
-                "vol_long": vol_long,
-                "mean_price": mean_price,
-                "reason": "volatility_harvest",
-            },
-        )
+        # Disabled: no volatility data provider for this stream
+        # Enable when CONTEXT_UPDATE publishes required fields
+        return

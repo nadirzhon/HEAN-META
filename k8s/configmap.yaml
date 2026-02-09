@@ -1,0 +1,32 @@
+# ============================================
+# ConfigMap - Non-sensitive Configuration
+# ============================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hean-config
+  namespace: hean-production
+  labels:
+    app: hean
+data:
+  # Python API Configuration
+  PYTHONUNBUFFERED: "1"
+  PYTHONPATH: "/app/src"
+  LOG_LEVEL: "INFO"
+  
+  # Redis Configuration
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  
+  # Trading Configuration
+  FUNDING_HARVESTER_ENABLED: "true"
+  BASIS_ARBITRAGE_ENABLED: "true"
+  IMPULSE_ENGINE_ENABLED: "true"
+  
+  # API Configuration
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  API_WORKERS: "4"
+  
+  # Environment
+  TZ: "UTC"

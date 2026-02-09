@@ -17,6 +17,12 @@ class SyntheticPriceFeed(PriceFeed):
 
     def __init__(self, bus: EventBus, symbols: list[str] | None = None) -> None:
         """Initialize the synthetic price feed."""
+        import warnings
+        warnings.warn(
+            "SyntheticPriceFeed is deprecated. System uses Bybit testnet for real market data.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._bus = bus
         self._symbols = symbols or ["BTCUSDT", "ETHUSDT"]
         self._running = False

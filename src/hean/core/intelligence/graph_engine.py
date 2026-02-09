@@ -1,8 +1,5 @@
 """Python wrapper for C++ Graph Engine with real-time adjacency matrix."""
 
-import sys
-from pathlib import Path
-from typing import Optional
 
 try:
     # Try to import the compiled C++ module
@@ -24,7 +21,7 @@ logger = get_logger(__name__)
 class GraphEngineWrapper:
     """Wrapper for C++ Graph Engine with real-time adjacency matrix and lead-lag detection."""
 
-    def __init__(self, bus: EventBus, symbols: Optional[list[str]] = None, window_size: int = 100):
+    def __init__(self, bus: EventBus, symbols: list[str] | None = None, window_size: int = 100):
         """Initialize the graph engine wrapper.
 
         Args:
@@ -36,7 +33,7 @@ class GraphEngineWrapper:
         self._symbols = symbols or self._get_top_50_assets()
         self._window_size = window_size
         self._cpp_available = _CPP_AVAILABLE
-        
+
         if self._cpp_available:
             try:
                 self._engine = graph_engine_py.GraphEngine(window_size=window_size)
@@ -48,7 +45,7 @@ class GraphEngineWrapper:
         else:
             logger.warning("C++ Graph Engine not available. Using Python CorrelationEngine.")
             self._engine = CorrelationEngine(bus, self._symbols)
-        
+
         # Initialize assets in C++ engine
         if self._cpp_available:
             for symbol in self._symbols:
@@ -93,26 +90,26 @@ class GraphEngineWrapper:
     async def _handle_tick_cpp(self, event: Event) -> None:
         """Handle tick events for C++ engine."""
         tick: Tick = event.data["tick"]
-        
+
         if tick.symbol not in self._symbols:
             return
-        
+
         # Update price in C++ engine
         import time
         timestamp_ns = int(time.time_ns())
         self._engine.update_price(tick.symbol, float(tick.price), timestamp_ns)
-        
+
         # Recalculate matrix periodically (every 10 ticks per symbol)
         if not hasattr(self, '_tick_counts'):
             self._tick_counts = {}
         self._tick_counts[tick.symbol] = self._tick_counts.get(tick.symbol, 0) + 1
-        
+
         if self._tick_counts[tick.symbol] % 10 == 0:
             self._engine.recalculate()
 
     def get_feature_vector(self, size: int = 5000) -> list[float]:
         """Get high-dimensional feature vector for neural network input.
-        
+
         Returns flattened adjacency matrix + metadata as a feature vector.
         """
         if self._cpp_available:
@@ -133,12 +130,12 @@ class GraphEngineWrapper:
                 features = []
                 symbols = list(self._symbols)
                 for i, sym_a in enumerate(symbols):
-                    for j, sym_b in enumerate(symbols[i:], start=i):
+                    for _j, sym_b in enumerate(symbols[i:], start=i):
                         features.append(matrix.get((sym_a, sym_b), 0.0))
                 return features[:size]
             return [0.0] * size
 
-    def get_current_leader(self) -> Optional[str]:
+    def get_current_leader(self) -> str | None:
         """Get current market leader (asset that leads others)."""
         if self._cpp_available:
             leader = self._engine.get_current_leader()
@@ -161,7 +158,7 @@ class GraphEngineWrapper:
 
     def get_lead_lag(self, symbol_a: str, symbol_b: str) -> float:
         """Get lead-lag relationship.
-        
+
         Returns:
             Positive value = a leads b
             Negative value = b leads a

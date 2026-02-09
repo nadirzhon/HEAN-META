@@ -2,7 +2,6 @@
 
 import time
 from pathlib import Path
-from typing import Optional, Tuple
 
 try:
     import graph_engine_py  # type: ignore
@@ -26,7 +25,7 @@ logger = get_logger(__name__)
 
 class VolatilitySpikePredictor:
     """Predicts volatility spikes 1 second ahead using TFT model.
-    
+
     If probability > 85%, triggers circuit breaker to clear maker orders.
     """
 
@@ -34,7 +33,7 @@ class VolatilitySpikePredictor:
         self,
         bus: EventBus,
         order_manager: OrderManager,
-        model_path: Optional[str] = None,
+        model_path: str | None = None,
         probability_threshold: float = 0.85,
     ):
         """Initialize volatility spike predictor.
@@ -48,22 +47,22 @@ class VolatilitySpikePredictor:
         self._bus = bus
         self._order_manager = order_manager
         self._probability_threshold = probability_threshold
-        self._predictor: Optional[CPPVolatilityPredictor] = None
+        self._predictor: CPPVolatilityPredictor | None = None
         self._model_loaded = False
-        
+
         # Circuit breaker integration
         self._circuit_breaker = CircuitBreaker()
         self._last_prediction_time = 0.0
         self._prediction_interval_seconds = 0.1  # Predict every 100ms
-        
+
         # Find model file
         if model_path is None:
             # Look for model in project directory
             project_root = Path(__file__).parent.parent.parent.parent.parent
             model_path = project_root / "models" / "tft_volatility_predictor.onnx"
-        
+
         self._model_path = Path(model_path) if model_path else None
-        
+
         # Initialize ONNX predictor if available
         if _ONNX_AVAILABLE and CPPVolatilityPredictor and self._model_path and self._model_path.exists():
             try:
@@ -95,35 +94,35 @@ class VolatilitySpikePredictor:
         """Handle tick events for prediction."""
         if not self._model_loaded:
             return
-        
+
         current_time = time.time()
         if current_time - self._last_prediction_time < self._prediction_interval_seconds:
             return
-        
+
         self._last_prediction_time = current_time
-        
+
         # Get feature vector from graph engine
         # This would be injected or accessed via bus/global state
         feature_vector = await self._get_feature_vector()
         if not feature_vector:
             return
-        
+
         # Predict volatility spike
         if self._predictor is None:
             return
-        
+
         success, probability = self._predictor.predict_volatility_spike(feature_vector)
-        
+
         if success and probability >= self._probability_threshold:
             logger.critical(
                 f"VOLATILITY SPIKE PREDICTED: probability={probability:.2%} "
                 f"(threshold={self._probability_threshold:.2%}). "
                 f"Clearing maker orders to avoid being picked off."
             )
-            
+
             # Trigger circuit breaker - clear all maker orders
             await self._clear_maker_orders()
-            
+
             # Publish prediction event
             await self._bus.publish(
                 Event(
@@ -137,14 +136,15 @@ class VolatilitySpikePredictor:
                 )
             )
 
-    async def _get_feature_vector(self) -> Optional[list[float]]:
+    async def _get_feature_vector(self) -> list[float] | None:
         """Get feature vector from graph engine.
-        
-        In a full implementation, this would access the graph engine instance.
-        For now, return None to indicate feature vector not available.
+
+        Returns None — GraphEngineWrapper integration pending.
         """
-        # TODO: Integrate with GraphEngineWrapper to get feature vector
-        # This requires access to the graph engine instance
+        logger.debug(
+            "[VOLATILITY_PREDICTOR] Feature vector unavailable: "
+            "GraphEngineWrapper integration not implemented"
+        )
         return None
 
     async def _clear_maker_orders(self) -> None:
@@ -155,7 +155,7 @@ class VolatilitySpikePredictor:
             order for order in pending_orders
             if order.order_type == "limit" and order.post_only
         ]
-        
+
         for order in maker_orders:
             try:
                 await self._order_manager.cancel_order(order.order_id)
@@ -163,18 +163,18 @@ class VolatilitySpikePredictor:
             except Exception as e:
                 logger.error(f"Failed to cancel order {order.order_id}: {e}")
 
-    def predict(self, feature_vector: list[float]) -> Tuple[bool, float]:
+    def predict(self, feature_vector: list[float]) -> tuple[bool, float]:
         """Predict volatility spike probability.
-        
+
         Args:
             feature_vector: High-dimensional feature vector from graph engine
-            
+
         Returns:
             (success, probability) tuple
         """
         if not self._model_loaded or self._predictor is None:
             return False, 0.0
-        
+
         try:
             return self._predictor.predict_volatility_spike(feature_vector)
         except Exception as e:

@@ -1,8 +1,8 @@
 """API router for Causal Inference Engine."""
 
-from fastapi import APIRouter, Request
+
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from typing import Dict, List, Optional, Tuple
 
 from hean.logging import get_logger
 
@@ -39,16 +39,21 @@ class PreEchoSignalResponse(BaseModel):
 @router.get("/stats")
 async def get_stats(request: Request):
     """Get causal inference engine statistics."""
-    engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_causal_inference_engine'):
-        return {
-            "relationships": {},
-            "pre_echo_signals": []
-        }
-    
-    causal_engine = engine_facade._causal_inference_engine
-    
+    engine_facade = getattr(request.state, 'engine_facade', None)
+
+    if not engine_facade:
+        raise HTTPException(
+            status_code=503,
+            detail="Causal inference engine not available - engine facade not initialized"
+        )
+
+    causal_engine = getattr(engine_facade, '_causal_inference_engine', None)
+    if not causal_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Causal inference engine not initialized"
+        )
+
     # Get relationships
     relationships = causal_engine.get_causal_relationships()
     relationships_dict = {
@@ -64,7 +69,7 @@ async def get_stats(request: Request):
         }
         for k, v in relationships.items()
     }
-    
+
     # Get pre-echo signals
     pre_echo_signals = causal_engine.get_pre_echo_signals(limit=10)
     signals_list = [
@@ -81,24 +86,32 @@ async def get_stats(request: Request):
         }
         for s in pre_echo_signals
     ]
-    
+
     return {
         "relationships": relationships_dict,
         "pre_echo_signals": signals_list
     }
 
 
-@router.get("/relationships", response_model=List[CausalRelationshipResponse])
+@router.get("/relationships", response_model=list[CausalRelationshipResponse])
 async def get_relationships(request: Request):
     """Get all causal relationships."""
-    engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_causal_inference_engine'):
-        return []
-    
-    causal_engine = engine_facade._causal_inference_engine
+    engine_facade = getattr(request.state, 'engine_facade', None)
+
+    if not engine_facade:
+        raise HTTPException(
+            status_code=503,
+            detail="Causal inference engine not available - engine facade not initialized"
+        )
+
+    causal_engine = getattr(engine_facade, '_causal_inference_engine', None)
+    if not causal_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Causal inference engine not initialized"
+        )
     relationships = causal_engine.get_causal_relationships()
-    
+
     return [
         CausalRelationshipResponse(
             source_symbol=v.source_symbol,
@@ -114,17 +127,25 @@ async def get_relationships(request: Request):
     ]
 
 
-@router.get("/pre-echoes", response_model=List[PreEchoSignalResponse])
+@router.get("/pre-echoes", response_model=list[PreEchoSignalResponse])
 async def get_pre_echoes(request: Request, limit: int = 10):
     """Get recent pre-echo signals."""
-    engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_causal_inference_engine'):
-        return []
-    
-    causal_engine = engine_facade._causal_inference_engine
+    engine_facade = getattr(request.state, 'engine_facade', None)
+
+    if not engine_facade:
+        raise HTTPException(
+            status_code=503,
+            detail="Causal inference engine not available - engine facade not initialized"
+        )
+
+    causal_engine = getattr(engine_facade, '_causal_inference_engine', None)
+    if not causal_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Causal inference engine not initialized"
+        )
     signals = causal_engine.get_pre_echo_signals(limit=limit)
-    
+
     return [
         PreEchoSignalResponse(
             target_symbol=s.target_symbol,

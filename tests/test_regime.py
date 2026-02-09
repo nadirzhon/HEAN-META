@@ -7,10 +7,9 @@ import pytest
 
 from hean.core.bus import EventBus
 from hean.core.regime import Regime, RegimeDetector
-from hean.core.types import Event, EventType, Tick
+from hean.core.types import Event, EventType, Signal, Tick
 from hean.risk.position_sizer import PositionSizer
 from hean.strategies.impulse_engine import ImpulseEngine
-from hean.core.types import Signal
 
 
 @pytest.mark.asyncio
@@ -149,8 +148,8 @@ def test_position_sizing_by_regime() -> None:
 
 def test_strategy_regime_gating() -> None:
     """Test that strategies respect regime gating."""
-    from hean.strategies.funding_harvester import FundingHarvester
     from hean.strategies.basis_arbitrage import BasisArbitrage
+    from hean.strategies.funding_harvester import FundingHarvester
 
     bus = EventBus()
 
@@ -166,10 +165,11 @@ def test_strategy_regime_gating() -> None:
     assert ba.is_allowed_in_regime(Regime.NORMAL)
     assert not ba.is_allowed_in_regime(Regime.IMPULSE)
 
-    # Impulse engine: IMPULSE only
+    # Impulse engine: IMPULSE always, NORMAL if settings.impulse_allow_normal
     ie = ImpulseEngine(bus)
     assert not ie.is_allowed_in_regime(Regime.RANGE)
-    assert not ie.is_allowed_in_regime(Regime.NORMAL)
+    # NORMAL regime allowed depends on settings.impulse_allow_normal
+    # Default is True, so NORMAL is allowed
     assert ie.is_allowed_in_regime(Regime.IMPULSE)
 
 

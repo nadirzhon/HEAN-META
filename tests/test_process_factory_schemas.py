@@ -1,6 +1,5 @@
 """Tests for Process Factory schemas."""
 
-import pytest
 from datetime import datetime
 
 from hean.process_factory.schemas import (

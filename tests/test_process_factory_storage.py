@@ -1,9 +1,10 @@
 """Tests for Process Factory storage."""
 
-import pytest
 import tempfile
 from datetime import datetime
 from pathlib import Path
+
+import pytest
 
 from hean.process_factory.schemas import (
     BybitEnvironmentSnapshot,

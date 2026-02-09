@@ -6,14 +6,14 @@ Tests:
 3. non-retriable errors do not retry
 """
 
-import pytest
-import asyncio
-from datetime import datetime, date
+from datetime import date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from hean.process_factory.storage import SQLiteStorage
-from hean.process_factory.schemas import ProcessRun, ProcessRunStatus
+import pytest
+
 from hean.exchange.bybit.http import BybitHTTPClient
+from hean.process_factory.schemas import ProcessRun, ProcessRunStatus
+from hean.process_factory.storage import SQLiteStorage
 
 
 @pytest.fixture
@@ -140,7 +140,6 @@ async def test_non_retriable_errors_do_not_retry():
 @pytest.mark.asyncio
 async def test_retry_backoff_exponential_delay():
     """Test that retry uses exponential backoff."""
-    import httpx
 
     client = BybitHTTPClient()
     client._api_key = "test_key"
@@ -185,7 +184,7 @@ async def test_retry_backoff_exponential_delay():
 async def test_daily_run_key_different_dates_allowed(storage):
     """Test that different dates allow different runs."""
     from datetime import timedelta
-    
+
     process_id = "test_process"
     today_key = f"{process_id}_{date.today().isoformat()}"
     yesterday = date.today() - timedelta(days=1)

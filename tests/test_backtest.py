@@ -2,13 +2,12 @@
 
 import asyncio
 import io
-import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import patch
 
 import pytest
 
-from hean.backtest.event_sim import EventSimulator, MarketRegime
+from hean.backtest.event_sim import EventSimulator
 from hean.backtest.metrics import BacktestMetrics
 from hean.core.bus import EventBus
 from hean.core.types import EquitySnapshot, Order, OrderStatus
@@ -97,16 +96,16 @@ async def test_run_backtest_completes_and_prints_report() -> None:
     """
     # Capture stdout to verify report is printed
     captured_output = io.StringIO()
-    
+
     with patch("sys.stdout", captured_output):
         # Run a very short backtest (1 day)
         await run_backtest(days=1, output_file=None)
-    
+
     output = captured_output.getvalue()
-    
+
     # Verify that the backtest report was printed
     assert "BACKTEST REPORT" in output or "Initial Equity" in output or "Total Return" in output
-    
+
     # Verify no exceptions were raised (test would fail if so)
 
 
@@ -123,13 +122,13 @@ async def test_run_evaluation_completes_and_prints_result() -> None:
     """
     # Capture stdout to verify report is printed
     captured_output = io.StringIO()
-    
+
     with patch("sys.stdout", captured_output):
         # Run a very short evaluation (1 day)
         result = await run_evaluation(days=1)
-    
+
     output = captured_output.getvalue()
-    
+
     # Verify that the evaluation report was printed
     # (ReadinessEvaluator.print_report should have been called)
     assert isinstance(result, dict)
@@ -137,7 +136,7 @@ async def test_run_evaluation_completes_and_prints_result() -> None:
     assert "criteria" in result
     assert "recommendations" in result
     assert "regime_results" in result
-    
+
     # Verify no exceptions were raised (test would fail if so)
 
 
@@ -153,34 +152,34 @@ async def test_event_simulator_terminates_correctly() -> None:
     start_date = datetime.utcnow()
     # Use minimum duration (1 day)
     simulator = EventSimulator(bus, ["BTCUSDT"], start_date, days=1)
-    
+
     await bus.start()
     await simulator.start(bus=bus)
-    
+
     # Create a task that will stop the simulator after a short delay
     # This simulates the end_date being reached
     async def stop_after_delay() -> None:
         await asyncio.sleep(0.1)
         simulator._running = False
-    
+
     stop_task = asyncio.create_task(stop_after_delay())
-    
+
     # Run should complete when _running becomes False
     import time
     start_time = time.time()
     await simulator.run()
     elapsed = time.time() - start_time
-    
+
     # Should complete quickly after stop signal
     assert elapsed < 2.0, f"Simulation took too long: {elapsed}s"
-    
+
     # Clean up
     stop_task.cancel()
     try:
         await stop_task
     except asyncio.CancelledError:
         pass
-    
+
     await simulator.stop()
     await bus.stop()
 
@@ -194,20 +193,20 @@ async def test_evaluate_produces_trades() -> None:
     """
     # Run evaluation for 1 day
     result = await run_evaluation(days=1)
-    
+
     # Verify result structure
     assert isinstance(result, dict)
     assert "passed" in result
-    
+
     # Get metrics from the evaluation
     # We can't directly access metrics, but we can check that evaluation completed
     # and produced a result. The actual trade count would be in the metrics,
     # but we verify the system ran by checking the result structure.
-    
+
     # If evaluation passed or failed with criteria, it means metrics were calculated
     assert "criteria" in result
     assert "recommendations" in result
-    
+
     # Note: In a real scenario, we'd want to assert total_trades > 0,
     # but that requires accessing internal metrics. For now, we verify
     # the evaluation completed successfully, which means TradingSystem ran.
@@ -224,19 +223,19 @@ async def test_evaluate_nonzero_metrics() -> None:
     """
     # Run evaluation
     result = await run_evaluation(days=1)
-    
+
     # Verify result structure
     assert isinstance(result, dict)
     assert "passed" in result
     assert "criteria" in result
-    
+
     # The criteria dict should contain metric checks
     # If evaluation ran through TradingSystem, it should have calculated
     # real metrics from actual trades (if any were executed)
-    
+
     # Verify evaluation completed (would fail if metrics calculation failed)
     assert "regime_results" in result
-    
+
     # Note: To assert specific metric values, we'd need to access the metrics
     # dict directly. The ReadinessEvaluator.evaluate() processes metrics and
     # returns criteria. For now, we verify the evaluation pipeline completed.
@@ -250,19 +249,19 @@ async def test_evaluate_terminates() -> None:
     For 1 day of simulation, should complete in < 60 seconds.
     """
     import time
-    
+
     start_time = time.time()
-    
+
     # Run evaluation with 1 day
     result = await run_evaluation(days=1)
-    
+
     elapsed = time.time() - start_time
-    
+
     # Should complete within reasonable time (< 60 seconds for 1 day)
     assert elapsed < 60.0, f"Evaluation took too long: {elapsed}s"
-    
+
     # Verify result was returned
     assert isinstance(result, dict)
     assert "passed" in result
-    
+
     # Verify no hanging - if we got here, the function returned

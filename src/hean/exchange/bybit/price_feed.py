@@ -57,7 +57,7 @@ class BybitPriceFeed(PriceFeed):
             if not orderbook_symbols:
                 orderbook_symbols = self._symbols[:2]
             for symbol in orderbook_symbols:
-                await self._ws_public.subscribe_orderbook(symbol, depth=25)
+                await self._ws_public.subscribe_orderbook(symbol, depth=50)
 
             # Start funding rate polling if HTTP client is available
             self._running = True

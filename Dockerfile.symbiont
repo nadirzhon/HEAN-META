@@ -1,0 +1,48 @@
+# HEAN SYMBIONT X - Docker Image for Testing
+
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first (for better caching)
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install additional testing dependencies
+RUN pip install --no-cache-dir pytest pytest-asyncio pytest-cov
+
+# Copy source code
+COPY src/ ./src/
+COPY examples/ ./examples/
+COPY scripts/ ./scripts/
+COPY tests/ ./tests/
+COPY simple_test.py .
+COPY test_symbiont.py .
+
+# Copy environment configuration
+COPY .env.symbiont .env
+
+# Create data directories
+RUN mkdir -p /app/data/historical
+RUN mkdir -p /app/logs
+
+# Set environment variables
+ENV PYTHONPATH=/app/src
+ENV PYTHONUNBUFFERED=1
+
+# Make scripts executable
+RUN chmod +x scripts/symbiont_x/*.py
+
+# Default command
+CMD ["python", "simple_test.py"]

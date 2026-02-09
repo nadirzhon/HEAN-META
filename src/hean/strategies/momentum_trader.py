@@ -84,3 +84,7 @@ class MomentumTrader(BaseStrategy):
         logger.info(
             f"Momentum signal: {side} {tick.symbol} @ {tick.price:.2f}, momentum={momentum:.4f}"
         )
+
+    async def on_funding(self, event: Event) -> None:
+        """Handle funding event - not used by momentum strategy."""
+        pass

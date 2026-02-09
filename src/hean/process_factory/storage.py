@@ -115,6 +115,7 @@ class SQLiteStorage(Storage):
                 outputs TEXT,
                 error TEXT,
                 capital_allocated_usd REAL NOT NULL DEFAULT 0,
+                daily_run_key TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -141,9 +142,29 @@ class SQLiteStorage(Storage):
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- Existing indexes
             CREATE INDEX IF NOT EXISTS idx_runs_process_id ON runs(process_id);
             CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at);
             CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON snapshots(timestamp);
+
+            -- Performance optimization indexes
+            CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+            CREATE INDEX IF NOT EXISTS idx_runs_finished_at ON runs(finished_at);
+            CREATE INDEX IF NOT EXISTS idx_capital_plans_date ON capital_plans(date);
+
+            -- Composite indexes for common query patterns
+            CREATE INDEX IF NOT EXISTS idx_runs_process_status ON runs(process_id, status);
+            CREATE INDEX IF NOT EXISTS idx_runs_process_started ON runs(process_id, started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_portfolio_state_weight ON portfolio(state, weight DESC);
+
+            -- Daily run key tracking (for idempotency)
+            CREATE TABLE IF NOT EXISTS daily_run_keys (
+                daily_run_key TEXT PRIMARY KEY,
+                process_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
         """
         )
         conn.commit()
@@ -206,9 +227,20 @@ class SQLiteStorage(Storage):
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- Existing indexes
             CREATE INDEX IF NOT EXISTS idx_runs_process_id ON runs(process_id);
             CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at);
             CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON snapshots(timestamp);
+
+            -- Performance optimization indexes
+            CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+            CREATE INDEX IF NOT EXISTS idx_runs_finished_at ON runs(finished_at);
+            CREATE INDEX IF NOT EXISTS idx_capital_plans_date ON capital_plans(date);
+
+            -- Composite indexes for common query patterns
+            CREATE INDEX IF NOT EXISTS idx_runs_process_status ON runs(process_id, status);
+            CREATE INDEX IF NOT EXISTS idx_runs_process_started ON runs(process_id, started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_portfolio_state_weight ON portfolio(state, weight DESC);
         """
         )
         await conn.commit()
@@ -272,8 +304,8 @@ class SQLiteStorage(Storage):
         }
         if self._use_async:
             await conn.execute(  # type: ignore
-                """INSERT OR REPLACE INTO runs 
-                   (run_id, process_id, started_at, finished_at, status, metrics, logs_ref, 
+                """INSERT OR REPLACE INTO runs
+                   (run_id, process_id, started_at, finished_at, status, metrics, logs_ref,
                     inputs, outputs, error, capital_allocated_usd, daily_run_key)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
@@ -295,7 +327,7 @@ class SQLiteStorage(Storage):
             if daily_run_key:
                 date_str = run.started_at.date().isoformat()
                 await conn.execute(  # type: ignore
-                    """INSERT OR REPLACE INTO daily_run_keys 
+                    """INSERT OR REPLACE INTO daily_run_keys
                        (daily_run_key, process_id, date, run_id)
                        VALUES (?, ?, ?, ?)""",
                     (daily_run_key, run.process_id, date_str, run.run_id),
@@ -303,8 +335,8 @@ class SQLiteStorage(Storage):
             await conn.commit()  # type: ignore
         else:
             conn.execute(
-                """INSERT OR REPLACE INTO runs 
-                   (run_id, process_id, started_at, finished_at, status, metrics, logs_ref, 
+                """INSERT OR REPLACE INTO runs
+                   (run_id, process_id, started_at, finished_at, status, metrics, logs_ref,
                     inputs, outputs, error, capital_allocated_usd, daily_run_key)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
@@ -326,7 +358,7 @@ class SQLiteStorage(Storage):
             if daily_run_key:
                 date_str = run.started_at.date().isoformat()
                 conn.execute(
-                    """INSERT OR REPLACE INTO daily_run_keys 
+                    """INSERT OR REPLACE INTO daily_run_keys
                        (daily_run_key, process_id, date, run_id)
                        VALUES (?, ?, ?, ?)""",
                     (daily_run_key, run.process_id, date_str, run.run_id),
@@ -424,67 +456,44 @@ class SQLiteStorage(Storage):
         return runs
 
     async def save_portfolio(self, entries: list[ProcessPortfolioEntry]) -> None:
-        """Save process portfolio."""
+        """Save process portfolio using batch insert for performance."""
+        if not entries:
+            return
+
         conn = await self._get_connection()
-        for entry in entries:
-            data = {
-                "process_id": entry.process_id,
-                "state": entry.state.value,
-                "weight": entry.weight,
-                "runs_count": entry.runs_count,
-                "wins": entry.wins,
-                "losses": entry.losses,
-                "pnl_sum": entry.pnl_sum,
-                "max_dd": entry.max_dd,
-                "avg_roi": entry.avg_roi,
-                "fail_rate": entry.fail_rate,
-                "time_efficiency": entry.time_efficiency,
-                "last_run_at": entry.last_run_at.isoformat() if entry.last_run_at else None,
-            }
-            if self._use_async:
-                await conn.execute(  # type: ignore
-                    """INSERT OR REPLACE INTO portfolio 
-                       (process_id, state, weight, runs_count, wins, losses, pnl_sum, max_dd,
-                        avg_roi, fail_rate, time_efficiency, last_run_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        data["process_id"],
-                        data["state"],
-                        data["weight"],
-                        data["runs_count"],
-                        data["wins"],
-                        data["losses"],
-                        data["pnl_sum"],
-                        data["max_dd"],
-                        data["avg_roi"],
-                        data["fail_rate"],
-                        data["time_efficiency"],
-                        data["last_run_at"],
-                    ),
-                )
-                await conn.commit()  # type: ignore
-            else:
-                conn.execute(
-                    """INSERT OR REPLACE INTO portfolio 
-                       (process_id, state, weight, runs_count, wins, losses, pnl_sum, max_dd,
-                        avg_roi, fail_rate, time_efficiency, last_run_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        data["process_id"],
-                        data["state"],
-                        data["weight"],
-                        data["runs_count"],
-                        data["wins"],
-                        data["losses"],
-                        data["pnl_sum"],
-                        data["max_dd"],
-                        data["avg_roi"],
-                        data["fail_rate"],
-                        data["time_efficiency"],
-                        data["last_run_at"],
-                    ),
-                )
-                conn.commit()
+
+        # Prepare batch data
+        batch_data = [
+            (
+                entry.process_id,
+                entry.state.value,
+                entry.weight,
+                entry.runs_count,
+                entry.wins,
+                entry.losses,
+                entry.pnl_sum,
+                entry.max_dd,
+                entry.avg_roi,
+                entry.fail_rate,
+                entry.time_efficiency,
+                entry.last_run_at.isoformat() if entry.last_run_at else None,
+            )
+            for entry in entries
+        ]
+
+        sql = """INSERT OR REPLACE INTO portfolio
+                 (process_id, state, weight, runs_count, wins, losses, pnl_sum, max_dd,
+                  avg_roi, fail_rate, time_efficiency, last_run_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+
+        if self._use_async:
+            # Batch insert using executemany
+            await conn.executemany(sql, batch_data)  # type: ignore
+            await conn.commit()  # type: ignore
+        else:
+            # Batch insert using executemany
+            conn.executemany(sql, batch_data)
+            conn.commit()
 
     async def load_portfolio(self) -> list[ProcessPortfolioEntry]:
         """Load process portfolio."""

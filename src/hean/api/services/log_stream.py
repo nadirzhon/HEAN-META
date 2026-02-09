@@ -105,7 +105,7 @@ class LogStreamService:
                             break
 
                         yield f"data: {json.dumps(log_data)}\n\n"
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         # Send heartbeat
                         yield ": heartbeat\n\n"
                     except Exception as e:

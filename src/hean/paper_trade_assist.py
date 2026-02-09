@@ -14,21 +14,28 @@ def is_paper_assist_enabled() -> bool:
     """Check if paper trade assist is enabled and safe to use."""
     if not settings.paper_trade_assist:
         return False
-    
+
+    import warnings
+    warnings.warn(
+        "paper_trade_assist is deprecated. System uses Bybit testnet only.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     # Double-check safety (should be validated in config, but extra safety)
     is_paper_safe = settings.dry_run or settings.bybit_testnet
     is_live_unsafe = not settings.dry_run and settings.is_live
-    
+
     if is_live_unsafe:
         logger.error("PAPER_TRADE_ASSIST enabled in live mode - this should not happen!")
         return False
-    
+
     return is_paper_safe
 
 
 def get_spread_threshold_multiplier() -> float:
     """Get multiplier for spread threshold (higher = more lenient).
-    
+
     Returns:
         Multiplier (default 2.5x for paper assist, 2.0x for debug mode, 1.0x otherwise)
         In Aggressive Mode (both enabled), returns 2.0x effectively doubling MAX_ALLOWED_SPREAD
@@ -45,7 +52,7 @@ def get_spread_threshold_multiplier() -> float:
 
 def get_volatility_gate_relaxation() -> tuple[float, float]:
     """Get volatility gate relaxation factors.
-    
+
     Returns:
         (min_multiplier, max_multiplier) - multipliers for min/max volatility thresholds
         Lower min = more lenient, higher max = more lenient
@@ -57,7 +64,7 @@ def get_volatility_gate_relaxation() -> tuple[float, float]:
 
 def get_edge_threshold_reduction_pct() -> float:
     """Get percentage reduction for edge thresholds.
-    
+
     Returns:
         Reduction percentage (e.g., 40.0 means reduce threshold by 40%)
         In Aggressive Mode (DEBUG_MODE=True), reduces to near-zero (95% reduction)
@@ -72,7 +79,7 @@ def get_edge_threshold_reduction_pct() -> float:
 
 def get_max_open_positions_override() -> int | None:
     """Get override for max_open_positions (guarantee at least 1-2 positions).
-    
+
     Returns:
         Override value or None to use default
     """
@@ -83,7 +90,7 @@ def get_max_open_positions_override() -> int | None:
 
 def get_min_notional_override() -> float | None:
     """Get override for minimum notional (guarantee trades can pass).
-    
+
     Returns:
         Override value in USD or None to use default
     """
@@ -94,7 +101,7 @@ def get_min_notional_override() -> float | None:
 
 def get_cooldown_multiplier() -> float:
     """Get multiplier for cooldown periods (lower = shorter cooldown).
-    
+
     Returns:
         Multiplier (default 0.33x = 3x shorter for paper assist)
         In Aggressive Mode (DEBUG_MODE=True), returns 0.0 to bypass cooldowns
@@ -109,7 +116,7 @@ def get_cooldown_multiplier() -> float:
 
 def get_daily_attempts_multiplier() -> float:
     """Get multiplier for daily attempt limits (higher = more attempts).
-    
+
     Returns:
         Multiplier (default 2.0x for paper assist)
     """
@@ -120,16 +127,16 @@ def get_daily_attempts_multiplier() -> float:
 
 def should_allow_regime(regime_value: str) -> bool:
     """Check if regime should be allowed (paper assist allows neutral/chop).
-    
+
     Args:
         regime_value: Regime value (e.g., "normal", "impulse", "range")
-    
+
     Returns:
         True if regime should be allowed
     """
     if not is_paper_assist_enabled():
         return True  # Use default logic
-    
+
     # In paper assist, allow all regimes (including neutral/chop)
     return True
 
@@ -145,7 +152,7 @@ def log_block_reason(
     suggested_fix: list[str] | None = None,
 ) -> None:
     """Log a block reason with diagnostic information.
-    
+
     Args:
         reason_code: Reason code (e.g., "spread_reject", "edge_reject")
         measured_value: Measured value that caused block
@@ -156,7 +163,7 @@ def log_block_reason(
     """
     # Use agent_name if provided, otherwise use strategy_id
     agent_display = agent_name or strategy_id or "unknown"
-    
+
     # Format: [SIGNAL REJECTED] Agent: {name} | Reason: {reason} | Current Value: {value} | Threshold: {limit}
     msg_parts = [f"[SIGNAL REJECTED] Agent: {agent_display} | Reason: {reason_code}"]
     if measured_value is not None:
@@ -169,10 +176,10 @@ def log_block_reason(
         msg_parts.append(f"| Reasons: {', '.join(reasons)}")
     if suggested_fix:
         msg_parts.append(f"| Fix: {', '.join(suggested_fix)}")
-    
+
     # Always log at INFO level for visibility in docker-compose logs
     logger.info(" ".join(msg_parts))
-    
+
     # Also log detailed debug info
     debug_parts = [f"[BLOCK] {reason_code}"]
     if symbol:
@@ -197,7 +204,7 @@ def log_allow_reason(
     note: str = "",
 ) -> None:
     """Log an allow reason.
-    
+
     Args:
         reason_code: Reason code (e.g., "ALLOW", "PAPER_ASSIST_OVERRIDE")
         symbol: Trading symbol
@@ -211,5 +218,5 @@ def log_allow_reason(
         msg_parts.append(f"strategy={strategy_id}")
     if note:
         msg_parts.append(f"note={note}")
-    
+
     logger.info(" ".join(msg_parts))

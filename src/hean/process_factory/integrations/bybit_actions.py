@@ -196,7 +196,7 @@ class BybitHTTPAdapter(BybitActions):
 
     async def get_min_notional(self, symbol: str) -> float:
         """Get min notional from symbol rules.
-        
+
         CRITICAL: Fetches from API, no hardcoded defaults.
         """
         rules = await self.get_symbol_rules(symbol)
@@ -209,7 +209,7 @@ class BybitHTTPAdapter(BybitActions):
         self, symbol: str
     ) -> dict[str, Any]:
         """Get symbol rules from Bybit API.
-        
+
         CRITICAL: Fetches real rules from API. Hardcoded defaults are forbidden in production.
 
         Args:

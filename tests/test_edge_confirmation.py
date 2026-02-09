@@ -1,8 +1,8 @@
 """Tests for edge confirmation loop (2-step impulse entries)."""
 
-from datetime import datetime, timedelta
 import pathlib
 import sys
+from datetime import datetime, timedelta
 
 # Ensure local `src` package is importable as `hean`
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -223,10 +223,9 @@ def test_candidate_expires_and_is_replaced() -> None:
 
 """Tests for edge confirmation loop (2-step impulse entries)."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from hean.core.types import Signal, Tick
-from hean.strategies.edge_confirmation import EdgeConfirmationLoop
 
 
 def _make_signal(

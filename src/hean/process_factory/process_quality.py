@@ -7,7 +7,6 @@ Scores processes by:
 - Capital efficiency (time/risk)
 """
 
-from typing import Any
 
 from pydantic import BaseModel, Field
 

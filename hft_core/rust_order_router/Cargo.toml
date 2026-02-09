@@ -1,0 +1,35 @@
+[package]
+name = "order-router"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.35", features = ["full", "rt-multi-thread"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+zeromq = "0.3"
+uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"] }
+parking_lot = "0.12"
+dashmap = "5.5"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+metrics = "0.21"
+crossbeam = "0.8"
+once_cell = "1.19"
+core_affinity = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.bench]
+inherits = "release"
+
+[[bin]]
+name = "order-router"
+path = "src/main.rs"

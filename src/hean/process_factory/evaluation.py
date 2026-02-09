@@ -5,7 +5,6 @@ Produces a portfolio health score: stability, concentration risk, kill/scale chu
 """
 
 from datetime import datetime, timedelta
-from typing import Any
 
 from pydantic import BaseModel, Field
 

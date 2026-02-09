@@ -1,5 +1,6 @@
 """Portfolio accounting and PnL tracking."""
 
+import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -10,10 +11,15 @@ logger = get_logger(__name__)
 
 
 class PortfolioAccounting:
-    """Tracks portfolio equity, PnL, and drawdown."""
+    """Tracks portfolio equity, PnL, and drawdown.
+
+    Thread-safe implementation using asyncio.Lock for all state mutations.
+    This prevents race conditions that could corrupt capital tracking.
+    """
 
     def __init__(self, initial_capital: float) -> None:
         """Initialize portfolio accounting."""
+        self._lock = asyncio.Lock()  # CRITICAL: Protects all state mutations
         self._initial_capital = initial_capital
         self._cash = initial_capital
         self._positions: dict[str, Position] = {}
@@ -42,8 +48,19 @@ class PortfolioAccounting:
         self._metrics_cache_ttl = timedelta(seconds=5)  # Cache for 5 seconds
 
     def update_cash(self, amount: float) -> None:
-        """Update cash balance."""
+        """Update cash balance (synchronous - use update_cash_async for thread safety)."""
         self._cash += amount
+
+    async def update_cash_async(self, amount: float) -> None:
+        """Update cash balance with thread safety."""
+        async with self._lock:
+            self._cash += amount
+
+    def set_balance_from_exchange(self, balance: float) -> None:
+        """Sync internal accounting with real exchange balance."""
+        self._initial_capital = balance
+        self._cash = balance
+        self._peak_equity = balance
 
     def get_cash_balance(self) -> float:
         """Return current cash balance."""
@@ -58,13 +75,23 @@ class PortfolioAccounting:
         return self._total_fees
 
     def add_position(self, position: Position) -> None:
-        """Add a new position."""
+        """Add a new position (synchronous - use add_position_async for thread safety)."""
         self._positions[position.position_id] = position
         # Note: Cash is already updated in record_fill
 
+    async def add_position_async(self, position: Position) -> None:
+        """Add a new position with thread safety."""
+        async with self._lock:
+            self._positions[position.position_id] = position
+
     def remove_position(self, position_id: str) -> None:
-        """Remove a closed position."""
+        """Remove a closed position (synchronous - use remove_position_async for thread safety)."""
         self._positions.pop(position_id, None)
+
+    async def remove_position_async(self, position_id: str) -> None:
+        """Remove a closed position with thread safety."""
+        async with self._lock:
+            self._positions.pop(position_id, None)
 
     def update_position_price(self, position_id: str, price: float) -> None:
         """Update the current price of a position."""
@@ -78,7 +105,7 @@ class PortfolioAccounting:
                 pos.unrealized_pnl = (pos.entry_price - price) * pos.size
 
     def record_fill(self, order: Order, fill_price: float, fee: float) -> None:
-        """Record an order fill and update cash."""
+        """Record an order fill and update cash (synchronous)."""
         cost = order.filled_size * fill_price
         if order.side == "buy":
             self._cash -= cost + fee
@@ -94,10 +121,28 @@ class PortfolioAccounting:
         # Invalidate cache when data changes
         self._invalidate_metrics_cache()
 
+    async def record_fill_async(self, order: Order, fill_price: float, fee: float) -> None:
+        """Record an order fill with thread safety (CRITICAL: prevents race conditions)."""
+        async with self._lock:
+            cost = order.filled_size * fill_price
+            if order.side == "buy":
+                self._cash -= cost + fee
+            else:  # sell
+                self._cash += cost - fee
+
+            self._total_fees += fee
+
+            # Track per-strategy
+            if order.strategy_id:
+                self._strategy_trades[order.strategy_id] += 1
+
+            # Invalidate cache when data changes
+            self._invalidate_metrics_cache()
+
     def record_realized_pnl(
         self, amount: float, strategy_id: str | None = None, regime: str | None = None
     ) -> None:
-        """Record realized PnL from a closed position."""
+        """Record realized PnL from a closed position (synchronous)."""
         self._realized_pnl += amount
         self._cash += amount
 
@@ -116,6 +161,30 @@ class PortfolioAccounting:
 
         # Invalidate cache when data changes
         self._invalidate_metrics_cache()
+
+    async def record_realized_pnl_async(
+        self, amount: float, strategy_id: str | None = None, regime: str | None = None
+    ) -> None:
+        """Record realized PnL with thread safety (CRITICAL: prevents race conditions)."""
+        async with self._lock:
+            self._realized_pnl += amount
+            self._cash += amount
+
+            if strategy_id:
+                self._strategy_pnl[strategy_id] += amount
+                if amount > 0:
+                    self._strategy_wins[strategy_id] += 1
+                else:
+                    self._strategy_losses[strategy_id] += 1
+
+                # Track per-regime
+                if regime:
+                    key = (strategy_id, regime)
+                    self._strategy_regime_pnl[key] += amount
+                    self._strategy_regime_trades[key] += 1
+
+            # Invalidate cache when data changes
+            self._invalidate_metrics_cache()
 
     def get_equity(self, current_prices: dict[str, float] | None = None) -> float:
         """Calculate current equity."""

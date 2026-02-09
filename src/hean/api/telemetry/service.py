@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Deque, Optional
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from hean.api.telemetry.events import EventEnvelope, make_event
 from hean.logging import get_logger
@@ -21,7 +22,7 @@ class TelemetryService:
 
     def __init__(self, window_seconds: int = 60) -> None:
         self._window_seconds = window_seconds
-        self._events: Deque[float] = deque()
+        self._events: deque[float] = deque()
         self._events_total = 0
         self._last_event: EventEnvelope | None = None
         self._last_heartbeat: EventEnvelope | None = None
@@ -30,7 +31,7 @@ class TelemetryService:
         self._broadcast: BroadcastFn | None = None
         self._lock = asyncio.Lock()
         self._seq_counter: int = 0
-        self._recent_events: Deque[EventEnvelope] = deque(maxlen=500)
+        self._recent_events: deque[EventEnvelope] = deque(maxlen=500)
 
     def set_broadcast(self, broadcast: BroadcastFn) -> None:
         """Inject async broadcast function (e.g., WebSocket topic fan-out)."""
@@ -60,7 +61,7 @@ class TelemetryService:
         async with self._lock:
             if count_only:
                 # Fast path: only increment counters without mutating history/seq
-                now = datetime.now(timezone.utc).timestamp()
+                now = datetime.now(UTC).timestamp()
                 self._events.append(now)
                 self._events_total += 1
                 cutoff = now - self._window_seconds
@@ -123,10 +124,10 @@ class TelemetryService:
     def uptime_seconds(self) -> float:
         return max(time.time() - self._start_time, 0.0)
 
-    def last_event_ts_iso(self) -> Optional[str]:
+    def last_event_ts_iso(self) -> str | None:
         return self._last_event.ts.isoformat() if self._last_event else None
 
-    def last_heartbeat(self) -> Optional[dict[str, Any]]:
+    def last_heartbeat(self) -> dict[str, Any] | None:
         return self._last_heartbeat.as_dict() if self._last_heartbeat else None
 
     def last_seq(self) -> int:

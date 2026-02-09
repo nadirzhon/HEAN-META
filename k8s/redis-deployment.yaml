@@ -1,0 +1,148 @@
+# ============================================
+# Redis Deployment with Persistence
+# ============================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: hean-production
+  labels:
+    app: hean
+    component: redis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: hean-production
+  labels:
+    app: hean
+    component: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hean
+      component: redis
+  template:
+    metadata:
+      labels:
+        app: hean
+        component: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command:
+          - redis-server
+          - /usr/local/etc/redis/redis.conf
+        ports:
+        - containerPort: 6379
+          name: redis
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 1Gi
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        - name: redis-config
+          mountPath: /usr/local/etc/redis/redis.conf
+          subPath: redis.conf
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-pvc
+      - name: redis-config
+        configMap:
+          name: redis-config
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: hean-production
+  labels:
+    app: hean
+    component: redis
+data:
+  redis.conf: |
+    bind 0.0.0.0
+    protected-mode yes
+    port 6379
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+    
+    daemonize no
+    loglevel notice
+    databases 16
+    
+    # Persistence
+    save 900 1
+    save 300 10
+    save 60 10000
+    rdbcompression yes
+    rdbchecksum yes
+    dbfilename dump.rdb
+    dir /data
+    
+    # AOF
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    
+    # Memory
+    maxmemory 1gb
+    maxmemory-policy allkeys-lru
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: hean-production
+  labels:
+    app: hean
+    component: redis
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+    name: redis
+  selector:
+    app: hean
+    component: redis

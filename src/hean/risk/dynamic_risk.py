@@ -108,9 +108,8 @@ class DynamicRiskManager:
         elif current_regime == Regime.IMPULSE:
             multiplier += 0.1
 
-        # Apply bounds - CRITICAL: Never allow multiplier to be 0
-        # Changed min from 0.5 to 0.1 to ensure trades can execute
-        multiplier = max(0.1, min(self._max_multiplier, multiplier))
+        # Apply bounds - CRITICAL: Respect configured minimum
+        multiplier = max(self._min_multiplier, min(self._max_multiplier, multiplier))
 
         # Safeguard 1: Never increase risk after drawdown spike
         if self._drawdown_spike_detected:

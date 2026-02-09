@@ -1,6 +1,6 @@
 """Canary Tester - Monitors canary performance and triggers promotion/rollback."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from hean.config import settings
@@ -23,6 +23,7 @@ class CanaryMetrics:
         self.max_dd_pct = 0.0
         self.sharpe = 0.0
         self.profit_factor = 0.0
+        self.returns: list[float] = []
         self.started_at = datetime.utcnow()
         self.last_updated_at = datetime.utcnow()
 
@@ -102,14 +103,22 @@ class CanaryTester:
         else:
             metrics.losses += 1
         metrics.total_pnl += trade_pnl
+        metrics.returns.append(trade_pnl)
         metrics.last_updated_at = datetime.utcnow()
 
         # Recalculate metrics (simplified)
         metrics.profit_factor = (
             (metrics.wins / metrics.losses) if metrics.losses > 0 else metrics.wins
         )
-        # STUB: In real implementation, calculate actual Sharpe from returns
-        metrics.sharpe = 1.0 + (metrics.total_pnl / max(metrics.trades, 1)) / 100.0
+        # Calculate Sharpe from actual returns
+        if hasattr(metrics, 'returns') and len(metrics.returns) >= 2:
+            returns = metrics.returns
+            mean_return = sum(returns) / len(returns)
+            variance = sum((r - mean_return) ** 2 for r in returns) / len(returns)
+            std_return = variance ** 0.5
+            metrics.sharpe = (mean_return / std_return) * (252 ** 0.5) if std_return > 0 else 0.0
+        else:
+            metrics.sharpe = 0.0  # Not enough data for Sharpe calculation
 
     async def check_quality_gate(
         self,

@@ -82,7 +82,7 @@ async def get_risk_governor_status(request: Request) -> dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Failed to get risk governor status: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/clear")
@@ -128,7 +128,7 @@ async def clear_risk_governor(request: Request, clear_request: ClearRequest) -> 
         raise
     except Exception as e:
         logger.error(f"Failed to clear risk governor: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/quarantine/{symbol}")
@@ -167,4 +167,4 @@ async def quarantine_symbol(request: Request, symbol: str, reason: str = "MANUAL
         raise
     except Exception as e:
         logger.error(f"Failed to quarantine symbol: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

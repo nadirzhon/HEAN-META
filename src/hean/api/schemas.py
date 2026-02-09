@@ -1,10 +1,23 @@
 """Pydantic schemas for API requests and responses."""
 
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# Symbol validation pattern (e.g., BTCUSDT, ETHUSDT)
+SYMBOL_PATTERN = re.compile(r"^[A-Z0-9]{2,10}USDT?$")
+
+
+def validate_symbol(v: str) -> str:
+    """Validate trading symbol format."""
+    if not SYMBOL_PATTERN.match(v):
+        raise ValueError(
+            "Symbol must be in format like BTCUSDT, ETHUSDT (2-10 uppercase alphanumeric + USDT)"
+        )
+    return v
 
 
 class EngineStatus(str, Enum):
@@ -62,8 +75,18 @@ class TestOrderRequest(BaseModel):
 
     symbol: str = Field(default="BTCUSDT", description="Trading symbol")
     side: str = Field(default="buy", description="Order side: buy or sell")
-    size: float = Field(default=0.001, description="Order size")
-    price: float | None = Field(default=None, description="Limit price (optional)")
+    size: float = Field(default=0.001, description="Order size", gt=0)
+    price: float | None = Field(default=None, description="Limit price (optional)", gt=0)
+
+    _validate_symbol = field_validator("symbol")(validate_symbol)
+
+    @field_validator("side")
+    @classmethod
+    def validate_side(cls, v: str) -> str:
+        """Validate order side."""
+        if v.lower() not in ("buy", "sell"):
+            raise ValueError("Side must be 'buy' or 'sell'")
+        return v.lower()
 
 
 class TestRoundtripRequest(BaseModel):
@@ -71,10 +94,20 @@ class TestRoundtripRequest(BaseModel):
 
     symbol: str = Field(default="BTCUSDT", description="Trading symbol")
     side: str = Field(default="buy", description="Order side: buy or sell")
-    size: float = Field(default=0.001, description="Order size")
-    take_profit_pct: float = Field(default=0.3, description="TP distance in percent")
-    stop_loss_pct: float = Field(default=0.3, description="SL distance in percent")
-    hold_timeout_sec: int = Field(default=10, description="TTL seconds for forced exit")
+    size: float = Field(default=0.001, description="Order size", gt=0)
+    take_profit_pct: float = Field(default=0.3, description="TP distance in percent", gt=0)
+    stop_loss_pct: float = Field(default=0.3, description="SL distance in percent", gt=0)
+    hold_timeout_sec: int = Field(default=10, description="TTL seconds for forced exit", gt=0)
+
+    _validate_symbol = field_validator("symbol")(validate_symbol)
+
+    @field_validator("side")
+    @classmethod
+    def validate_side(cls, v: str) -> str:
+        """Validate order side."""
+        if v.lower() not in ("buy", "sell"):
+            raise ValueError("Side must be 'buy' or 'sell'")
+        return v.lower()
 
 
 class ClosePositionRequest(BaseModel):
@@ -109,11 +142,11 @@ class StrategyParamsRequest(BaseModel):
 class RiskLimitsRequest(BaseModel):
     """Request model for updating risk limits."""
 
-    max_open_positions: int | None = None
-    max_daily_attempts: int | None = None
-    max_exposure_usd: float | None = None
-    min_notional_usd: float | None = None
-    cooldown_seconds: int | None = None
+    max_open_positions: int | None = Field(None, gt=0, le=100)
+    max_daily_attempts: int | None = Field(None, gt=0, le=1000)
+    max_exposure_usd: float | None = Field(None, gt=0)
+    min_notional_usd: float | None = Field(None, gt=0)
+    cooldown_seconds: int | None = Field(None, ge=0, le=86400)
 
 
 class BacktestRequest(BaseModel):
@@ -122,15 +155,27 @@ class BacktestRequest(BaseModel):
     symbol: str = Field(default="BTCUSDT", description="Trading symbol")
     start_date: str = Field(..., description="Start date (YYYY-MM-DD)")
     end_date: str = Field(..., description="End date (YYYY-MM-DD)")
-    initial_capital: float = Field(default=10000.0, description="Initial capital")
+    initial_capital: float = Field(default=10000.0, description="Initial capital", gt=0)
     strategy_id: str | None = None
+
+    _validate_symbol = field_validator("symbol")(validate_symbol)
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        """Validate date format YYYY-MM-DD."""
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+            raise ValueError("Date must be in format YYYY-MM-DD")
+        return v
 
 
 class EvaluateRequest(BaseModel):
     """Request model for running evaluation."""
 
     symbol: str = Field(default="BTCUSDT", description="Trading symbol")
-    days: int = Field(default=7, description="Number of days to evaluate")
+    days: int = Field(default=7, description="Number of days to evaluate", gt=0, le=365)
+
+    _validate_symbol = field_validator("symbol")(validate_symbol)
 
 
 class EventStreamMessage(BaseModel):
@@ -185,3 +230,77 @@ class BlockedSignalsAnalytics(BaseModel):
     top_reasons: list[dict[str, Any]] = Field(default_factory=list)
     blocks_by_hour: dict[str, int] = Field(default_factory=dict)
     recent_blocks: list[ReasonCode] = Field(default_factory=list)
+
+
+# WebSocket Message Schemas
+
+
+class WebSocketActionType(str, Enum):
+    """Valid WebSocket action types."""
+
+    SUBSCRIBE = "subscribe"
+    UNSUBSCRIBE = "unsubscribe"
+    PING = "ping"
+
+
+class WebSocketTopicType(str, Enum):
+    """Valid WebSocket subscription topics."""
+
+    SYSTEM_STATUS = "system_status"
+    TELEMETRY = "telemetry"
+    MARKET_DATA = "market_data"
+    TRADING_SIGNALS = "trading_signals"
+    POSITIONS = "positions"
+    ORDERS = "orders"
+    PERFORMANCE = "performance"
+    RISK = "risk"
+    LOGS = "logs"
+    SNAPSHOT = "snapshot"
+    SYSTEM_HEARTBEAT = "system_heartbeat"  # UI compatibility
+    ORDER_DECISIONS = "order_decisions"  # UI compatibility
+    RISK_EVENTS = "risk_events"  # UI compatibility
+    STRATEGY_EVENTS = "strategy_events"  # UI compatibility
+    MARKET_TICKS = "market_ticks"  # UI compatibility
+    TRADING_METRICS = "trading_metrics"  # UI compatibility
+
+
+class WebSocketMessage(BaseModel):
+    """Schema for incoming WebSocket messages."""
+
+    action: WebSocketActionType = Field(
+        ..., description="Action to perform (subscribe, unsubscribe, ping)"
+    )
+    topic: WebSocketTopicType | None = Field(
+        None,
+        description="Topic to subscribe/unsubscribe from (required for subscribe/unsubscribe)",
+    )
+    data: dict[str, Any] | None = Field(
+        None, description="Optional data payload for the action"
+    )
+
+    def model_post_init(self, __context: Any) -> None:
+        """Validate that topic is provided for subscribe/unsubscribe actions."""
+        if self.action in (
+            WebSocketActionType.SUBSCRIBE,
+            WebSocketActionType.UNSUBSCRIBE,
+        ):
+            if self.topic is None:
+                raise ValueError(f"Topic is required for {self.action.value} action")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "action": "subscribe",
+                    "topic": "system_status",
+                },
+                {
+                    "action": "unsubscribe",
+                    "topic": "telemetry",
+                },
+                {
+                    "action": "ping",
+                },
+            ]
+        }
+    }

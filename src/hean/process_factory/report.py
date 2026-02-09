@@ -32,7 +32,7 @@ class ProcessReportGenerator:
         suggested_processes: list[str] | None = None,
     ) -> tuple[Path, Path] | None:
         """Generate daily report (markdown and JSON).
-        
+
         Idempotent: returns existing paths if report already exists for today.
 
         Args:

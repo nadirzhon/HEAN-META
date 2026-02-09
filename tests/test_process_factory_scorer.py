@@ -1,9 +1,8 @@
 """Tests for Process Factory scorer."""
 
-import pytest
 
-from hean.process_factory.scorer import rank_opportunities, score_opportunity
 from hean.process_factory.schemas import Opportunity, OpportunitySource
+from hean.process_factory.scorer import rank_opportunities, score_opportunity
 
 
 def test_score_opportunity():

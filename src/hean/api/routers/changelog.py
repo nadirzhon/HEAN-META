@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from hean.logging import get_logger
 
@@ -65,7 +65,7 @@ async def get_today_changelog() -> dict[str, Any]:
     changelog_file = Path(__file__).parent.parent.parent.parent / "changelog_today.json"
     if changelog_file.exists():
         try:
-            with open(changelog_file, "r") as f:
+            with open(changelog_file) as f:
                 file_changelog = json.load(f)
                 if isinstance(file_changelog, list):
                     changelog_items.extend(file_changelog)

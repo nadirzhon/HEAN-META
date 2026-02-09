@@ -1,0 +1,10 @@
+# Google Trends Integration Dependencies
+# Install with: pip install -r requirements_google_trends.txt --break-system-packages
+
+# Core dependency: pytrends (unofficial Google Trends API)
+pytrends>=4.9.2
+
+# Already included in HEAN (no need to reinstall):
+# - asyncio (Python 3.11+)
+# - pandas (for pytrends)
+# - requests (for pytrends)

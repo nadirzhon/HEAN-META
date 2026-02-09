@@ -147,7 +147,7 @@ class AgentGenerator:
         # Check if Gemini was set
         if hasattr(self, "_is_gemini") and self._is_gemini:
             return self._call_gemini(user_prompt)
-        
+
         client_type = type(self.llm_client).__name__
         client_module = type(self.llm_client).__module__
 

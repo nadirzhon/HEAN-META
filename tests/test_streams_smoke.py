@@ -56,6 +56,7 @@ async def test_funding_stream_emits_signal() -> None:
 
 @pytest.mark.asyncio
 async def test_maker_rebate_stream_emits_signal() -> None:
+    """MakerRebateStream is disabled (no data provider) — should emit NO signals."""
     bus = EventBus()
     stream = MakerRebateStream(bus, ["BTCUSDT"])
 
@@ -79,8 +80,7 @@ async def test_maker_rebate_stream_emits_signal() -> None:
     await bus.publish(Event(event_type=EventType.CONTEXT_UPDATE, data=ctx))
     await asyncio.sleep(0.1)
 
-    assert signals, "Maker rebate stream should emit at least one signal"
-    assert signals[0].strategy_id == "stream_maker_rebate"
+    assert not signals, "Disabled stream should emit no signals"
 
     await stream.stop()
     await bus.stop()
@@ -88,6 +88,7 @@ async def test_maker_rebate_stream_emits_signal() -> None:
 
 @pytest.mark.asyncio
 async def test_basis_stream_emits_signal() -> None:
+    """BasisHedgeStream is disabled (no data provider) — should emit NO signals."""
     bus = EventBus()
     stream = BasisHedgeStream(bus, ["BTCUSDT"])
 
@@ -111,8 +112,7 @@ async def test_basis_stream_emits_signal() -> None:
     await bus.publish(Event(event_type=EventType.CONTEXT_UPDATE, data=ctx))
     await asyncio.sleep(0.1)
 
-    assert signals, "Basis stream should emit at least one signal"
-    assert signals[0].strategy_id == "stream_basis_hedge"
+    assert not signals, "Disabled stream should emit no signals"
 
     await stream.stop()
     await bus.stop()
@@ -120,6 +120,7 @@ async def test_basis_stream_emits_signal() -> None:
 
 @pytest.mark.asyncio
 async def test_volatility_stream_emits_signal() -> None:
+    """VolatilityHarvestStream is disabled (no data provider) — should emit NO signals."""
     bus = EventBus()
     stream = VolatilityHarvestStream(bus, ["BTCUSDT"])
 
@@ -147,8 +148,7 @@ async def test_volatility_stream_emits_signal() -> None:
     await bus.publish(Event(event_type=EventType.CONTEXT_UPDATE, data=ctx))
     await asyncio.sleep(0.1)
 
-    assert signals, "Volatility stream should emit at least one signal"
-    assert signals[0].strategy_id == "stream_volatility"
+    assert not signals, "Disabled stream should emit no signals"
 
     await stream.stop()
     await bus.stop()

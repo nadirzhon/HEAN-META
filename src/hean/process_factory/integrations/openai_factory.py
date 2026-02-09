@@ -300,7 +300,7 @@ Default to HUMAN_TASK for anything uncertain."""
             process = ProcessDefinition(**data)
             return process
         except Exception as e:
-            raise ValueError(f"Invalid process definition: {e}")
+            raise ValueError(f"Invalid process definition: {e}") from e
 
     def _safety_filter(self, data: dict[str, Any]) -> None:
         """Filter out unsafe processes.

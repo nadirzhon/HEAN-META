@@ -3,7 +3,9 @@
 import asyncio
 import hashlib
 import hmac
+import json
 import time
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -11,6 +13,7 @@ import httpx
 from hean.config import settings
 from hean.core.types import Order, OrderRequest, OrderStatus
 from hean.logging import get_logger
+from hean.utils.retry import CircuitBreaker
 
 logger = get_logger(__name__)
 
@@ -32,39 +35,43 @@ class BybitHTTPClient:
             self._base_url = "https://api.bybit.com"
 
         self._client: httpx.AsyncClient | None = None
-        
+
         # Phase 16: Dynamic endpoint switching support
         self._dynamic_endpoint: str | None = None
 
-    def _sign_request(self, params: dict[str, Any], timestamp: int) -> str:
-        """Sign request using HMAC SHA256 for Bybit API v5.
-
-        Args:
-            params: Request parameters (will NOT be modified)
-            timestamp: Request timestamp in milliseconds
-
-        Returns:
-            Signature string
-        """
-        # For Bybit API v5, signature string format is: timestamp + api_key + recv_window + sorted_params
-        import urllib.parse
-
-        recv_window = "5000"
-
-        # Sort parameters and create query string (URL-encoded, without timestamp/recv_window/api_key)
-        sorted_params = sorted(params.items())
-        param_str = "&".join(
-            [f"{k}={urllib.parse.quote(str(v), safe='')}" for k, v in sorted_params]
+        # Circuit breaker for API requests (prevents cascading failures)
+        self._circuit_breaker = CircuitBreaker(
+            failure_threshold=5,  # Open after 5 failures
+            recovery_timeout=60.0,  # Test recovery after 60s
+            expected_exception=httpx.HTTPError,
         )
 
-        # Build signature string: timestamp + api_key + recv_window + params
-        sign_string = f"{timestamp}{self._api_key}{recv_window}{param_str}"
+        # Rate limiting: Bybit allows ~50 requests/second for orders
+        # We'll be conservative: max 10 order requests per second
+        self._last_order_time = 0.0
+        self._min_order_interval = 0.1  # 100ms between orders = 10 orders/sec
 
-        # Create signature (HMAC SHA256)
+    def _sign_request(
+        self,
+        method: str,
+        timestamp: int,
+        recv_window: str,
+        params: dict[str, Any],
+        data: dict[str, Any],
+    ) -> str:
+        """Sign request using Bybit v5 rules (timestamp + apiKey + recvWindow + query/body)."""
+        # Canonical string: for GET use sorted query string; for POST use raw JSON body (no spaces)
+        if method.upper() == "GET":
+            canonical = "&".join(
+                f"{k}={v}" for k, v in sorted(params.items())
+            )  # Bybit expects unescaped '='/'&'
+        else:  # POST/others
+            canonical = json.dumps(data or {}, separators=(",", ":"), ensure_ascii=False)
+
+        sign_string = f"{timestamp}{self._api_key}{recv_window}{canonical}"
         signature = hmac.new(
             self._api_secret.encode("utf-8"), sign_string.encode("utf-8"), hashlib.sha256
         ).hexdigest()
-
         return signature
 
     async def _request(
@@ -74,7 +81,39 @@ class BybitHTTPClient:
         params: dict[str, Any] | None = None,
         data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Make authenticated HTTP request to Bybit API.
+        """Make authenticated HTTP request to Bybit API with circuit breaker protection.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            endpoint: API endpoint (e.g., "/v5/order/create")
+            params: Query parameters
+            data: Request body data
+
+        Returns:
+            Response JSON as dict
+
+        Raises:
+            ValueError: If API credentials not configured
+            httpx.HTTPError: If request fails
+            RuntimeError: If circuit breaker is OPEN (fail fast)
+        """
+        # Wrap request in circuit breaker to prevent cascading failures
+        return await self._circuit_breaker.call(
+            self._request_impl,
+            method,
+            endpoint,
+            params,
+            data,
+        )
+
+    async def _request_impl(
+        self,
+        method: str,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Internal implementation of HTTP request (called by circuit breaker).
 
         Args:
             method: HTTP method (GET, POST, etc.)
@@ -96,27 +135,23 @@ class BybitHTTPClient:
             self._client = httpx.AsyncClient(timeout=10.0)
 
         # Prepare parameters
-        if params is None:
-            params = {}
-        if data is None:
-            data = {}
+        params = params or {}
+        data = data or {}
 
-        # Generate timestamp
+        # Generate timestamp and recv window
         timestamp = int(time.time() * 1000)
+        recv_window = "5000"
 
-        # For signing: merge params and data (for POST, data is in body but included in signature)
-        sign_params = {**params, **data}
-
-        # Create signature (doesn't include api_key, only timestamp + recv_window + params)
-        signature = self._sign_request(sign_params, timestamp)
+        # Create signature (v5: timestamp + apiKey + recvWindow + query/body)
+        signature = self._sign_request(method, timestamp, recv_window, params, data)
 
         # Prepare headers (Bybit API v5 uses headers for auth)
         headers = {
             "X-BAPI-API-KEY": self._api_key,
             "X-BAPI-SIGN": signature,
-            "X-BAPI-SIGN-TYPE": "2",  # Signature type 2 = HMAC SHA256
+            "X-BAPI-SIGN-TYPE": "2",  # HMAC SHA256
             "X-BAPI-TIMESTAMP": str(timestamp),
-            "X-BAPI-RECV-WINDOW": "5000",
+            "X-BAPI-RECV-WINDOW": recv_window,
         }
 
         # For POST requests, add Content-Type
@@ -137,9 +172,10 @@ class BybitHTTPClient:
                     # For GET, params go in query string
                     response = await self._client.get(url, params=params, headers=headers)
                 elif method.upper() == "POST":
-                    # For POST, data goes in body as JSON, params in query string
+                    # For POST, send pre-serialized JSON body (must match signed canonical)
+                    body_str = json.dumps(data or {}, separators=(",", ":"), ensure_ascii=False)
                     response = await self._client.post(
-                        url, json=data, params=params, headers=headers
+                        url, content=body_str, params=params, headers=headers
                     )
                 else:
                     raise ValueError(f"Unsupported HTTP method: {method}")
@@ -151,6 +187,10 @@ class BybitHTTPClient:
                 ret_code = result.get("retCode")
                 if ret_code != 0:
                     error_msg = result.get("retMsg", "Unknown error")
+                    # Order already filled/cancelled — not a real error
+                    if ret_code == 110001:
+                        logger.debug(f"Bybit: order not exists or already done (code: 110001)")
+                        return {}
                     # Don't retry on authentication or validation errors
                     if ret_code in (10003, 10004, 10005, 10006):  # Auth errors
                         logger.error(
@@ -275,14 +315,53 @@ class BybitHTTPClient:
                 "Use PaperBroker for simulation."
             )
 
-        # CRITICAL: Generate unique orderLinkId for idempotency
-        # Format: {strategy_id}_{symbol}_{timestamp_ms}_{random}
-        import uuid
+        # Rate limiting: ensure minimum interval between orders
         import time
-        order_link_id = (
-            f"{order_request.strategy_id}_{order_request.symbol}_"
-            f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-        )
+        current_time = time.time()
+        time_since_last_order = current_time - self._last_order_time
+        if time_since_last_order < self._min_order_interval:
+            sleep_time = self._min_order_interval - time_since_last_order
+            await asyncio.sleep(sleep_time)
+        self._last_order_time = time.time()
+
+        # CRITICAL: Generate unique orderLinkId for idempotency
+        # Format: {timestamp_ms}_{random} (max 45 chars)
+        # Bybit requires orderLinkId <= 45 characters
+        import uuid
+        timestamp_ms = int(time.time() * 1000)
+        random_id = uuid.uuid4().hex[:8]
+        order_link_id = f"{timestamp_ms}_{random_id}"
+
+        # Get instrument info for qty rounding (cached in production)
+        try:
+            instrument_info = await self.get_instrument_info(order_request.symbol)
+            qty_step = instrument_info["qtyStep"]
+            min_qty = instrument_info["minQty"]
+            min_notional = instrument_info["minNotional"]
+
+            # Determine decimal places from step size
+            step_str = f"{qty_step:.10f}".rstrip("0")
+            qty_decimals = len(step_str.split(".")[-1]) if "." in step_str else 0
+
+            # Round qty to qtyStep precision
+            rounded_qty = round(order_request.size / qty_step) * qty_step
+            rounded_qty = round(rounded_qty, qty_decimals)  # Clean float precision
+
+            # Ensure meets minimum requirements
+            if rounded_qty < min_qty:
+                rounded_qty = min_qty
+                logger.warning(f"Order size {order_request.size} below minQty {min_qty}, using minimum")
+
+            # Check min notional (rough estimate with market price)
+            est_price = order_request.price or 87000.0  # Default estimate if no price
+            est_notional = rounded_qty * est_price
+            if est_notional < min_notional:
+                rounded_qty = (min_notional / est_price) + qty_step  # Add one step for safety
+                rounded_qty = round(rounded_qty, qty_decimals)
+                logger.warning(f"Order notional ${est_notional:.2f} below minimum ${min_notional}, adjusted to {rounded_qty}")
+        except Exception as e:
+            logger.warning(f"Failed to get instrument info for {order_request.symbol}, using raw qty: {e}")
+            rounded_qty = order_request.size
 
         # Map order request to Bybit API format
         bybit_params = {
@@ -290,20 +369,26 @@ class BybitHTTPClient:
             "symbol": order_request.symbol,
             "side": order_request.side.capitalize(),  # Buy or Sell
             "orderType": "Market" if order_request.order_type == "market" else "Limit",
-            "qty": str(order_request.size),
+            "qty": str(rounded_qty),
             "timeInForce": "PostOnly" if order_request.order_type == "limit" else "IOC",
             "orderLinkId": order_link_id,  # CRITICAL: Idempotency key
         }
 
-        # Add price for limit orders
-        if order_request.order_type == "limit" and order_request.price:
-            bybit_params["price"] = str(order_request.price)
+        # Debug log order params
+        logger.info(
+            f"Placing order on Bybit: {bybit_params['symbol']} {bybit_params['side']} "
+            f"qty={bybit_params['qty']} ({float(bybit_params['qty']) * (order_request.price or 100000):.2f} USD) "
+            f"type={bybit_params['orderType']}"
+        )
 
-        # Add stop loss and take profit
-        if order_request.stop_loss:
-            bybit_params["stopLoss"] = str(order_request.stop_loss)
-        if order_request.take_profit:
-            bybit_params["takeProfit"] = str(order_request.take_profit)
+        # Add price for limit orders (round to avoid float precision artifacts)
+        if order_request.order_type == "limit" and order_request.price:
+            bybit_params["price"] = f"{order_request.price:.8g}"
+
+        # SL/TP disabled: Bybit validates against LastPrice (not entry price), causing
+        # frequent rejections for limit orders. PositionMonitor handles exit logic instead.
+        if order_request.stop_loss or order_request.take_profit:
+            logger.debug(f"SL/TP skipped for {order_request.symbol} (handled by PositionMonitor)")
 
         # Place order
         response = await self._request("POST", "/v5/order/create", data=bybit_params)
@@ -325,6 +410,7 @@ class BybitHTTPClient:
             status=OrderStatus.PLACED,
             stop_loss=order_request.stop_loss,
             take_profit=order_request.take_profit,
+            timestamp=datetime.utcnow(),
             metadata={
                 **(order_request.metadata or {}),
                 "signal_id": order_request.signal_id,
@@ -454,6 +540,29 @@ class BybitHTTPClient:
             return funding_list[0]  # Most recent
         return {}
 
+    async def get_klines(
+        self, symbol: str, interval: str = "60", limit: int = 200
+    ) -> list[list]:
+        """Get OHLCV kline/candlestick data from Bybit v5 API.
+
+        Args:
+            symbol: Trading symbol (e.g., "BTCUSDT")
+            interval: Kline interval: 1,3,5,15,30,60,120,240,360,720,D,W,M
+            limit: Number of candles to return (max 1000)
+
+        Returns:
+            List of [startTime, open, high, low, close, volume, turnover]
+        """
+        params = {
+            "category": "linear",
+            "symbol": symbol,
+            "interval": interval,
+            "limit": limit,
+        }
+
+        response = await self._request("GET", "/v5/market/kline", params=params)
+        return response.get("list", [])
+
     async def get_order_book(self, symbol: str, limit: int = 25) -> dict[str, Any]:
         """Get order book for a symbol.
 
@@ -494,13 +603,13 @@ class BybitHTTPClient:
         instruments = response.get("list", [])
         if not instruments:
             raise ValueError(f"Instrument info not found for symbol: {symbol}")
-        
+
         instrument = instruments[0]
-        
+
         # Extract trading rules
         lot_size_filter = instrument.get("lotSizeFilter", {})
         price_filter = instrument.get("priceFilter", {})
-        
+
         rules = {
             "minQty": float(lot_size_filter.get("minQty", "0.001")),
             "qtyStep": float(lot_size_filter.get("qtyStep", "0.001")),
@@ -509,12 +618,12 @@ class BybitHTTPClient:
             "tickSize": float(price_filter.get("tickSize", "0.01")),
             "pricePrecision": len(str(price_filter.get("tickSize", "0.01")).split(".")[-1]) if "." in str(price_filter.get("tickSize", "0.01")) else 0,
         }
-        
+
         logger.info(
             f"Fetched symbol rules for {symbol}: minQty={rules['minQty']}, "
             f"qtyStep={rules['qtyStep']}, minNotional={rules['minNotional']}"
         )
-        
+
         return rules
 
     async def get_earn_products(
@@ -566,10 +675,10 @@ class BybitHTTPClient:
 
         response = await self._request("GET", "/v5/earn/holding", params=params)
         return response.get("rows", [])
-    
+
     def set_endpoint(self, rest_url: str) -> None:
         """Phase 16: Set dynamic REST endpoint (called by API Scouter).
-        
+
         Args:
             rest_url: New REST API base URL (e.g., "https://api.bybit.com")
         """

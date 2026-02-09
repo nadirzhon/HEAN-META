@@ -1,6 +1,6 @@
 """Risk management router."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request, status
 
@@ -65,7 +65,7 @@ async def get_risk_status(request: Request) -> dict:
         return result
     except Exception as e:
         logger.error(f"Failed to get risk status: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/limits")
@@ -93,7 +93,7 @@ async def get_risk_limits(request: Request) -> dict:
             }
     except Exception as e:
         logger.error(f"Failed to get risk limits: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/decision-memory/blocks")
@@ -104,12 +104,12 @@ async def get_decision_memory_blocks(request: Request) -> dict:
         return {"blocked": []}
 
     decision_memory = engine_facade._trading_system._decision_memory
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     blocked = []
     for (strategy_id, context_key), stats in getattr(decision_memory, "_stats", {}).items():
         block_until = getattr(stats, "block_until", None)
         if block_until and isinstance(block_until, datetime):
-            remaining = (block_until.replace(tzinfo=timezone.utc) - now).total_seconds()
+            remaining = (block_until.replace(tzinfo=UTC) - now).total_seconds()
             if remaining > 0:
                 blocked.append(
                     {
@@ -127,8 +127,20 @@ async def get_decision_memory_blocks(request: Request) -> dict:
 
 @router.post("/limits")
 async def update_risk_limits(request: Request, payload: RiskLimitsRequest) -> dict:
-    """Update risk limits (paper only)."""
-    _ = _get_facade(request)
+    """
+    Update risk limits (paper/dry_run mode only)
+
+    Allows dynamic adjustment of risk parameters:
+    - max_open_positions: Maximum concurrent positions
+    - max_daily_attempts: Maximum trades per day
+    - max_exposure_usd: Maximum total exposure
+    - min_notional_usd: Minimum order size
+    - cooldown_seconds: Cooldown between trades
+
+    Safety: Only works in paper/dry_run mode to prevent accidental
+    changes to live trading parameters.
+    """
+    engine_facade = _get_facade(request)
 
     if settings.is_live and not settings.dry_run:
         raise HTTPException(
@@ -137,14 +149,90 @@ async def update_risk_limits(request: Request, payload: RiskLimitsRequest) -> di
         )
 
     try:
-        # TODO: Implement risk limits update
+        # Validate payload values
+        if payload.max_open_positions is not None and payload.max_open_positions < 0:
+            raise ValueError("max_open_positions must be >= 0")
+
+        if payload.max_daily_attempts is not None and payload.max_daily_attempts < 0:
+            raise ValueError("max_daily_attempts must be >= 0")
+
+        if payload.max_exposure_usd is not None and payload.max_exposure_usd < 0:
+            raise ValueError("max_exposure_usd must be >= 0")
+
+        if payload.min_notional_usd is not None and payload.min_notional_usd < 0:
+            raise ValueError("min_notional_usd must be >= 0")
+
+        if payload.cooldown_seconds is not None and payload.cooldown_seconds < 0:
+            raise ValueError("cooldown_seconds must be >= 0")
+
+        # Update settings
+        updated_fields = []
+
+        if payload.max_open_positions is not None:
+            settings.max_open_positions = payload.max_open_positions
+            updated_fields.append(f"max_open_positions={payload.max_open_positions}")
+
+        if payload.max_daily_attempts is not None:
+            settings.max_daily_attempts = payload.max_daily_attempts
+            updated_fields.append(f"max_daily_attempts={payload.max_daily_attempts}")
+
+        if payload.max_exposure_usd is not None:
+            settings.max_exposure_usd = payload.max_exposure_usd
+            updated_fields.append(f"max_exposure_usd={payload.max_exposure_usd}")
+
+        if payload.min_notional_usd is not None:
+            settings.min_notional_usd = payload.min_notional_usd
+            updated_fields.append(f"min_notional_usd={payload.min_notional_usd}")
+
+        if payload.cooldown_seconds is not None:
+            settings.cooldown_seconds = payload.cooldown_seconds
+            updated_fields.append(f"cooldown_seconds={payload.cooldown_seconds}")
+
+        # Update risk manager if engine is running
+        if engine_facade.is_running and hasattr(engine_facade, '_trading_system'):
+            trading_system = engine_facade._trading_system
+            if hasattr(trading_system, '_risk_manager'):
+                risk_manager = trading_system._risk_manager
+                # Update risk manager parameters (if it supports dynamic updates)
+                if hasattr(risk_manager, 'update_limits'):
+                    await risk_manager.update_limits({
+                        'max_open_positions': settings.max_open_positions,
+                        'max_daily_attempts': settings.max_daily_attempts,
+                        'max_exposure_usd': settings.max_exposure_usd,
+                        'min_notional_usd': settings.min_notional_usd,
+                        'cooldown_seconds': settings.cooldown_seconds,
+                    })
+
+        # Log the update
+        await _log_control_event(
+            command="update_risk_limits",
+            phase="result",
+            request=request,
+            success=True,
+            detail=f"Updated: {', '.join(updated_fields)}",
+            extra={"updated_fields": updated_fields}
+        )
+
+        logger.info(f"Risk limits updated: {', '.join(updated_fields)}")
+
         return {
             "status": "success",
             "message": "Risk limits updated",
+            "updated": updated_fields,
+            "current_limits": {
+                "max_open_positions": settings.max_open_positions,
+                "max_daily_attempts": settings.max_daily_attempts,
+                "max_exposure_usd": settings.max_exposure_usd,
+                "min_notional_usd": settings.min_notional_usd,
+                "cooldown_seconds": settings.cooldown_seconds,
+            }
         }
+    except ValueError as e:
+        logger.error(f"Validation error updating risk limits: {e}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Failed to update risk limits: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/killswitch/status")
@@ -163,7 +251,7 @@ async def get_killswitch_status(request: Request) -> dict:
             }
 
         trading_system = engine_facade._trading_system
-        
+
         # Get killswitch status
         killswitch_status = {
             "triggered": False,
@@ -172,19 +260,19 @@ async def get_killswitch_status(request: Request) -> dict:
             "thresholds": {},
             "current_metrics": {}
         }
-        
+
         if hasattr(trading_system, "_killswitch"):
             killswitch = trading_system._killswitch
             accounting = trading_system._accounting
             equity = accounting.get_equity()
             drawdown_amount, drawdown_pct = accounting.get_drawdown(equity)
-            
+
             killswitch_status["triggered"] = killswitch.is_triggered()
             killswitch_status["reasons"] = getattr(killswitch, "_reasons", []) or ([killswitch.get_reason()] if killswitch.get_reason() else [])
             killswitch_status["triggered_at"] = getattr(killswitch, "_triggered_at", None)
             if killswitch_status["triggered_at"]:
                 killswitch_status["triggered_at"] = killswitch_status["triggered_at"].isoformat()
-            
+
             # Get thresholds from settings
             from hean.config import settings
             adaptive_limit = killswitch.get_adaptive_drawdown_limit(equity)
@@ -194,7 +282,7 @@ async def get_killswitch_status(request: Request) -> dict:
                 "max_loss": getattr(settings, "max_loss_threshold", 0),
                 "risk_limit": getattr(settings, "risk_limit_threshold", 0)
             }
-            
+
             # Get current metrics
             peak_equity = getattr(accounting, "_peak_equity", equity)
             max_drawdown_pct = ((peak_equity - equity) / peak_equity * 100) if peak_equity > 0 else 0.0
@@ -204,11 +292,11 @@ async def get_killswitch_status(request: Request) -> dict:
                 "max_drawdown_pct": max_drawdown_pct,
                 "peak_equity": peak_equity
             }
-        
+
         return killswitch_status
     except Exception as e:
         logger.error(f"Failed to get killswitch status: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/killswitch/reset")
@@ -227,19 +315,19 @@ async def reset_killswitch(request: Request, confirm: bool = False) -> dict:
             raise HTTPException(status_code=500, detail="Engine not running")
 
         trading_system = engine_facade._trading_system
-        
+
         # Reset killswitch
         if hasattr(trading_system, "_killswitch"):
             trading_system._killswitch.reset()
             logger.info("Killswitch reset via API")
-        
+
         # Reset stop_trading flag
         trading_system._stop_trading = False
         logger.info("Stop trading flag reset via API")
-        
+
         await _log_control_event("killswitch_reset", "command", request, detail="killswitch/reset")
         await _log_control_event("killswitch_reset", "result", request, success=True, extra={"result": "Killswitch and stop_trading flags reset"})
-        
+
         return {
             "status": "success",
             "message": "Killswitch and stop_trading flags reset",
@@ -247,4 +335,4 @@ async def reset_killswitch(request: Request, confirm: bool = False) -> dict:
     except Exception as e:
         logger.error(f"Failed to reset killswitch: {e}", exc_info=True)
         await _log_control_event("killswitch_reset", "result", request, success=False, detail=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

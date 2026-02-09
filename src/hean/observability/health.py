@@ -20,6 +20,10 @@ class HealthCheck:
 
     async def start(self) -> None:
         """Start the health check server."""
+        # Stop existing server if running
+        if self._running:
+            await self.stop()
+
         self._app = web.Application()
         self._app.router.add_get("/health", self._health_handler)
         self._app.router.add_get("/", self._health_handler)
@@ -27,7 +31,13 @@ class HealthCheck:
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
 
-        self._site = web.TCPSite(self._runner, "0.0.0.0", settings.health_check_port)
+        self._site = web.TCPSite(
+            self._runner,
+            "0.0.0.0",
+            settings.health_check_port,
+            reuse_address=True,
+            reuse_port=True
+        )
         await self._site.start()
 
         self._running = True
@@ -35,12 +45,23 @@ class HealthCheck:
 
     async def stop(self) -> None:
         """Stop the health check server."""
-        if self._site:
-            await self._site.stop()
-        if self._runner:
-            await self._runner.cleanup()
-        self._running = False
-        logger.info("Health check server stopped")
+        if not self._running:
+            return
+
+        try:
+            if self._site:
+                await self._site.stop()
+                self._site = None
+            if self._runner:
+                await self._runner.cleanup()
+                self._runner = None
+            if self._app:
+                self._app = None
+        except Exception as e:
+            logger.warning(f"Error during health check cleanup: {e}")
+        finally:
+            self._running = False
+            logger.info("Health check server stopped")
 
     async def _health_handler(self, request: web.Request) -> web.Response:
         """Handle health check requests."""

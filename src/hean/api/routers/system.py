@@ -1,7 +1,6 @@
 """System endpoints including AI Catalyst changelog."""
 
 import subprocess
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,7 @@ router = APIRouter(prefix="/system", tags=["system"])
 @router.get("/changelog/today")
 async def get_changelog_today(request: Request) -> dict:
     """Get today's changelog from git log or changelog_today.json.
-    
+
     Returns:
         Dictionary with available flag, entries, and reason if unavailable.
     """
@@ -33,7 +32,7 @@ async def get_changelog_today(request: Request) -> dict:
                 timeout=5,
                 cwd=Path(__file__).parent.parent.parent.parent,
             )
-            
+
             if result.returncode == 0 and result.stdout.strip():
                 entries = []
                 for line in result.stdout.strip().split("\n"):
@@ -46,7 +45,7 @@ async def get_changelog_today(request: Request) -> dict:
                                 "author": parts[2],
                                 "date": parts[3],
                             })
-                
+
                 return {
                     "available": True,
                     "source": "git",
@@ -55,7 +54,7 @@ async def get_changelog_today(request: Request) -> dict:
                 }
         except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
             logger.debug(f"Git log not available: {e}")
-        
+
         # Fallback to changelog_today.json
         changelog_path = Path(__file__).parent.parent.parent.parent / "changelog_today.json"
         if changelog_path.exists():
@@ -68,7 +67,7 @@ async def get_changelog_today(request: Request) -> dict:
                     "entries": data.get("entries", []),
                     "count": len(data.get("entries", [])),
                 }
-        
+
         # Not available
         return {
             "available": False,
@@ -123,3 +122,25 @@ async def get_dashboard(request: Request) -> dict[str, Any]:
             "trading_mode": status.get("trading_mode") or settings.trading_mode,
         },
     }
+
+
+@router.get("/cpp/status")
+async def get_cpp_status() -> dict[str, Any]:
+    """Get C++ modules status for diagnostics.
+
+    Returns:
+        dict with module availability, performance hints, and build instructions
+    """
+    try:
+        from hean.cpp_modules import get_cpp_status as _get_cpp_status
+
+        return _get_cpp_status()
+    except Exception as e:
+        logger.warning(f"Failed to get C++ status: {e}")
+        return {
+            "indicators_cpp_available": False,
+            "order_router_cpp_available": False,
+            "performance_hint": "C++ modules not available - using Python fallback",
+            "build_instructions": "Run: ./scripts/build_cpp_modules.sh",
+            "error": str(e),
+        }

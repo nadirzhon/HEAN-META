@@ -6,6 +6,7 @@ import random
 import signal
 import sys
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -16,8 +17,13 @@ from hean.agent_generation.report_generator import ReportGenerator
 from hean.backtest.event_sim import EventSimulator
 from hean.backtest.metrics import BacktestMetrics
 from hean.config import settings
+from hean.core.arb.triangular_scanner import TriangularScanner
 from hean.core.bus import EventBus
 from hean.core.clock import Clock
+from hean.core.intelligence.causal_inference_engine import CausalInferenceEngine
+from hean.core.intelligence.correlation_engine import CorrelationEngine
+from hean.core.intelligence.meta_learning_engine import MetaLearningEngine
+from hean.core.intelligence.multimodal_swarm import MultimodalSwarm
 from hean.core.multi_symbol_scanner import MultiSymbolScanner
 from hean.core.regime import Regime, RegimeDetector
 from hean.core.timeframes import CandleAggregator
@@ -35,6 +41,8 @@ from hean.core.types import (
 from hean.evaluation.truth_layer import analyze_truth, print_truth
 from hean.exchange.synthetic_feed import SyntheticPriceFeed
 from hean.execution.order_manager import OrderManager
+from hean.execution.position_monitor import PositionMonitor
+from hean.execution.position_reconciliation import PositionReconciler
 from hean.execution.router import ExecutionRouter
 from hean.income.streams import (
     BasisHedgeStream,
@@ -45,6 +53,7 @@ from hean.income.streams import (
 from hean.logging import get_logger, setup_logging
 from hean.observability.health import HealthCheck
 from hean.observability.metrics import metrics
+from hean.observability.monitoring.self_healing import SelfHealingMiddleware
 from hean.observability.no_trade_report import no_trade_report
 from hean.paper_trade_assist import (
     is_paper_assist_enabled,
@@ -63,20 +72,19 @@ from hean.risk.killswitch import KillSwitch
 from hean.risk.limits import RiskLimits
 from hean.risk.multi_level_protection import MultiLevelProtection
 from hean.risk.position_sizer import PositionSizer
+from hean.risk.tail_risk import GlobalSafetyNet
 from hean.strategies.base import BaseStrategy
 from hean.strategies.basis_arbitrage import BasisArbitrage
+from hean.strategies.correlation_arb import CorrelationArbitrage
+from hean.strategies.enhanced_grid import EnhancedGridStrategy
 from hean.strategies.funding_harvester import FundingHarvester
+from hean.strategies.hf_scalping import HFScalpingStrategy
 from hean.strategies.impulse_engine import ImpulseEngine
-from hean.core.intelligence.correlation_engine import CorrelationEngine
-from hean.risk.tail_risk import GlobalSafetyNet
-from hean.observability.monitoring.self_healing import SelfHealingMiddleware
-from hean.core.intelligence.meta_learning_engine import MetaLearningEngine
-from hean.core.intelligence.causal_inference_engine import CausalInferenceEngine
-from hean.core.intelligence.multimodal_swarm import MultimodalSwarm
-from hean.core.intelligence.metamorphic_integration import MetamorphicIntegration
-from hean.core.intelligence.causal_discovery import CausalDiscoveryEngine
-from hean.execution.atomic_executor import AtomicExecutor
-from hean.core.arb.triangular_scanner import TriangularScanner
+from hean.strategies.inventory_neutral_mm import InventoryNeutralMM
+from hean.strategies.liquidity_sweep import LiquiditySweepDetector
+from hean.strategies.momentum_trader import MomentumTrader
+from hean.strategies.rebate_farmer import RebateFarmer
+from hean.strategies.sentiment_strategy import SentimentStrategy
 
 logger = get_logger(__name__)
 
@@ -121,6 +129,10 @@ class TradingSystem:
         self._execution_router = ExecutionRouter(
             self._bus, self._order_manager, self._regime_detector
         )
+        # Position Monitor - force-closes stale positions
+        self._position_monitor = PositionMonitor(self._bus, self._accounting)
+        # Position Reconciler - ensures local state matches exchange (initialized in run())
+        self._position_reconciler: PositionReconciler | None = None
         self._multi_symbol_scanner = MultiSymbolScanner(self._bus)
         self._price_feed: SyntheticPriceFeed | None = None
         self._strategies: list = []
@@ -148,12 +160,19 @@ class TradingSystem:
         self._running = False
         self._stop_trading = False
         self._current_regime: dict[str, Regime] = {}
-        
+
         # Paper trade assist: fallback micro-trade tracking
         self._last_micro_trade_time: dict[str, datetime] = {}
         self._micro_trade_task: asyncio.Task[None] | None = None
         self._impulse_engine: ImpulseEngine | None = None
         self._triangular_scanner: TriangularScanner | None = None
+
+        # Physics engine components
+        self._physics_engine = None
+        self._participant_classifier = None
+        self._anomaly_detector = None
+        self._temporal_stack = None
+        self._cross_market = None
 
         # Debug metrics for forced order flow
         self._signals_generated = 0
@@ -176,7 +195,7 @@ class TradingSystem:
         context: dict[str, Any],
     ) -> None:
         """Emit structured order decision telemetry for observability.
-        
+
         Includes gating flags, reason_codes array, market_regime, and advisory fields per AFO-Director spec.
         """
         # Collect gating flags for diagnostics
@@ -184,12 +203,12 @@ class TradingSystem:
         drawdown_amount, drawdown_pct = self._accounting.get_drawdown(equity)
         open_positions = len(self._accounting.get_positions())
         open_orders = len(self._order_manager.get_open_orders())
-        
+
         # Build reason_codes array (reason_code + any additional reasons from context)
         reason_codes = [reason_code]
         if "additional_reasons" in context:
             reason_codes.extend(context["additional_reasons"])
-        
+
         # Get current regime for symbol
         market_regime = None
         market_metrics_short = {}
@@ -203,7 +222,7 @@ class TradingSystem:
                     "range": "RANGE",
                 }
                 market_regime = regime_map.get(current_regime.value if hasattr(current_regime, "value") else str(current_regime), "RANGE")
-        
+
         # Check for stale data
         last_tick_age_sec = None
         if hasattr(self, "_last_tick_at") and signal.symbol in self._last_tick_at:
@@ -211,7 +230,7 @@ class TradingSystem:
             if last_tick_age_sec > 30:
                 market_regime = "STALE_DATA"
                 reason_codes.append("STALE_MARKET_DATA")
-        
+
         # Check liquidity (simple heuristic: if spread is too wide, mark as LOW_LIQ)
         if hasattr(self, "_execution_router") and hasattr(self._execution_router, "_current_bids") and hasattr(self._execution_router, "_current_asks"):
             bid = self._execution_router._current_bids.get(signal.symbol)
@@ -223,7 +242,7 @@ class TradingSystem:
                     if market_regime != "STALE_DATA":
                         market_regime = "LOW_LIQ"
                     reason_codes.append("LOW_LIQUIDITY")
-        
+
         # Build comprehensive gating flags
         gating_flags = {
             "risk_ok": not self._stop_trading and not (self._killswitch.is_triggered() if hasattr(self, "_killswitch") else False),
@@ -240,17 +259,17 @@ class TradingSystem:
             "drawdown_pct": drawdown_pct,
             "equity": equity,
         }
-        
+
         # Add killswitch reason if triggered
         if gating_flags["killswitch_triggered"] and hasattr(self, "_killswitch"):
             gating_flags["killswitch_reason"] = self._killswitch.get_reason()
-        
+
         # Build advisory (how to continue)
         advisory = None
         if decision in ("SKIP", "BLOCK"):
             hints = []
             how_to_continue = None
-            
+
             if not gating_flags["risk_ok"]:
                 if gating_flags["killswitch_triggered"]:
                     how_to_continue = "check_killswitch"
@@ -273,15 +292,15 @@ class TradingSystem:
             else:
                 how_to_continue = "resume"
                 hints.append("System should resume automatically")
-            
+
             advisory = {
                 "how_to_continue": how_to_continue,
                 "hints": hints,
             }
-        
+
         # Get score/confidence from context if available
         score = context.get("score") or context.get("confidence")
-        
+
         payload = {
             "type": "ORDER_DECISION",
             "decision": decision,  # CREATE|SKIP|BLOCK
@@ -370,11 +389,15 @@ class TradingSystem:
         logger.info(f"bybit_testnet: {settings.bybit_testnet}")
         logger.info(f"PAPER_TRADE_ASSIST: {settings.paper_trade_assist}")
         logger.info(f"LIVE_CONFIRM: {settings.live_confirm}")
+
+        # Use initial capital from config (balance sync disabled to prevent hangs)
         initial_capital = (
             settings.backtest_initial_capital
             if self._mode == "evaluate"
             else settings.initial_capital
         )
+        logger.info(f"Using configured capital: ${initial_capital:.2f}")
+
         logger.info(f"Initial capital: ${initial_capital:,.2f}")
         logger.info(f"Profit target: ${settings.profit_target_daily_usd:.2f}/day")
         logger.info(
@@ -393,6 +416,24 @@ class TradingSystem:
         self._candle_aggregator = CandleAggregator(self._bus)
         await self._candle_aggregator.start()
 
+        # Start Position Monitor - force-closes stale positions
+        await self._position_monitor.start()
+        logger.info(f"Position Monitor started (max_hold={settings.max_hold_seconds}s)")
+
+        # Start Position Reconciler - ensures local state matches exchange
+        # Only in run mode (not evaluate mode) and if execution router has bybit_http
+        if self._mode == "run" and hasattr(self._execution_router, "_bybit_http"):
+            try:
+                self._position_reconciler = PositionReconciler(
+                    bus=self._bus,
+                    bybit_http=self._execution_router._bybit_http,
+                    accounting=self._accounting,
+                )
+                await self._position_reconciler.start()
+                logger.info("Position Reconciler started (30s interval)")
+            except Exception as e:
+                logger.warning(f"Position Reconciler failed to start: {e}")
+
         # Only start HealthCheck in run mode
         if self._health_check:
             await self._health_check.start()
@@ -400,10 +441,10 @@ class TradingSystem:
         # Start regime detector
         await self._regime_detector.start()
         self._bus.subscribe(EventType.REGIME_UPDATE, self._handle_regime_update)
-        
+
         # Start multi-symbol scanner
         await self._multi_symbol_scanner.start()
-        
+
         # Phase: Oracle Engine Integration (Algorithmic Fingerprinting + TCN)
         if self._mode == "run" and getattr(settings, 'oracle_engine_enabled', True):
             try:
@@ -446,10 +487,9 @@ class TradingSystem:
         if self._mode == "run" and settings.phase5_kelly_criterion_enabled:
             # 4. Enable Kelly Criterion for Position Sizer
             try:
-                from hean.risk.kelly_criterion import KellyCriterion
                 if hasattr(self._position_sizer, 'enable_kelly_criterion'):
                     self._position_sizer.enable_kelly_criterion(
-                        self._accounting, 
+                        self._accounting,
                         fractional_kelly=settings.phase5_kelly_fractional
                     )
                     logger.info(f"Phase 5: Kelly Criterion enabled with fractional_kelly={settings.phase5_kelly_fractional}")
@@ -472,7 +512,7 @@ class TradingSystem:
                 logger.info("⚡ ABSOLUTE+: Meta-Learning Engine started (Recursive Intelligence Core)")
             except Exception as e:
                 logger.warning(f"Failed to start Meta-Learning Engine: {e}")
-            
+
             # 2. Causal Inference Engine
             try:
                 # Source symbols for cross-asset pre-echo detection
@@ -493,7 +533,7 @@ class TradingSystem:
                 logger.info("🔮 ABSOLUTE+: Causal Inference Engine started (Granger Causality + Transfer Entropy)")
             except Exception as e:
                 logger.warning(f"Failed to start Causal Inference Engine: {e}")
-            
+
             # 3. Multimodal Swarm (Unified Tensor Processing)
             try:
                 self._multimodal_swarm = MultimodalSwarm(
@@ -507,8 +547,74 @@ class TradingSystem:
             except Exception as e:
                 logger.warning(f"Failed to start Multimodal Swarm: {e}")
 
+        # Physics Engine: Market thermodynamics
+        if self._mode == "run":
+            try:
+                from hean.physics import (
+                    PhysicsEngine,
+                    ParticipantClassifier,
+                    MarketAnomalyDetector,
+                    TemporalStack,
+                    CrossMarketImpulse,
+                )
+
+                self._physics_engine = PhysicsEngine(bus=self._bus)
+                await self._physics_engine.start()
+
+                self._participant_classifier = ParticipantClassifier(bus=self._bus)
+                await self._participant_classifier.start()
+
+                self._anomaly_detector = MarketAnomalyDetector()
+
+                self._temporal_stack = TemporalStack(symbols=settings.trading_symbols)
+
+                self._cross_market = CrossMarketImpulse(
+                    leader_symbols=["BTCUSDT"],
+                    follower_symbols=["ETHUSDT", "SOLUSDT"],
+                )
+
+                logger.info("Physics Engine started (Temperature/Entropy/Phase/Participants/Anomalies/TemporalStack)")
+            except Exception as e:
+                logger.warning(f"Physics Engine failed to start: {e}")
+
+        # Brain: Claude AI market analysis
+        self._brain_client = None
+        if self._mode == "run" and getattr(settings, 'brain_enabled', True):
+            try:
+                from hean.brain.claude_client import ClaudeBrainClient
+
+                self._brain_client = ClaudeBrainClient(
+                    bus=self._bus,
+                    api_key=getattr(settings, 'anthropic_api_key', ''),
+                    analysis_interval=getattr(settings, 'brain_analysis_interval', 30),
+                )
+                await self._brain_client.start()
+                logger.info("Brain Client started")
+            except Exception as e:
+                logger.warning(f"Brain Client failed to start: {e}")
+
+        # DuckDB Storage (optional)
+        self._duckdb_store = None
+        if self._mode == "run":
+            try:
+                from hean.storage.duckdb_store import DuckDBStore
+
+                self._duckdb_store = DuckDBStore(bus=self._bus)
+                await self._duckdb_store.start()
+                logger.info("DuckDB Storage started")
+            except ImportError:
+                logger.info("DuckDB not installed, storage disabled")
+            except Exception as e:
+                logger.warning(f"DuckDB Storage failed to start: {e}")
+
         # Start price feed
-        symbols = settings.trading_symbols
+        # Use multi-symbol list if MULTI_SYMBOL_ENABLED, otherwise use trading_symbols
+        if settings.multi_symbol_enabled:
+            symbols = settings.symbols
+            logger.info(f"Multi-Symbol Mode ENABLED: trading {len(symbols)} symbols: {symbols}")
+        else:
+            symbols = settings.trading_symbols
+            logger.info(f"Single/Limited Symbol Mode: trading {len(symbols)} symbols: {symbols}")
         if price_feed is not None:
             # Use injected price feed (e.g., EventSimulator for evaluation)
             self._price_feed = price_feed
@@ -526,7 +632,7 @@ class TradingSystem:
                 await self._price_feed.start()
                 mode_label = "live" if settings.is_live else "paper"
                 logger.info(f"MARKET_STREAM_STARTED: Bybit price feed ({mode_label}) for symbols {symbols}")
-                
+
                 # Auto-detect balance from exchange in live mode
                 # System works with any amount - no need to specify INITIAL_CAPITAL
                 try:
@@ -535,7 +641,7 @@ class TradingSystem:
                     await http_client.connect()
                     account_info = await http_client.get_account_info()
                     await http_client.disconnect()
-                    
+
                     # Parse balance from Bybit API response
                     # Bybit returns: {"result": {"list": [{"coin": [{"walletBalance": "...", "coin": "USDT"}]}]}}
                     balance = 0.0
@@ -548,7 +654,7 @@ class TradingSystem:
                                 if coin.get("coin") == "USDT":
                                     balance = float(coin.get("walletBalance", 0))
                                     break
-                    
+
                     if balance > 0:
                         # Update accounting with real exchange balance
                         self._accounting.set_balance_from_exchange(balance)
@@ -564,10 +670,20 @@ class TradingSystem:
                     logger.warning(f"⚠️ Could not sync with exchange balance: {e}")
                     logger.info(f"Using configured initial capital: ${initial_capital:,.2f}")
             except Exception as e:
-                logger.warning(f"MARKET_STREAM_FALLBACK: Bybit price feed failed, switching to synthetic. Error: {e}", exc_info=True)
+                logger.critical(f"MARKET_STREAM_FALLBACK: Bybit price feed failed, switching to synthetic. Error: {e}", exc_info=True)
+                self._stop_trading = True
+                await self._bus.publish(
+                    Event(
+                        event_type=EventType.KILLSWITCH_TRIGGERED,
+                        data={
+                            "reason": "bybit_price_feed_failure",
+                            "error": str(e),
+                        },
+                    )
+                )
                 self._price_feed = SyntheticPriceFeed(self._bus, symbols)
                 await self._price_feed.start()
-                logger.info(f"MARKET_STREAM_STARTED: Synthetic price feed for symbols {symbols}")
+                logger.info(f"MARKET_STREAM_STARTED: Synthetic price feed for monitoring only (trading disabled)")
         else:
             # Create default synthetic price feed for paper trading
             self._price_feed = SyntheticPriceFeed(self._bus, symbols)
@@ -599,12 +715,96 @@ class TradingSystem:
             self._strategies.append(strategy)
 
         if settings.impulse_engine_enabled:
-            strategy = ImpulseEngine(self._bus, symbols)
+            # Phase 1 Profit Doubling: Pass Oracle Engine and OFI Monitor to impulse_engine
+            oracle_ref = getattr(self, '_oracle_integration', None)
+            oracle_engine_obj = oracle_ref._oracle if oracle_ref else None
+
+            # Initialize OFI Monitor if not already created
+            if not hasattr(self, '_ofi_monitor'):
+                from hean.core.ofi import OrderFlowImbalance
+                self._ofi_monitor = OrderFlowImbalance(
+                    self._bus,
+                    lookback_window=20,
+                    use_ml_prediction=True
+                )
+                await self._ofi_monitor.start()
+                logger.info("OFI Monitor initialized for impulse_engine")
+
+            strategy = ImpulseEngine(
+                self._bus, symbols,
+                oracle_engine=oracle_engine_obj,
+                ofi_monitor=self._ofi_monitor
+            )
             await strategy.start()
             self._strategies.append(strategy)
             self._impulse_engine = strategy  # Store reference for metrics
         else:
             self._impulse_engine = None
+
+        # Phase 5: Register dormant strategies (AFO-Director dormant strategies)
+        # HF Scalping - high frequency scalping for range/normal regimes
+        if getattr(settings, 'hf_scalping_enabled', False):
+            strategy = HFScalpingStrategy(self._bus, symbols)
+            await strategy.start()
+            self._strategies.append(strategy)
+            logger.info("HF Scalping Strategy registered and started")
+
+        # Enhanced Grid - grid trading for range-bound markets
+        if getattr(settings, 'enhanced_grid_enabled', False):
+            strategy = EnhancedGridStrategy(self._bus, symbols)
+            await strategy.start()
+            self._strategies.append(strategy)
+            logger.info("Enhanced Grid Strategy registered and started")
+
+        # Momentum Trader - momentum following strategy
+        if getattr(settings, 'momentum_trader_enabled', False):
+            strategy = MomentumTrader(self._bus, symbols)
+            await strategy.start()
+            self._strategies.append(strategy)
+            logger.info("Momentum Trader Strategy registered and started")
+
+        # Inventory Neutral Market Making
+        if getattr(settings, 'inventory_neutral_mm_enabled', False):
+            strategy = InventoryNeutralMM(
+                self._bus,
+                ofi_monitor=getattr(self, '_ofi_monitor', None),
+                symbols=symbols,
+            )
+            await strategy.start()
+            self._strategies.append(strategy)
+            logger.info("Inventory Neutral MM Strategy registered and started")
+
+        # Correlation Arbitrage
+        if getattr(settings, 'correlation_arb_enabled', False):
+            strategy = CorrelationArbitrage(self._bus)
+            await strategy.start()
+            self._strategies.append(strategy)
+            logger.info("Correlation Arbitrage Strategy registered and started")
+
+        # Rebate Farmer
+        if getattr(settings, 'rebate_farmer_enabled', False):
+            strategy = RebateFarmer(self._bus, symbols=symbols)
+            await strategy.start()
+            self._strategies.append(strategy)
+            logger.info("Rebate Farmer Strategy registered and started")
+
+        # Liquidity Sweep Detector
+        if getattr(settings, 'liquidity_sweep_enabled', False):
+            strategy = LiquiditySweepDetector(
+                self._bus,
+                symbols=symbols,
+                ofi_monitor=getattr(self, '_ofi_monitor', None),
+            )
+            await strategy.start()
+            self._strategies.append(strategy)
+            logger.info("Liquidity Sweep Detector registered and started")
+
+        # Sentiment Strategy
+        if getattr(settings, 'sentiment_strategy_enabled', False):
+            strategy = SentimentStrategy(self._bus, symbols=symbols)
+            await strategy.start()
+            self._strategies.append(strategy)
+            logger.info("Sentiment Strategy registered and started")
 
         # Start income streams (infrastructure-level, paper-safe by default)
         if settings.stream_funding_enabled:
@@ -635,13 +835,17 @@ class TradingSystem:
         self._bus.subscribe(EventType.KILLSWITCH_TRIGGERED, self._handle_killswitch)
         # Subscribe to ticks for TP/SL checks, TTL, and mark-to-market updates
         self._bus.subscribe(EventType.TICK, self._handle_tick_forced_exit)
+        # Subscribe to POSITION_CLOSE_REQUEST from Oracle/other modules
+        self._bus.subscribe(EventType.POSITION_CLOSE_REQUEST, self._handle_position_close_request)
+        # Subscribe to META_LEARNING_PATCH for strategy parameter updates
+        self._bus.subscribe(EventType.META_LEARNING_PATCH, self._handle_meta_learning_patch)
 
         # Schedule periodic status updates (skip in evaluate mode)
         if self._mode == "run":
             self._clock.schedule_periodic(self._print_status, timedelta(seconds=10))
             # Anti-stuck: periodic TTL/NO_TICKS checks even if feed stalls
             self._clock.schedule_periodic(self._check_position_timeouts, timedelta(seconds=5))
-            
+
             # Start fallback micro-trade task if paper assist enabled
             if is_paper_assist_enabled():
                 self._micro_trade_task = asyncio.create_task(self._micro_trade_fallback_loop())
@@ -697,6 +901,27 @@ class TradingSystem:
         if self._candle_aggregator:
             await self._candle_aggregator.stop()
 
+        # Stop Position Monitor
+        await self._position_monitor.stop()
+
+        # Stop Position Reconciler
+        if self._position_reconciler:
+            await self._position_reconciler.stop()
+
+        # Stop Brain Client
+        if hasattr(self, '_brain_client') and self._brain_client:
+            await self._brain_client.stop()
+
+        # Stop DuckDB Storage
+        if hasattr(self, '_duckdb_store') and self._duckdb_store:
+            await self._duckdb_store.stop()
+
+        # Stop Physics Engine components
+        if self._physics_engine:
+            await self._physics_engine.stop()
+        if self._participant_classifier:
+            await self._participant_classifier.stop()
+
         # Phase 5: Stop Statistical Arbitrage & Anti-Fragile Architecture
         if self._self_healing:
             await self._self_healing.stop()
@@ -746,9 +971,28 @@ class TradingSystem:
 
         signal: Signal = event.data["signal"]
         logger.debug(f"Signal received: {signal.strategy_id} {signal.symbol} {signal.side}")
-        
+
+        # CRITICAL: Mandatory stop_loss validation
+        # Signals without stop_loss cannot be properly sized and represent unbounded risk
+        if signal.stop_loss is None:
+            logger.warning(
+                f"Signal REJECTED: missing stop_loss (strategy={signal.strategy_id}, "
+                f"symbol={signal.symbol}, side={signal.side})"
+            )
+            no_trade_report.increment("missing_stop_loss", signal.symbol, signal.strategy_id)
+            await self._emit_order_decision(
+                signal=signal,
+                decision="REJECT",
+                reason_code="MISSING_STOP_LOSS",
+                computed_qty=None,
+                context={
+                    "error": "Signals without stop_loss represent unbounded risk",
+                    "fix": "Add stop_loss to signal before publishing",
+                },
+            )
+            return
+
         # Track signal attempt for diagnostics
-        signal_attempt_key = f"{signal.strategy_id}:{signal.symbol}"
 
         # Hard guards against runaway state (anti-stuck)
         open_positions = len(self._accounting.get_positions())
@@ -787,28 +1031,28 @@ class TradingSystem:
                 check_process_factory_actions,
                 log_trade_blocked,
             )
-            
+
             blocked_reasons = []
             suggested_fixes = []
-            
+
             # Check live enabled
             live_ok, live_reasons, live_fixes = check_live_enabled()
             if not live_ok:
                 blocked_reasons.extend(live_reasons)
                 suggested_fixes.extend(live_fixes)
-            
+
             # Check dry run
             dry_run_ok, dry_reasons, dry_fixes = check_dry_run()
             if not dry_run_ok:
                 blocked_reasons.extend(dry_reasons)
                 suggested_fixes.extend(dry_fixes)
-            
+
             # Check process factory actions
             actions_ok, actions_reasons, actions_fixes = check_process_factory_actions()
             if not actions_ok:
                 blocked_reasons.extend(actions_reasons)
                 suggested_fixes.extend(actions_fixes)
-            
+
             if blocked_reasons:
                 log_trade_blocked(
                     symbol=signal.symbol,
@@ -919,7 +1163,7 @@ class TradingSystem:
 
         # Calculate position size BEFORE creating OrderRequest
         equity = self._accounting.get_equity()
-        
+
         # Get current price for size calculation
         current_price = signal.entry_price or self._regime_detector.get_price(signal.symbol)
         if not current_price or current_price <= 0:
@@ -936,16 +1180,16 @@ class TradingSystem:
                 },
             )
             return
-        
+
         # Get regime first (needed for size calculation)
         regime = self._current_regime.get(signal.symbol, Regime.NORMAL)
-        
+
         # Get metrics for dynamic risk scaling (needed for size calculation)
         rolling_pf = None
         recent_drawdown = None
         volatility_percentile = None
         edge_bps = None
-        
+
         # Get rolling profit factor from strategy metrics
         strategy_metrics = self._accounting.get_strategy_metrics()
         if strategy_metrics:
@@ -967,11 +1211,11 @@ class TradingSystem:
                     rolling_pf = 1.0
         else:
             rolling_pf = 1.0
-        
+
         # Get recent drawdown
         _, drawdown_pct = self._accounting.get_drawdown(equity)
         recent_drawdown = drawdown_pct
-        
+
         # Get volatility and calculate percentile
         current_volatility = self._regime_detector.get_volatility(signal.symbol)
         if current_volatility > 0:
@@ -980,11 +1224,11 @@ class TradingSystem:
             # Calculate percentile
             dynamic_risk = self._position_sizer.get_dynamic_risk_manager()
             volatility_percentile = dynamic_risk.calculate_volatility_percentile(current_volatility)
-        
+
         # Get edge_bps from signal metadata if available
         if signal.metadata:
             edge_bps = signal.metadata.get("edge_bps")
-        
+
         # Calculate base size
         base_size = signal.size or self._position_sizer.calculate_size(
             signal,
@@ -996,14 +1240,14 @@ class TradingSystem:
             volatility_percentile=volatility_percentile,
             edge_bps=edge_bps,
         )
-        
+
         # Ensure minimum size
         if base_size <= 0:
             min_size_value = (equity * 0.001) / current_price  # 0.1% of equity
             absolute_min = 0.001
             base_size = max(min_size_value, absolute_min)
             logger.warning(f"Base size was 0, using minimum {base_size:.6f}")
-        
+
         # Apply protection multiplier
         if protection_size_multiplier < 1.0:
             base_size *= protection_size_multiplier
@@ -1011,7 +1255,7 @@ class TradingSystem:
                 min_size_value = (equity * 0.001) / current_price
                 absolute_min = 0.001
                 base_size = max(min_size_value, absolute_min)
-        
+
         # Check risk limits with calculated size
         if not settings.debug_mode:
             allowed, reason = self._risk_limits.check_order_request(
@@ -1198,7 +1442,7 @@ class TradingSystem:
         # Position size already calculated above, reuse it
         # (variables regime, rolling_pf, recent_drawdown, volatility_percentile, edge_bps already defined)
         logger.info(f"Base size calculated: {base_size:.6f} (signal.size={signal.size}, equity=${equity:.2f}, price=${current_price:.2f})")
-        
+
         # CRITICAL: If base_size is 0 or negative, use minimum size immediately
         original_base_size = base_size
         if base_size <= 0:
@@ -1376,7 +1620,7 @@ class TradingSystem:
         )
 
         metrics.increment("signals_accepted")
-        
+
         # Final diagnostic: ALLOW
         log_allow_reason(
             "ALLOW",
@@ -1388,10 +1632,57 @@ class TradingSystem:
     async def _handle_order_filled(self, event: Event) -> None:
         """Handle order fill event."""
         logger.info("[ORDER_FILLED_HANDLER] Received ORDER_FILLED event")
-        order: Order = event.data["order"]
-        fill_price = event.data["fill_price"]
-        event.data["fill_size"]
-        fee = event.data["fee"]
+
+        # Deduplicate: Bybit sends multiple partial fills for the same order_id.
+        # Only process the FIRST fill per order_id to prevent phantom positions.
+        if not hasattr(self, "_filled_order_ids"):
+            self._filled_order_ids: OrderedDict[str, bool] = OrderedDict()
+
+        raw_order_id = event.data.get("order_id") or (event.data.get("order") and getattr(event.data.get("order"), "order_id", None))
+        if raw_order_id and raw_order_id in self._filled_order_ids:
+            logger.debug(f"[ORDER_FILLED_HANDLER] Skipping duplicate fill for order {raw_order_id}")
+            return
+        if raw_order_id:
+            self._filled_order_ids[raw_order_id] = True
+            # Keep OrderedDict bounded by removing oldest entries
+            while len(self._filled_order_ids) > 5000:
+                self._filled_order_ids.popitem(last=False)
+
+        # Safe extraction with defaults - try multiple sources
+        order = event.data.get("order")
+        fill_price_raw = event.data.get("fill_price", 0.0)
+        fill_size_raw = event.data.get("fill_size", 0.0)
+
+        if not order:
+            order_id = event.data.get("order_id")
+            if order_id:
+                # Try order_manager first to get strategy_id/symbol
+                managed = self._order_manager.get_order(order_id)
+                # Always construct a FILLED order with actual fill data
+                order = Order(
+                    order_id=order_id,
+                    strategy_id=managed.strategy_id if managed else event.data.get("strategy_id", "unknown"),
+                    symbol=managed.symbol if managed else event.data.get("symbol", "UNKNOWN"),
+                    side=(managed.side if managed else event.data.get("side", "buy")).lower(),
+                    size=fill_size_raw or (managed.size if managed else 0.0),
+                    filled_size=fill_size_raw or (managed.size if managed else 0.0),
+                    price=fill_price_raw,
+                    avg_fill_price=fill_price_raw,
+                    order_type=managed.order_type if managed else "limit",
+                    status=OrderStatus.FILLED,
+                    timestamp=datetime.utcnow(),
+                    stop_loss=managed.stop_loss if managed else None,
+                    take_profit=managed.take_profit if managed else None,
+                    metadata=managed.metadata if managed else event.data.get("metadata", {}),
+                )
+                logger.info(f"[ORDER_FILLED_HANDLER] Built filled order: {order_id} {order.side} {order.filled_size} {order.symbol} @ {fill_price_raw}")
+            else:
+                logger.warning(f"[ORDER_FILLED_HANDLER] Missing order_id in event data: {event.data}")
+                return
+
+        fill_price = event.data.get("fill_price", 0.0)
+        event.data.get("fill_size", 0.0)
+        fee = event.data.get("fee", 0.0)
 
         logger.info(
             f"[ORDER_FILLED_HANDLER] Processing order {order.order_id}: "
@@ -1469,7 +1760,10 @@ class TradingSystem:
 
     async def _handle_position_closed(self, event: Event) -> None:
         """Handle position closed event."""
-        position: Position = event.data["position"]
+        position = event.data.get("position")
+        if not position:
+            logger.warning(f"[POSITION_CLOSED] Missing 'position' in event data: {event.data}")
+            return
         self._accounting.remove_position(position.position_id)
         self._risk_limits.unregister_position(position.position_id)
 
@@ -1562,6 +1856,64 @@ class TradingSystem:
         reason = event.data.get("reason", "Unknown")
         logger.critical(f"Killswitch triggered: {reason}")
         self._stop_trading = True
+
+    async def _handle_position_close_request(self, event: Event) -> None:
+        """Handle POSITION_CLOSE_REQUEST from Oracle or other modules.
+
+        Routes close requests to ExecutionRouter to actually close positions.
+        """
+        position_id = event.data.get("position_id")
+        reason = event.data.get("reason", "external_close_request")
+        if not position_id:
+            logger.warning("[CLOSE_REQUEST] Missing position_id in event data")
+            return
+
+        # Find the position
+        position = None
+        for p in self._accounting.get_positions():
+            if p.position_id == position_id:
+                position = p
+                break
+
+        if not position:
+            logger.warning(f"[CLOSE_REQUEST] Position {position_id} not found")
+            return
+
+        logger.info(f"[CLOSE_REQUEST] Closing position {position_id} reason={reason}")
+        price = (
+            self._execution_router._current_prices.get(position.symbol)
+            if hasattr(self._execution_router, "_current_prices")
+            else None
+        )
+        price = price or position.current_price or position.entry_price
+        await self._close_position_at_price(position, price, reason=reason)
+
+    async def _handle_meta_learning_patch(self, event: Event) -> None:
+        """Handle META_LEARNING_PATCH — apply parameter updates to strategies."""
+        patch = event.data.get("patch", {})
+        strategy_id = event.data.get("strategy_id")
+        if not patch:
+            return
+
+        applied = False
+        for strategy in self._strategies:
+            if strategy_id and strategy.strategy_id != strategy_id:
+                continue
+            # Apply patch parameters to strategy
+            for key, value in patch.items():
+                if hasattr(strategy, key):
+                    old_val = getattr(strategy, key)
+                    setattr(strategy, key, value)
+                    logger.info(
+                        f"[META_LEARNING] {strategy.strategy_id}.{key}: {old_val} -> {value}"
+                    )
+                    applied = True
+
+        if applied:
+            await self._bus.publish(Event(
+                event_type=EventType.STRATEGY_PARAMS_UPDATED,
+                data={"strategy_id": strategy_id, "patch": patch, "source": "meta_learning"},
+            ))
 
     async def panic_close_all(self, reason: str = "panic_close_all") -> dict[str, Any]:
         """Force-close all positions and cancel open orders (paper-safe)."""
@@ -1770,12 +2122,15 @@ class TradingSystem:
 
         unrealized_total = self._accounting.get_unrealized_pnl_total()
         equity_value = self._accounting.get_equity(mark_prices)
-        wallet_balance = self._accounting.get_cash_balance() + used_margin
-        available_balance = wallet_balance - used_margin - reserved_margin
+
+        # Use equity as wallet_balance since accounting already includes all positions
+        # Don't add used_margin - it's already accounted for in equity calculation
+        wallet_balance = equity_value
+        available_balance = equity_value - used_margin - reserved_margin
 
         account_state = {
             "wallet_balance": wallet_balance,
-            "available_balance": available_balance,
+            "available_balance": max(0.0, available_balance),  # Prevent negative available
             "equity": equity_value,
             "used_margin": used_margin,
             "reserved_margin": reserved_margin,
@@ -1964,71 +2319,12 @@ class TradingSystem:
             self._last_exit_decision_ts[position.position_id] = now
 
     async def _micro_trade_fallback_loop(self) -> None:
-        """Emit periodic micro-trade signals for paper assist mode."""
-        interval_sec = settings.paper_trade_assist_micro_trade_interval_sec
-        notional_usd = settings.paper_trade_assist_micro_trade_notional_usd
-        tp_pct = settings.paper_trade_assist_micro_trade_tp_pct / 100.0
-        sl_pct = settings.paper_trade_assist_micro_trade_sl_pct / 100.0
-
-        while self._running and is_paper_assist_enabled():
-            try:
-                await asyncio.sleep(interval_sec)
-
-                if self._stop_trading:
-                    continue
-
-                prices = getattr(self._execution_router, "_current_prices", {})
-                if not prices:
-                    continue
-
-                symbol = random.choice(list(prices.keys()))
-                price = prices.get(symbol)
-                if not price:
-                    continue
-
-                last_time = self._last_micro_trade_time.get(symbol)
-                now = datetime.utcnow()
-                if last_time and (now - last_time).total_seconds() < interval_sec:
-                    continue
-
-                side = random.choice(["buy", "sell"])
-                size = max(0.000001, notional_usd / price)
-
-                if side == "buy":
-                    take_profit = price * (1 + tp_pct)
-                    stop_loss = price * (1 - sl_pct)
-                else:
-                    take_profit = price * (1 - tp_pct)
-                    stop_loss = price * (1 + sl_pct)
-
-                signal = Signal(
-                    strategy_id="paper_assist_micro",
-                    symbol=symbol,
-                    side=side,
-                    entry_price=price,
-                    size=size,
-                    stop_loss=stop_loss,
-                    take_profit=take_profit,
-                    metadata={
-                        "micro_trade": True,
-                        "created_at": now.isoformat(),
-                        "max_time_min": settings.paper_trade_assist_micro_trade_max_time_min,
-                    },
-                )
-
-                await self._bus.publish(Event(event_type=EventType.SIGNAL, data={"signal": signal}))
-                self._last_micro_trade_time[symbol] = now
-                logger.info(
-                    "[PAPER_ASSIST] Micro-trade signal: %s %s size=%.6f",
-                    symbol,
-                    side,
-                    size,
-                )
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.warning(f"Micro-trade fallback loop error: {e}", exc_info=True)
-                await asyncio.sleep(1.0)
+        """Deprecated: micro-trade fallback disabled. System uses Bybit testnet directly."""
+        logger.warning(
+            "[DEPRECATED] _micro_trade_fallback_loop is disabled. "
+            "System operates on Bybit testnet — no paper trading fallback needed."
+        )
+        return
 
     async def _check_position_timeouts(self) -> None:
         """Periodic safety check for stale ticks and TTL enforcement."""
@@ -2083,6 +2379,36 @@ class TradingSystem:
         reason: str = "forced_exit",
     ) -> None:
         """Close a position at a specific price."""
+        # FIX-006: Send close order to Bybit BEFORE updating internal accounting
+        if not settings.dry_run and settings.is_live:
+            if hasattr(self._execution_router, "_bybit_http") and self._execution_router._bybit_http:
+                # Determine close side (opposite of position side)
+                close_side = "sell" if position.side == "long" else "buy"
+
+                try:
+                    # Create market close order
+                    close_request = OrderRequest(
+                        symbol=position.symbol,
+                        side=close_side,
+                        size=position.size,
+                        order_type="market",
+                        strategy_id=position.strategy_id,
+                        reduce_only=True,
+                    )
+
+                    # Place close order on Bybit
+                    logger.info(f"Closing position on Bybit: {position.position_id} ({position.symbol} {position.side} {position.size}) - {reason}")
+                    await self._execution_router._bybit_http.place_order(close_request)
+                    logger.info(f"Successfully closed position on Bybit: {position.position_id}")
+
+                except Exception as e:
+                    logger.critical(
+                        f"FAILED TO CLOSE POSITION ON BYBIT: {position.position_id} ({position.symbol}) - {e}. "
+                        f"Position remains open on exchange! Manual intervention required."
+                    )
+                    # Do NOT proceed with internal accounting update - position is still open on exchange
+                    return
+
         # Update position price first
         self._accounting.update_position_price(position.position_id, close_price)
 
@@ -2091,10 +2417,6 @@ class TradingSystem:
             realized_pnl = (close_price - position.entry_price) * position.size
         else:  # short
             realized_pnl = (position.entry_price - close_price) * position.size
-
-        # Record realized PnL
-        regime = self._current_regime.get(position.symbol, Regime.NORMAL)
-        self._accounting.record_realized_pnl(realized_pnl, position.strategy_id, regime.value)
 
         # Update position
         position.current_price = close_price
@@ -2135,11 +2457,21 @@ class TradingSystem:
 
         snapshot = self._accounting.snapshot(current_prices)
 
-        # Check killswitch (use most common regime or NORMAL)
+        # Check killswitch — use REAL Bybit equity to avoid phantom position inflation.
+        # Internal PortfolioAccounting can have inflated equity from duplicate fills.
         equity = snapshot.equity
-        peak_equity = self._accounting._peak_equity
-        if peak_equity is None:
-            peak_equity = equity
+        if settings.is_live and not settings.dry_run:
+            try:
+                from hean.api.routers.engine import _fetch_bybit_balance
+                bybit_bal = await _fetch_bybit_balance()
+                if bybit_bal and bybit_bal.get("equity", 0) > 0:
+                    real_equity = bybit_bal["equity"]
+                    logger.debug(f"Killswitch using Bybit equity: ${real_equity:.2f} (internal: ${equity:.2f})")
+                    equity = real_equity
+            except Exception as e:
+                logger.debug(f"Bybit equity fetch failed for killswitch: {e}")
+        # Use initial_capital as peak to avoid inflated peak from phantom positions
+        peak_equity = max(settings.initial_capital or 10000.0, equity)
         # Get regime for killswitch check (use first symbol's regime or NORMAL)
         regime = Regime.NORMAL
         if self._current_regime:
@@ -2218,7 +2550,7 @@ class TradingSystem:
 
         # Get profit target progress
         progress = self._profit_tracker.get_progress()
-        
+
         # Check profit capture (if enabled)
         if self._profit_capture and self._profit_capture._enabled:
             try:
@@ -2361,7 +2693,7 @@ async def run_evaluation(days: int) -> dict[str, Any]:
         )
     else:
         logger.info(f"[METRICS] total_trades={total_trades}")
-        
+
     if total_pnl <= 0:
         logger.warning(
             f"[METRICS_WARNING] total_pnl={total_pnl:.2f} <= 0. "
@@ -2369,7 +2701,7 @@ async def run_evaluation(days: int) -> dict[str, Any]:
         )
     else:
         logger.info(f"[METRICS] total_pnl={total_pnl:.2f}")
-        
+
     if profit_factor <= 1.0:
         logger.warning(
             f"[METRICS_WARNING] profit_factor={profit_factor:.2f} <= 1.0. "
@@ -2377,7 +2709,7 @@ async def run_evaluation(days: int) -> dict[str, Any]:
         )
     else:
         logger.info(f"[METRICS] profit_factor={profit_factor:.2f}")
-    
+
     logger.info(
         f"[METRICS_SUMMARY] total_trades={total_trades}, "
         f"total_pnl={total_pnl:.2f}, profit_factor={profit_factor:.2f}"
@@ -2531,7 +2863,7 @@ async def run_backtest(days: int, output_file: str | None = None) -> None:
         )
     else:
         logger.info(f"[METRICS] total_trades={total_trades}")
-        
+
     if total_pnl <= 0:
         logger.warning(
             f"[METRICS_WARNING] total_pnl={total_pnl:.2f} <= 0. "
@@ -2539,7 +2871,7 @@ async def run_backtest(days: int, output_file: str | None = None) -> None:
         )
     else:
         logger.info(f"[METRICS] total_pnl={total_pnl:.2f}")
-        
+
     if profit_factor <= 1.0:
         logger.warning(
             f"[METRICS_WARNING] profit_factor={profit_factor:.2f} <= 1.0. "
@@ -2547,7 +2879,7 @@ async def run_backtest(days: int, output_file: str | None = None) -> None:
         )
     else:
         logger.info(f"[METRICS] profit_factor={profit_factor:.2f}")
-    
+
     logger.info(
         f"[METRICS_SUMMARY] total_trades={total_trades}, "
         f"total_pnl={total_pnl:.2f}, profit_factor={profit_factor:.2f}"
@@ -2603,7 +2935,7 @@ def main() -> None:
     process_parser = subparsers.add_parser("process", help="Process Factory commands (experimental)")
     process_subparsers = process_parser.add_subparsers(dest="process_command", help="Process Factory command")
 
-    process_scan_parser = process_subparsers.add_parser(
+    process_subparsers.add_parser(
         "scan",
         help="Scan environment and create snapshot. Prints snapshot ID and staleness warnings.",
     )
@@ -2636,7 +2968,7 @@ def main() -> None:
         action="store_true",
         help="Force run even if daily_run_key exists (bypass idempotency)",
     )
-    process_report_parser = process_subparsers.add_parser(
+    process_subparsers.add_parser(
         "report",
         help="Generate daily report. Includes top contributors (net), profit illusion list, portfolio health score.",
     )
@@ -2647,7 +2979,7 @@ def main() -> None:
     process_evaluate_parser.add_argument(
         "--days", type=int, default=30, help="Number of days to look back (default 30)"
     )
-    process_smoke_test_parser = process_subparsers.add_parser(
+    process_subparsers.add_parser(
         "exec-smoke-test",
         help="Run execution smoke test (place and cancel a small test order)",
     )
@@ -2666,14 +2998,39 @@ def main() -> None:
         system = TradingSystem()
         loop = asyncio.get_event_loop()
 
-        # Handle signals
+        # Handle signals for graceful shutdown
         def signal_handler(sig, frame):
-            logger.info("Received signal, shutting down...")
-            loop.create_task(system.stop())
-            loop.stop()
+            sig_name = "SIGINT" if sig == signal.SIGINT else "SIGTERM"
+            logger.critical(f"Received {sig_name}, initiating graceful shutdown...")
+
+            # Create async shutdown task
+            async def graceful_shutdown():
+                try:
+                    # Panic close all positions first
+                    logger.critical("EMERGENCY: Closing all positions...")
+                    close_result = await system.panic_close_all(reason=f"graceful_shutdown_{sig_name}")
+                    logger.critical(
+                        f"Panic close complete: closed={close_result.get('positions_closed', 0)}, "
+                        f"cancelled={close_result.get('orders_cancelled', 0)}"
+                    )
+
+                    # Stop the trading system
+                    logger.info("Stopping trading system...")
+                    await system.stop()
+                    logger.info("Trading system stopped gracefully")
+
+                except Exception as e:
+                    logger.error(f"Error during graceful shutdown: {e}", exc_info=True)
+                finally:
+                    # Stop the event loop
+                    loop.stop()
+
+            # Schedule graceful shutdown
+            loop.create_task(graceful_shutdown())
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
+        logger.info("Signal handlers installed for graceful shutdown")
 
         try:
             loop.run_until_complete(system.run())
@@ -2685,14 +3042,14 @@ def main() -> None:
     elif args.command == "report":
         # Show trading diagnostics report
         from hean.observability.no_trade_report import no_trade_report
-        
+
         summary = no_trade_report.get_summary()
-        
+
         print("=" * 70)
         print("📊 TRADING DIAGNOSTICS REPORT")
         print("=" * 70)
         print()
-        
+
         # Pipeline counters
         pipeline = summary.pipeline_counters
         print("📈 PIPELINE COUNTERS:")
@@ -2701,7 +3058,7 @@ def main() -> None:
         print(f"  Positions opened: {pipeline.get('positions_opened', 0)}")
         print(f"  Positions closed: {pipeline.get('positions_closed', 0)}")
         print()
-        
+
         # Block reasons
         totals = summary.totals
         if totals:
@@ -2710,7 +3067,7 @@ def main() -> None:
             for reason, count in sorted_reasons[:10]:  # Top 10
                 print(f"  {reason}: {count}")
             print()
-        
+
         # Per strategy
         per_strategy = summary.per_strategy
         if per_strategy:
@@ -2723,7 +3080,7 @@ def main() -> None:
                     for reason, count in top_reasons:
                         print(f"    - {reason}: {count}")
             print()
-        
+
         # Per symbol
         per_symbol = summary.per_symbol
         if per_symbol:
@@ -2736,7 +3093,7 @@ def main() -> None:
                     for reason, count in top_reasons:
                         print(f"    - {reason}: {count}")
             print()
-        
+
         # Paper assist status
         from hean.paper_trade_assist import is_paper_assist_enabled
         if is_paper_assist_enabled():
@@ -2744,7 +3101,7 @@ def main() -> None:
             print(f"  Micro-trade interval: {settings.paper_trade_assist_micro_trade_interval_sec}s")
             print(f"  Micro-trade notional: ${settings.paper_trade_assist_micro_trade_notional_usd}")
             print()
-        
+
         print("=" * 70)
 
     elif args.command == "backtest":
@@ -2774,7 +3131,7 @@ def main() -> None:
             if args.process_command == "scan":
                 async def scan_with_output():
                     snapshot = await engine.scan_environment()
-                    print(f"\n✓ Environment scan completed")
+                    print("\n✓ Environment scan completed")
                     print(f"  Snapshot ID: {snapshot.snapshot_id}")
                     print(f"  Timestamp: {snapshot.timestamp.isoformat()}")
                     if snapshot.is_stale():
@@ -2791,14 +3148,14 @@ def main() -> None:
                 async def plan_with_output():
                     ranked, plan = await engine.plan(args.capital)
                     print(f"\n✓ Planning completed: {len(ranked)} opportunities")
-                    print(f"\n📊 Capital Plan:")
+                    print("\n📊 Capital Plan:")
                     print(f"  Reserve: ${plan.reserve_usd:.2f} ({plan.reserve_usd/plan.total_capital_usd*100:.1f}%)")
                     print(f"  Active: ${plan.active_usd:.2f} ({plan.active_usd/plan.total_capital_usd*100:.1f}%)")
                     print(f"  Experimental: ${plan.experimental_usd:.2f} ({plan.experimental_usd/plan.total_capital_usd*100:.1f}%)")
-                    print(f"\n🎯 Top Opportunities:")
-                    for i, (opp, score) in enumerate(ranked[:5], 1):
+                    print("\n🎯 Top Opportunities:")
+                    for i, (opp, _score) in enumerate(ranked[:5], 1):
                         print(f"  {i}. {opp.id}: ${opp.expected_profit_usd:.2f} profit, {opp.time_hours:.1f}h, risk={opp.risk_factor:.1f}")
-                    print(f"\n💰 Allocations:")
+                    print("\n💰 Allocations:")
                     for process_id, allocation in sorted(plan.allocations.items(), key=lambda x: x[1], reverse=True):
                         print(f"  {process_id}: ${allocation:.2f}")
                     return ranked, plan
@@ -2818,12 +3175,12 @@ def main() -> None:
                     from hean.process_factory.truth_layer import TruthLayer
                     truth_layer = TruthLayer()
                     attribution = truth_layer.compute_attribution(run)
-                    
+
                     print(f"\n✓ Process run completed: {run.run_id}")
                     print(f"  Status: {run.status.value}")
                     print(f"  Process: {run.process_id}")
                     print(f"  Mode: {args.mode}")
-                    print(f"\n📊 Attribution:")
+                    print("\n📊 Attribution:")
                     print(f"  Gross PnL: ${attribution.gross_pnl_usd:.2f}")
                     print(f"  Net PnL: ${attribution.net_pnl_usd:.2f}")
                     print(f"  Fees: ${attribution.total_fees_usd:.2f}")
@@ -2831,22 +3188,22 @@ def main() -> None:
                     print(f"  Rewards: ${attribution.total_rewards_usd:.2f}")
                     print(f"  Opportunity Cost: ${attribution.opportunity_cost_usd:.2f}")
                     if attribution.profit_illusion:
-                        print(f"  ⚠ Profit Illusion: Gross positive but net negative!")
-                    
+                        print("  ⚠ Profit Illusion: Gross positive but net negative!")
+
                     # Get kill/scale suggestions
                     portfolio = await engine.update_portfolio()
                     entry = next((e for e in portfolio if e.process_id == run.process_id), None)
                     if entry:
-                        print(f"\n💡 Recommendations:")
+                        print("\n💡 Recommendations:")
                         if entry.state.value == "KILLED":
-                            print(f"  ❌ Process is KILLED")
+                            print("  ❌ Process is KILLED")
                         elif entry.fail_rate > 0.7:
                             print(f"  ⚠ High fail rate ({entry.fail_rate:.1%}), consider killing")
                         elif entry.runs_count >= 5 and entry.avg_roi > 0 and entry.fail_rate < 0.4:
-                            print(f"  ✓ Good performance, eligible for scaling")
+                            print("  ✓ Good performance, eligible for scaling")
                         else:
                             print(f"  → Continue testing ({entry.runs_count} runs)")
-                    
+
                     if run.error:
                         print(f"\n❌ Error: {run.error}")
                     return run
@@ -2857,73 +3214,73 @@ def main() -> None:
                     portfolio = await engine.update_portfolio()
                     capital_plan = await storage.load_latest_capital_plan()
                     recent_runs = await storage.list_runs(limit=50)
-                    
+
                     # Compute attribution for profit illusion detection
                     from hean.process_factory.truth_layer import TruthLayer
                     truth_layer = TruthLayer()
                     attributions = truth_layer.compute_portfolio_attribution(recent_runs)
-                    
+
                     generator = ProcessReportGenerator()
                     result = generator.generate_daily_report(
                         portfolio, capital_plan, recent_runs
                     )
-                    
+
                     if result is None:
                         # Idempotent: report already exists
                         date_str = datetime.now().strftime("%Y-%m-%d")
                         md_path = generator.output_dir / f"process_factory_report_{date_str}.md"
                         json_path = generator.output_dir / f"process_factory_report_{date_str}.json"
-                        print(f"\n✓ Report already exists (idempotent skip):")
+                        print("\n✓ Report already exists (idempotent skip):")
                         print(f"  Markdown: {md_path}")
                         print(f"  JSON: {json_path}")
                         return None, None
-                    
+
                     md_path, json_path = result
-                    print(f"\n✓ Report generated:")
+                    print("\n✓ Report generated:")
                     print(f"  Markdown: {md_path}")
                     print(f"  JSON: {json_path}")
-                    
+
                     # Print summary
-                    print(f"\n📊 Portfolio Summary:")
+                    print("\n📊 Portfolio Summary:")
                     total_net = sum(a.net_pnl_usd for a in attributions.values())
                     total_gross = sum(a.gross_pnl_usd for a in attributions.values())
                     profit_illusion_count = sum(1 for a in attributions.values() if a.profit_illusion)
                     print(f"  Total Net Contribution: ${total_net:.2f}")
                     print(f"  Total Gross PnL: ${total_gross:.2f}")
                     print(f"  Profit Illusion Processes: {profit_illusion_count}")
-                    
+
                     # Top contributors (net)
                     sorted_attributions = sorted(
                         attributions.items(), key=lambda x: x[1].net_pnl_usd, reverse=True
                     )[:5]
-                    print(f"\n🏆 Top Contributors (Net):")
+                    print("\n🏆 Top Contributors (Net):")
                     for process_id, attr in sorted_attributions:
                         if attr.net_pnl_usd > 0:
                             print(f"  {process_id}: ${attr.net_pnl_usd:.2f} net")
-                    
+
                     # Profit illusion list
                     if profit_illusion_count > 0:
-                        print(f"\n⚠ Profit Illusion Processes:")
+                        print("\n⚠ Profit Illusion Processes:")
                         for process_id, attr in attributions.items():
                             if attr.profit_illusion:
                                 print(f"  {process_id}: ${attr.gross_pnl_usd:.2f} gross → ${attr.net_pnl_usd:.2f} net")
-                    
+
                     # Portfolio health
                     from hean.process_factory.evaluation import PortfolioEvaluator
                     evaluator = PortfolioEvaluator(storage)
                     health_score, _ = await evaluator.evaluate_portfolio(days=30)
-                    print(f"\n💚 Portfolio Health Score:")
+                    print("\n💚 Portfolio Health Score:")
                     print(f"  Stability: {health_score.stability_score:.2%}")
                     print(f"  Concentration Risk: {health_score.concentration_risk:.2%}")
                     print(f"  Churn Rate: {health_score.churn_rate:.2f}")
                     print(f"  Core Processes: {health_score.core_process_count}")
                     print(f"  Testing Processes: {health_score.testing_process_count}")
                     print(f"  Killed Processes: {health_score.killed_process_count}")
-                    
+
                     return md_path, json_path
-                
+
                 asyncio.run(generate_report())
-            
+
             elif args.process_command == "evaluate":
                 async def evaluate_with_output():
                     from hean.process_factory.evaluation import PortfolioEvaluator
@@ -2931,17 +3288,17 @@ def main() -> None:
                     health_score, process_results = await evaluator.evaluate_portfolio(
                         days=args.days
                     )
-                    
+
                     print(f"\n✓ Portfolio Evaluation ({args.days} days)")
-                    print(f"\n💚 Portfolio Health Score:")
+                    print("\n💚 Portfolio Health Score:")
                     print(f"  Stability: {health_score.stability_score:.2%}")
                     print(f"  Concentration Risk: {health_score.concentration_risk:.2%}")
                     print(f"  Churn Rate: {health_score.churn_rate:.2f}")
                     print(f"  Net Contribution: ${health_score.net_contribution_usd:.2f}")
                     print(f"  Profit Illusion Count: {health_score.profit_illusion_count}")
                     print(f"  Core: {health_score.core_process_count}, Testing: {health_score.testing_process_count}, Killed: {health_score.killed_process_count}")
-                    
-                    print(f"\n📋 Process Recommendations:")
+
+                    print("\n📋 Process Recommendations:")
                     for result in sorted(process_results, key=lambda x: x.net_contribution_usd, reverse=True):
                         print(f"\n  {result.process_id}:")
                         print(f"    Recommendation: {result.recommendation}")
@@ -2949,49 +3306,49 @@ def main() -> None:
                         print(f"    Runs: {result.runs_count}, Win Rate: {result.win_rate:.1%}, Stability: {result.stability:.1%}")
                         if result.reasons:
                             print(f"    Reasons: {', '.join(result.reasons)}")
-                    
+
                     return health_score, process_results
-                
+
                 asyncio.run(evaluate_with_output())
-            
+
             elif args.process_command == "exec-smoke-test":
                 from hean.process_factory.integrations.smoke_test import run_smoke_test
-                
+
                 async def smoke_test_with_output():
                     try:
                         result = await run_smoke_test()
                     except ValueError as e:
                         print(f"\n❌ Validation error: {e}")
                         sys.exit(1)
-                    
+
                     if result["success"]:
-                        print(f"\n✓ SUCCESS: Execution smoke test passed")
+                        print("\n✓ SUCCESS: Execution smoke test passed")
                         print(f"  Order ID: {result['order_id']}")
                         print(f"  Symbol: {result['symbol']}")
                         print(f"  Side: {result['side']}")
                         print(f"  Quantity: {result['qty']:.6f}")
                         print(f"  Price: ${result['price']:.2f}")
-                        print(f"\n  Order placed and cancelled successfully.")
+                        print("\n  Order placed and cancelled successfully.")
                     else:
-                        print(f"\n❌ FAIL: Execution smoke test failed")
+                        print("\n❌ FAIL: Execution smoke test failed")
                         print(f"  Error type: {result.get('error_type', 'unknown')}")
                         print(f"  Error: {result.get('error', 'unknown error')}")
-                        print(f"\n  Suggested fixes:")
+                        print("\n  Suggested fixes:")
                         if result.get('error_type') == 'not_enabled':
-                            print(f"    - Set PROCESS_FACTORY_ALLOW_ACTIONS=true")
-                            print(f"    - Set DRY_RUN=false")
+                            print("    - Set PROCESS_FACTORY_ALLOW_ACTIONS=true")
+                            print("    - Set DRY_RUN=false")
                         elif result.get('error_type') == 'min_notional':
                             print(f"    - Increase EXECUTION_SMOKE_TEST_NOTIONAL_USD (min ${result.get('error', '').split()[-1] if '$' in result.get('error', '') else '5'})")
                         elif result.get('error_type') == 'validation_error':
-                            print(f"    - Check configuration flags")
+                            print("    - Check configuration flags")
                         else:
-                            print(f"    - Check API credentials (BYBIT_API_KEY, BYBIT_API_SECRET)")
-                            print(f"    - Check network connectivity")
+                            print("    - Check API credentials (BYBIT_API_KEY, BYBIT_API_SECRET)")
+                            print("    - Check network connectivity")
                             print(f"    - Verify symbol is valid: {result.get('symbol', 'unknown')}")
                         sys.exit(1)
-                    
+
                     return result
-                
+
                 asyncio.run(smoke_test_with_output())
 
             else:

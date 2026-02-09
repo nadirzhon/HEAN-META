@@ -3,12 +3,10 @@
 import asyncio
 import json
 from collections import deque
-from datetime import datetime
 from typing import Any
 
 from fastapi import Request
 from fastapi.responses import StreamingResponse
-from starlette.background import BackgroundTask
 
 from hean.core.bus import EventBus
 from hean.core.types import Event, EventType
@@ -129,7 +127,7 @@ class EventStreamService:
                             break
 
                         yield f"data: {json.dumps(event_data)}\n\n"
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         # Send heartbeat
                         yield ": heartbeat\n\n"
                     except Exception as e:

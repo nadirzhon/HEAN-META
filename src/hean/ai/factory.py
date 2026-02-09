@@ -7,9 +7,8 @@ Split/Monster Factory pattern:
 4. Quality gate → promote to production or rollback
 """
 
-import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
 from hean.config import settings
 from hean.core.bus import EventBus
@@ -106,22 +105,20 @@ class AIFactory:
         for candidate in candidates:
             candidate_id = candidate["candidate_id"]
 
-            # STUB: In real implementation, replay events with candidate strategy
-            # For now, generate mock metrics
-            mock_metrics = {
-                "sharpe": 1.5 + (hash(candidate_id) % 10) / 10.0,  # 1.5-2.4
-                "max_dd_pct": 8.0 + (hash(candidate_id) % 5),  # 8-12%
-                "profit_factor": 1.3 + (hash(candidate_id) % 7) / 10.0,  # 1.3-1.9
-                "trades": 50 + (hash(candidate_id) % 50),  # 50-99 trades
+            # Backtesting not yet implemented — return zero metrics
+            # to prevent untested strategies from being promoted
+            results[candidate_id] = {
+                "sharpe": 0.0,
+                "max_dd_pct": 0.0,
+                "profit_factor": 0.0,
+                "trades": 0,
+                "_not_evaluated": True,
+                "_reason": "Event replay backtesting not yet implemented",
             }
 
-            results[candidate_id] = mock_metrics
-
-            logger.info(
-                f"Evaluated {candidate_id}: "
-                f"Sharpe={mock_metrics['sharpe']:.2f}, "
-                f"MaxDD={mock_metrics['max_dd_pct']:.1f}%, "
-                f"PF={mock_metrics['profit_factor']:.2f}"
+            logger.error(
+                f"[AI_FACTORY] Cannot evaluate {candidate_id}: "
+                "backtesting engine not implemented. Strategy blocked from promotion."
             )
 
         return results

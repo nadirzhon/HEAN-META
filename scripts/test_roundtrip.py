@@ -14,7 +14,6 @@ import time
 
 import requests
 
-
 API = "http://localhost:8000"
 REDIS_KEYS = [
     "hean:state:state:orders",

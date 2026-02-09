@@ -14,14 +14,23 @@ services:
       - PYTHONUNBUFFERED=1
       - TZ=UTC
       - PYTHONPATH=/app/src
+      - BYBIT_TESTNET=true
       - FUNDING_HARVESTER_ENABLED=true
       - BASIS_ARBITRAGE_ENABLED=true
       - IMPULSE_ENGINE_ENABLED=true
+      - HF_SCALPING_ENABLED=true
+      - ENHANCED_GRID_ENABLED=true
+      - MOMENTUM_TRADER_ENABLED=true
+      - INVENTORY_NEUTRAL_MM_ENABLED=true
+      - CORRELATION_ARB_ENABLED=true
+      - REBATE_FARMER_ENABLED=true
+      - LIQUIDITY_SWEEP_ENABLED=true
+      - SENTIMENT_STRATEGY_ENABLED=true
     volumes:
       - ./src:/app/src:ro
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
-    command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --workers 2
     restart: unless-stopped
     ports:
       - "8000:8000"  # API endpoint
@@ -49,56 +58,6 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
-
-  # React/Vite UI (production, served via nginx)
-  ui:
-    image: hean-ui:latest
-    build:
-      context: ./apps/ui
-      dockerfile: Dockerfile
-      args:
-        VITE_API_BASE: ${VITE_API_BASE:-/api}
-        VITE_WS_URL: ${VITE_WS_URL:-/ws}
-    container_name: hean-ui
-    env_file:
-      - ui.env
-    ports:
-      - "3000:80"
-    networks:
-      - hean-network
-    depends_on:
-      - api
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-
-  # React/Vite UI (hot-reload dev profile)
-  ui-dev:
-    image: hean-ui-dev:latest
-    profiles: ["dev"]
-    build:
-      context: ./apps/ui
-      dockerfile: Dockerfile.dev
-    container_name: hean-ui-dev
-    environment:
-      - VITE_API_BASE=http://localhost:8000
-      - VITE_WS_URL=ws://localhost:8000/ws
-    ports:
-      - "5173:5173"
-    networks:
-      - hean-network
-    depends_on:
-      - api
-    restart: unless-stopped
-    volumes:
-      - ./apps/ui/src:/app/src
-      - ./apps/ui/index.html:/app/index.html
-      - ./apps/ui/vite.config.ts:/app/vite.config.ts
-      - ./apps/ui/postcss.config.mjs:/app/postcss.config.mjs
 
   # Redis for atomic state sharing between C++ and Python
   redis:
@@ -131,6 +90,188 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+
+  # SYMBIONT X - Bybit Testnet Live Trading (REAL DATA, NO SIMULATION)
+  symbiont-testnet:
+    image: hean-symbiont:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.testnet
+    container_name: hean-symbiont-testnet
+    env_file:
+      - .env.symbiont
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app/src
+      - TZ=UTC
+      - BYBIT_TESTNET=true
+      - REDIS_URL=redis://redis:6379/0
+      # PAPER_TRADING removed - system uses Bybit testnet directly, no simulation
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    networks:
+      - hean-network
+    command: python live_testnet_real.py
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============================================
+  # Collector - Market Data Ingestion from Bybit WS
+  # ============================================
+  collector:
+    build:
+      context: ./services/collector
+      dockerfile: Dockerfile
+    container_name: hean-collector
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - BYBIT_WS=wss://stream-testnet.bybit.com/v5/public/linear
+      - SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
+      - MAX_STREAM_LENGTH=1000
+    networks:
+      - hean-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ============================================
+  # Physics - Market Thermodynamics Calculations
+  # ============================================
+  physics:
+    build:
+      context: ./services/physics
+      dockerfile: Dockerfile
+    container_name: hean-physics
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
+      - LOOKBACK_WINDOW=100
+      - MAX_STREAM_LENGTH=500
+    networks:
+      - hean-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # ============================================
+  # Brain - AI Decision Making (Claude + Rules)
+  # ============================================
+  brain:
+    build:
+      context: ./services/brain
+      dockerfile: Dockerfile
+    container_name: hean-brain
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
+      - STRATEGIC_INTERVAL=30
+      - MAX_STREAM_LENGTH=200
+    networks:
+      - hean-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # ============================================
+  # Risk - Iron-Clad Risk Management
+  # ============================================
+  risk-svc:
+    build:
+      context: ./services/risk
+      dockerfile: Dockerfile
+    container_name: hean-risk-svc
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - INITIAL_CAPITAL=${INITIAL_CAPITAL:-300}
+      - MAX_DAILY_LOSS_PCT=2.0
+      - MAX_WEEKLY_LOSS_PCT=5.0
+      - MAX_TRADE_RISK_PCT=1.0
+      - MAX_STREAM_LENGTH=200
+    networks:
+      - hean-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
 networks:
   hean-network:

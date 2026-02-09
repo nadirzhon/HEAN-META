@@ -75,9 +75,10 @@ async def test_killswitch_drawdown() -> None:
     await bus.start()
 
     # Trigger drawdown
+    # Adaptive limit for $10,000 equity is 20%, min(20%, 15% max_daily) = 15%
     initial_equity = 10000.0
     peak_equity = 10000.0
-    current_equity = 9400.0  # 6% drawdown (exceeds 5% limit)
+    current_equity = 8400.0  # 16% drawdown (exceeds 15% limit)
 
     triggered = await killswitch.check_drawdown(current_equity, peak_equity)
     assert triggered

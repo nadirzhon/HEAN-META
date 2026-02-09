@@ -37,6 +37,9 @@ ENV/
 .env
 .env.local
 .env.*.local
+.env.symbiont
+backend.env
+ui.env
 
 # Logs
 *.log

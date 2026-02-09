@@ -1,0 +1,97 @@
+//
+//  RiskState.swift
+//  HEAN
+//
+
+import Foundation
+import SwiftUI
+
+enum RiskState: String, Codable, CaseIterable {
+    case normal = "NORMAL"
+    case softBrake = "SOFT_BRAKE"
+    case quarantine = "QUARANTINE"
+    case hardStop = "HARD_STOP"
+
+    var displayName: String {
+        switch self {
+        case .normal: return "Normal"
+        case .softBrake: return "Soft Brake"
+        case .quarantine: return "Quarantine"
+        case .hardStop: return "Hard Stop"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .normal: return "All systems operational"
+        case .softBrake: return "Reduced position sizing"
+        case .quarantine: return "Close-only mode"
+        case .hardStop: return "All trading halted"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .normal: return "checkmark.shield.fill"
+        case .softBrake: return "exclamationmark.shield.fill"
+        case .quarantine: return "xmark.shield.fill"
+        case .hardStop: return "hand.raised.fill"
+        }
+    }
+
+    var colorHex: String {
+        switch self {
+        case .normal: return "22C55E"
+        case .softBrake: return "F59E0B"
+        case .quarantine: return "F97316"
+        case .hardStop: return "EF4444"
+        }
+    }
+
+    var severity: Int {
+        switch self {
+        case .normal: return 0
+        case .softBrake: return 1
+        case .quarantine: return 2
+        case .hardStop: return 3
+        }
+    }
+}
+
+struct RiskMetrics: Codable {
+    let drawdown: Double
+    let drawdownPercent: Double
+    let maxDrawdown: Double
+    let activePositions: Int
+    let totalExposure: Double
+    let availableMargin: Double
+    let quarantinedSymbols: [String]
+    let warningThreshold: Double
+    let criticalThreshold: Double
+
+    enum CodingKeys: String, CodingKey {
+        case drawdown
+        case drawdownPercent = "drawdown_percent"
+        case maxDrawdown = "max_drawdown"
+        case activePositions = "active_positions"
+        case totalExposure = "total_exposure"
+        case availableMargin = "available_margin"
+        case quarantinedSymbols = "quarantined_symbols"
+        case warningThreshold = "warning_threshold"
+        case criticalThreshold = "critical_threshold"
+    }
+}
+
+struct RiskGovernorStatus: Codable {
+    let state: RiskState
+    let metrics: RiskMetrics
+    let killswitchTriggered: Bool
+    let killswitchReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case state
+        case metrics
+        case killswitchTriggered = "killswitch_triggered"
+        case killswitchReason = "killswitch_reason"
+    }
+}

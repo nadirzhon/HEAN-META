@@ -1,6 +1,11 @@
 """Engine control router."""
 
+import asyncio
+import time
+
 from fastapi import APIRouter, HTTPException, Request, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 import hean.api.state as state
 from hean.api.schemas import EnginePauseRequest, EngineStartRequest, EngineStopRequest
@@ -10,7 +15,59 @@ from hean.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Persistent Bybit HTTP client and balance cache
+_bybit_http: "BybitHTTPClient | None" = None  # type: ignore[name-defined]
+_bybit_balance_cache: dict | None = None
+_bybit_balance_cache_ts: float = 0.0
+_BYBIT_CACHE_TTL = 0.5  # seconds — sub-second freshness
+
+
+async def _get_bybit_client():
+    """Get or create persistent Bybit HTTP client."""
+    global _bybit_http
+    if _bybit_http is None:
+        from hean.exchange.bybit.http import BybitHTTPClient
+        _bybit_http = BybitHTTPClient()
+        await _bybit_http.connect()
+    return _bybit_http
+
+
+async def _fetch_bybit_balance() -> dict | None:
+    """Fetch real balance from Bybit with 2s cache for near real-time accuracy."""
+    global _bybit_balance_cache, _bybit_balance_cache_ts, _bybit_http
+
+    now = time.time()
+    if _bybit_balance_cache is not None and now - _bybit_balance_cache_ts < _BYBIT_CACHE_TTL:
+        return _bybit_balance_cache
+
+    try:
+        client = await _get_bybit_client()
+        info = await asyncio.wait_for(client.get_account_info(), timeout=3.0)
+
+        # BybitHTTPClient returns unwrapped result: {"list": [...]}
+        accs = []
+        if isinstance(info, dict):
+            if "list" in info:
+                accs = info["list"]
+            elif info.get("retCode") == 0:
+                accs = info.get("result", {}).get("list", [])
+
+        if accs and len(accs) > 0:
+            _bybit_balance_cache = {
+                "equity": float(accs[0].get("totalEquity", 0)),
+                "balance": float(accs[0].get("totalAvailableBalance", 0)),
+            }
+            _bybit_balance_cache_ts = now
+            return _bybit_balance_cache
+    except Exception as e:
+        logger.warning(f"Bybit balance fetch failed: {e}")
+        # Reset client on error so it reconnects next time
+        _bybit_http = None
+
+    return _bybit_balance_cache  # Return stale cache if fetch fails
+
 router = APIRouter(prefix="/engine", tags=["engine"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 def _get_facade(request: Request):
@@ -23,6 +80,10 @@ def _get_facade(request: Request):
 
 def _check_live_trading(confirm_phrase: str | None) -> None:
     """Check if live trading is allowed."""
+    # Testnet mode - no confirmation required
+    if settings.bybit_testnet:
+        return
+
     if not settings.is_live:
         return  # Paper trading, no check needed
 
@@ -79,8 +140,9 @@ async def _log_control_event(
 
 
 @router.post("/start")
+@limiter.limit("5/minute")
 async def start_engine(request: Request, payload: EngineStartRequest) -> dict:
-    """Start the trading engine."""
+    """Start the trading engine. Rate limited to 5 requests per minute."""
     engine_facade = _get_facade(request)
 
     _check_live_trading(payload.confirm_phrase)
@@ -93,10 +155,11 @@ async def start_engine(request: Request, payload: EngineStartRequest) -> dict:
     except Exception as e:
         logger.error(f"Failed to start engine: {e}", exc_info=True)
         await _log_control_event("start", "result", request, success=False, detail=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/stop")
+@limiter.limit("5/minute")
 async def stop_engine(request: Request, payload: EngineStopRequest) -> dict:
     """Stop the trading engine."""
     engine_facade = _get_facade(request)
@@ -118,7 +181,7 @@ async def stop_engine(request: Request, payload: EngineStopRequest) -> dict:
         raise HTTPException(
             status_code=500,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.post("/pause")
@@ -134,7 +197,7 @@ async def pause_engine(request: Request, payload: EnginePauseRequest) -> dict:
     except Exception as e:
         logger.error(f"Failed to pause engine: {e}", exc_info=True)
         await _log_control_event("pause", "result", request, success=False, detail=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/resume")
@@ -156,7 +219,7 @@ async def resume_engine(request: Request) -> dict:
     except Exception as e:
         logger.error(f"Failed to resume engine: {e}", exc_info=True)
         await _log_control_event("resume", "result", request, success=False, detail=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/kill")
@@ -171,7 +234,7 @@ async def kill_engine(request: Request) -> dict:
     except Exception as e:
         logger.error(f"Failed to kill engine: {e}", exc_info=True)
         await _log_control_event("kill", "result", request, success=False, detail=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/restart")
@@ -193,21 +256,75 @@ async def restart_engine(request: Request) -> dict:
         }
     except NotImplementedError as e:
         await _log_control_event("restart", "result", request, success=False, detail=str(e))
-        raise HTTPException(status_code=501, detail=str(e))
+        raise HTTPException(status_code=501, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Failed to restart engine: {e}", exc_info=True)
         await _log_control_event("restart", "result", request, success=False, detail=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/status")
 async def get_engine_status(request: Request) -> dict:
-    """Get engine status."""
-    engine_facade = _get_facade(request)
+    """Get engine status with real Bybit balance overlay."""
+    facade = state.get_engine_facade(request)
+
+    # If engine facade not initialized, return stopped status
+    if facade is None:
+        return {
+            "status": "stopped",
+            "running": False,
+            "message": "Engine not initialized",
+        }
 
     try:
-        result = await engine_facade.get_status()
+        result = await facade.get_status()
+
+        # Overlay real Bybit balance (fetched outside the engine lock)
+        if settings.is_live and result.get("running"):
+            bybit = await _fetch_bybit_balance()
+            if bybit:
+                result["equity"] = bybit["equity"]
+                result["available_balance"] = bybit["balance"]
+
         return result
     except Exception as e:
         logger.error(f"Failed to get engine status: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/lock-profit")
+async def lock_profit(request: Request) -> dict:
+    """Lock current profit by closing all positions and stopping engine."""
+    engine_facade = _get_facade(request)
+
+    try:
+        await _log_control_event("lock_profit", "command", request, detail="engine/lock-profit")
+
+        # Get current status
+        status = await engine_facade.get_status()
+        current_equity = status.get("equity", 0)
+        initial_capital = status.get("initial_capital", 0)
+        profit = current_equity - initial_capital if initial_capital > 0 else 0
+
+        # Close all positions and stop engine
+        result = await engine_facade.stop()
+
+        await _log_control_event("lock_profit", "result", request, success=True, extra={
+            "profit_locked": profit,
+            "equity": current_equity,
+            "initial_capital": initial_capital
+        })
+
+        return {
+            "ok": True,
+            "status": "profit_locked",
+            "message": f"Profit locked: ${profit:.2f}",
+            "profit_locked": profit,
+            "equity": current_equity,
+            "initial_capital": initial_capital,
+            **result
+        }
+    except Exception as e:
+        logger.error(f"Failed to lock profit: {e}", exc_info=True)
+        await _log_control_event("lock_profit", "result", request, success=False, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

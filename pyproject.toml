@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hean"
-version = "0.1.0"
-description = "Production-grade event-driven crypto trading research system for Bybit. Developed with assistance from Claude AI (Anthropic)."
+version = "2.0.0"
+description = "Ultra-performance AI trading system with Rust/C++/Local LLMs - 100% FREE & Open Source"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -13,13 +13,14 @@ authors = [
     {name = "HEAN Team"}
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Financial and Insurance Industry",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
+    # Core (keep existing)
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "aiohttp>=3.9.0",
@@ -27,20 +28,33 @@ dependencies = [
     "httpx>=0.25.0",
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
+    "slowapi>=0.1.9",
     "prometheus-client>=0.19.0",
-    "numpy>=1.24.0",  # For array handling in graph engine
-    "networkx>=3.2.0",  # Graph utilities for causal discovery
-    "python-dotenv>=1.0.0",  # Optional .env loading in tools
-    "redis>=5.0.0",  # Redis for atomic state sharing
-    "python-socketio>=5.10.0",  # Socket.io for WebSocket support
-    "grpcio>=1.60.0",  # Phase 19: gRPC for distributed mesh network
-    "grpcio-tools>=1.60.0",  # Phase 19: Protobuf compiler for gRPC
-    "protobuf>=4.25.0",  # Phase 19: Protocol buffers
-    "psutil>=5.9.0",  # Phase 19: System monitoring for heartbeat
-    "pyzmq>=25.0.0",  # Absolute+: ZeroMQ for Brain-Body communication
+    "networkx>=3.2.0",
+    "python-dotenv>=1.0.0",
+    "redis>=5.0.0",
+    "python-socketio>=5.10.0",
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+    "protobuf>=4.25.0",
+    "psutil>=5.9.0",
+    "pyzmq>=25.0.0",
+
+    # NEW: Ultra-performance data processing
+    "polars>=0.20.0",           # 10x faster than pandas
+    "pyarrow>=15.0.0",          # Apache Arrow for zero-copy data
+    "orjson>=3.9.0",            # Fastest JSON parser (Rust-based)
+
+    # NEW: High-performance numerical computing
+    "numpy>=1.24.0",
+
+    # Storage
+    "duckdb>=1.0.0",
 ]
 
 [project.optional-dependencies]
+
+# Development tools
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
@@ -48,25 +62,123 @@ dev = [
     "mypy>=1.7.0",
     "ruff>=0.1.0",
     "types-aiofiles",
-    "httpx>=0.25.0",  # For API tests
-]
-llm = [
-    "openai>=1.0.0",
-    "anthropic>=0.18.0",
-    "google-generativeai>=0.3.0",
-]
-cpp = [
-    "pybind11>=2.11.0",  # For C++ Python bindings
-]
-onnx = [
-    "onnxruntime>=1.16.0",  # Optional: ONNX Runtime for model inference
-]
-viz = [
-    "d3>=7.0.0",  # For visualization (installed via npm for web)
+    "httpx>=0.25.0",
 ]
 
-[tool.setuptools]
-packages = ["hean"]
+# C++ Integration (CRITICAL - 50-100x speedup)
+cpp_core = [
+    "nanobind>=1.9.0",          # 10x faster than pybind11
+    "cmake>=3.15",
+]
+
+# Message Brokers (Ultra-high throughput)
+messaging = [
+    "nats-py>=2.7.0",           # 11M msg/s - FASTEST
+    "kafka-python>=2.0.2",      # For Redpanda (4M msg/s)
+]
+
+# Time-Series Databases
+timeseries = [
+    "asyncpg>=0.29.0",          # QuestDB client (11M row/s)
+    "clickhouse-driver>=0.2.6", # ClickHouse (analytics)
+]
+
+# Local LLM (ZERO API COSTS)
+local_llm = [
+    "ollama>=0.1.0",            # Easiest local LLM
+    "vllm>=0.4.0",              # Production (10-20x faster)
+    "llama-cpp-python>=0.2.0",  # CPU inference
+    "openai>=1.0.0",            # API compatibility layer
+]
+
+# JAX (GPU acceleration - FREE)
+jax_gpu = [
+    "jax[cuda12]>=0.4.25",
+    "jaxlib>=0.4.25",
+    "flax>=0.8.0",
+    "optax>=0.1.9",
+]
+
+# Reinforcement Learning (FREE - no license costs)
+rl_free = [
+    "stable-baselines3>=2.3.0",  # MIT license
+    "sb3-contrib>=2.3.0",
+    "gymnasium>=0.29.0",         # Apache 2.0
+    "shimmy>=1.3.0",
+]
+
+# Deep Learning (FREE)
+deep_learning = [
+    "torch>=2.2.0",              # BSD license
+    "pytorch-lightning>=2.2.0",  # Apache 2.0
+    "torchmetrics>=1.3.0",
+    "torch-geometric>=2.5.0",    # MIT license - for Graph Neural Networks
+]
+
+# Gradient Boosting (FREE)
+boosting = [
+    "xgboost>=2.0.0",            # Apache 2.0
+    "lightgbm>=4.3.0",           # MIT license
+    "catboost>=1.2.3",           # Apache 2.0
+    "optuna>=3.6.0",             # MIT license - hyperparameter optimization
+]
+
+# Causal Inference (FREE)
+causal = [
+    "dowhy>=0.11.0",             # MIT license
+    "econml>=0.15.0",            # MIT license
+]
+
+# Quantum Computing (FREE - experimental)
+quantum = [
+    "qiskit>=1.0.0",             # Apache 2.0
+    "pennylane>=0.35.0",         # Apache 2.0
+    "qiskit-finance>=0.4.0",
+]
+
+# Distributed Computing (FREE)
+distributed = [
+    "ray[tune,train]>=2.9.0",    # Apache 2.0
+]
+
+# MLOps (FREE)
+mlops_free = [
+    "mlflow>=2.11.0",            # Apache 2.0
+    "tensorboard>=2.16.0",       # Apache 2.0
+]
+
+# ONNX Runtime (optional)
+onnx = [
+    "onnxruntime>=1.16.0",       # For model inference
+]
+
+# Visualization
+viz = [
+    "d3>=7.0.0",  # For web visualization
+]
+
+# Ultra Performance Stack (Rust + C++ + Message Brokers + Time-Series DBs)
+ultra_perf = [
+    "hean[cpp_core,messaging,timeseries]",
+]
+
+# Full AI Stack (all free - no license costs)
+ai_full = [
+    "hean[rl_free,deep_learning,boosting,causal,quantum,local_llm,distributed]",
+]
+
+# MLOps
+mlops = [
+    "hean[mlops_free,onnx]",
+]
+
+# Everything (Complete ultra-performance + AI system)
+full = [
+    "hean[ultra_perf,ai_full,mlops,viz,dev]",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.setuptools.package-dir]
 "" = "src"
@@ -104,6 +216,14 @@ module = [
     "hean.core.intelligence.codegen_engine",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "hean.symbiont_x.*",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
 
 [tool.ruff]
 line-length = 100

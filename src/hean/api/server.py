@@ -2,12 +2,11 @@
 
 import uvicorn
 
-from hean.api.app import app
 from hean.config import settings
 
 if __name__ == "__main__":
     uvicorn.run(
-        "hean.api.app:app",
+        "hean.api.main:app",
         host="0.0.0.0",
         port=8000,
         reload=settings.debug_mode,

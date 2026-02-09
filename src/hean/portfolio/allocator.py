@@ -215,6 +215,16 @@ class CapitalAllocator:
             strategies = self._get_enabled_strategies()
             self._initialize_weights(strategies)
 
+        # Force equal allocation mode - skip adaptive logic
+        from hean.config import settings
+        if settings.force_equal_allocation:
+            strategies = self._get_enabled_strategies()
+            if strategies:
+                equal_weight = 1.0 / len(strategies)
+                self._weights = dict.fromkeys(strategies, equal_weight)
+                logger.info(f"Force equal allocation: {self._weights}")
+            return self._weights
+
         # Only adjust once per day
         if self._last_rebalance_date == today:
             return self._weights
@@ -291,8 +301,12 @@ class CapitalAllocator:
         if not self._weights:
             self._initialize_weights(enabled_strategies)
 
+        # Force equal allocation if configured
+        if settings.force_equal_allocation and enabled_strategies:
+            equal_weight = 1.0 / len(enabled_strategies)
+            self._weights = dict.fromkeys(enabled_strategies, equal_weight)
         # Update weights if metrics provided (adaptive routing)
-        if strategy_metrics:
+        elif strategy_metrics:
             self.update_weights(strategy_metrics)
 
         # Allocate based on weights

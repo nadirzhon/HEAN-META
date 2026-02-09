@@ -5,27 +5,34 @@ Provides WebSocket Pub/Sub with topic-based subscriptions for real-time data str
 """
 
 import asyncio
+import json
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Any, Dict, Set
+from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
+from hean.api.auth import setup_auth
 from hean.api.engine_facade import EngineFacade
-from hean.api.telemetry import telemetry_service
+from hean.api.schemas import WebSocketMessage
 from hean.api.services.market_data_store import market_data_store
 from hean.api.services.trading_metrics import trading_metrics
+from hean.api.services.websocket_service import get_websocket_service
+from hean.api.telemetry import telemetry_service
 from hean.config import settings
 from hean.core.bus import EventBus
 from hean.core.system.redis_state import get_redis_state_manager
 from hean.core.types import Event, EventType
 from hean.logging import get_logger
 from hean.risk.killswitch import KillSwitch
-from hean.api.services.websocket_service import get_websocket_service
 
 logger = get_logger(__name__)
 
@@ -51,13 +58,13 @@ last_account_broadcast: float = 0.0
 # WebSocket connection manager
 class ConnectionManager:
     """Manages WebSocket connections and topic subscriptions."""
-    
+
     def __init__(self):
-        self.active_connections: Dict[str, WebSocket] = {}
-        self.topic_subscriptions: Dict[str, Set[str]] = {}  # topic -> set of connection_ids
-        self.connection_topics: Dict[str, Set[str]] = {}  # connection_id -> set of topics
-        self.redis_pubsub_tasks: Dict[str, asyncio.Task] = {}
-        
+        self.active_connections: dict[str, WebSocket] = {}
+        self.topic_subscriptions: dict[str, set[str]] = {}  # topic -> set of connection_ids
+        self.connection_topics: dict[str, set[str]] = {}  # connection_id -> set of topics
+        self.redis_pubsub_tasks: dict[str, asyncio.Task] = {}
+
     async def connect(self, websocket: WebSocket, connection_id: str) -> None:
         """Accept a WebSocket connection."""
         await websocket.accept()
@@ -70,27 +77,29 @@ class ConnectionManager:
             source="ws",
             context={"topic": "system_heartbeat"},
         )
-        
+
         # Get actual state from system, but default to hardcoded values
         redis_status = "disconnected"
         try:
             if redis_state_manager:
                 await redis_state_manager._client.ping()
                 redis_status = "connected"
-        except:
+        except Exception as e:
+            logger.warning(f"Redis connection check failed: {e}")
             redis_status = "disconnected"
-        
+
         engine_running = engine_facade.is_running if engine_facade else False
         equity = settings.initial_capital
-        
+
         # Try to get real equity if engine is running
         if engine_running and engine_facade:
             try:
                 status = await engine_facade.get_status()
                 equity = status.get("equity", settings.initial_capital)
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to get equity from engine: {e}")
                 equity = settings.initial_capital
-        
+
         # Send initial state immediately on connection
         await self.send_to_connection(connection_id, {
             "topic": "system_status",
@@ -99,12 +108,12 @@ class ConnectionManager:
                 "engine": "running" if engine_running else "stopped",
                 "redis": redis_status,
                 "equity": equity,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         })
         logger.info(f"✅ Sent initial state to {connection_id}: Engine={'RUNNING' if engine_running else 'STOPPED'}, Redis={redis_status.upper()}, Equity=${equity:.2f}")
-        
+
     async def disconnect(self, connection_id: str) -> None:
         """Handle disconnection and cleanup."""
         if connection_id == "all":
@@ -134,50 +143,50 @@ class ConnectionManager:
             source="ws",
             context={"topic": "system_heartbeat"},
         )
-        
+
     def subscribe(self, connection_id: str, topic: str) -> None:
         """Subscribe a connection to a topic."""
         if topic not in self.topic_subscriptions:
             self.topic_subscriptions[topic] = set()
         self.topic_subscriptions[topic].add(connection_id)
-        
+
         if connection_id not in self.connection_topics:
             self.connection_topics[connection_id] = set()
         self.connection_topics[connection_id].add(topic)
-        
+
         logger.info(f"Connection {connection_id} subscribed to topic: {topic}")
-        
+
     def unsubscribe(self, connection_id: str, topic: str) -> None:
         """Unsubscribe a connection from a topic."""
         if topic in self.topic_subscriptions:
             self.topic_subscriptions[topic].discard(connection_id)
             if not self.topic_subscriptions[topic]:
                 del self.topic_subscriptions[topic]
-                
+
         if connection_id in self.connection_topics:
             self.connection_topics[connection_id].discard(topic)
-            
+
         logger.debug(f"Connection {connection_id} unsubscribed from topic: {topic}")
-        
-    async def broadcast_to_topic(self, topic: str, data: Dict[str, Any]) -> None:
+
+    async def broadcast_to_topic(self, topic: str, data: dict[str, Any]) -> None:
         """Broadcast data to all subscribers of a topic."""
         if topic not in self.topic_subscriptions:
             return
-            
+
         disconnected = []
         message = {
             "topic": topic,
             "data": data,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
-        
+
         for connection_id in list(self.topic_subscriptions[topic]):
             if connection_id in self.active_connections:
                 try:
                     websocket = self.active_connections[connection_id]
                     # Use send_json with timeout to prevent blocking
                     await asyncio.wait_for(websocket.send_json(message), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning(f"Send timeout for {connection_id}, marking as disconnected")
                     disconnected.append(connection_id)
                 except Exception as e:
@@ -185,24 +194,34 @@ class ConnectionManager:
                     disconnected.append(connection_id)
             else:
                 disconnected.append(connection_id)
-                
-        # Clean up disconnected clients (but be less aggressive)
+
+        # Clean up disconnected clients
         for connection_id in disconnected:
-            # Only unsubscribe if connection is definitely gone
-            if connection_id not in self.active_connections:
-                self.unsubscribe(connection_id, topic)
-            
-    async def send_to_connection(self, connection_id: str, data: Dict[str, Any]) -> None:
+            # Remove from active connections if it's dead
+            if connection_id in self.active_connections:
+                del self.active_connections[connection_id]
+                logger.info(f"Removed dead connection {connection_id} from active_connections")
+            # Unsubscribe from this topic
+            self.unsubscribe(connection_id, topic)
+            # Clean up all topics for this connection if it's completely gone
+            if connection_id in self.connection_topics:
+                for t in list(self.connection_topics[connection_id]):
+                    if t != topic:  # Already unsubscribed from current topic above
+                        self.unsubscribe(connection_id, t)
+                del self.connection_topics[connection_id]
+                logger.info(f"Cleaned up all subscriptions for dead connection {connection_id}")
+
+    async def send_to_connection(self, connection_id: str, data: dict[str, Any]) -> None:
         """Send data to a specific connection."""
         if connection_id in self.active_connections:
             try:
                 websocket = self.active_connections[connection_id]
-                await websocket.send_json(data)
-            except Exception as e:
-                logger.warning(f"Failed to send to {connection_id}: {e}")
-                # Don't disconnect immediately - let the keepalive mechanism handle it
-                # This prevents aggressive disconnections on temporary network issues
-                pass
+                # Add timeout to prevent hanging on dead connections
+                await asyncio.wait_for(websocket.send_json(data), timeout=5.0)
+            except (TimeoutError, Exception) as e:
+                logger.warning(f"Failed to send to {connection_id}: {e}, marking for cleanup")
+                # Mark connection as dead and trigger cleanup
+                await self.disconnect(connection_id)
 
     def active_count(self) -> int:
         """Return active WebSocket client count."""
@@ -410,22 +429,43 @@ async def build_realtime_snapshot() -> dict[str, Any]:
         logger.debug(f"Failed to build market snapshot: {exc}")
     return snapshot
 
+async def safe_task_wrapper(coro, name: str):
+    """
+    Wrapper for background tasks to prevent silent failures.
+
+    Catches exceptions and logs them instead of crashing silently.
+    """
+    try:
+        await coro
+    except asyncio.CancelledError:
+        logger.info(f"Background task '{name}' cancelled")
+        raise
+    except Exception as e:
+        logger.critical(
+            f"Background task '{name}' crashed: {e}",
+            exc_info=True,
+            extra={"task_name": name, "error": str(e)},
+        )
+        # TODO: Emit alert to monitoring system
+        raise
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI app."""
     global engine_facade, bus, redis_state_manager, websocket_service, killswitch, heartbeat_task
-    
+
     # Initialize event bus
     logger.info("ENGINE_FACADE_INIT_START")
     bus = EventBus()
     await bus.start()
     telemetry_service.set_engine_state("STOPPED")
-    
+
     # Initialize engine facade (share EventBus for WebSocket forwarding)
     try:
         engine_facade = EngineFacade(bus=bus)
         logger.info("ENGINE_FACADE_INIT_OK")
-    except Exception as e:
+    except Exception:
         logger.error("ENGINE_FACADE_INIT_FAIL", exc_info=True)
         raise
 
@@ -440,7 +480,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to bind engine facade into state: {e}", exc_info=True)
         raise
-    
+
     # Initialize Redis state manager with retry logic
     redis_state_manager = None
     app.state.redis_state_manager = None
@@ -460,7 +500,7 @@ async def lifespan(app: FastAPI):
             else:
                 logger.error(f"REDIS_CHECK_FAIL after 3 attempts: {e}", exc_info=True)
                 redis_state_manager = None
-    
+
     # Initialize WebSocket service (Socket.io for compatibility)
     try:
         websocket_service = await get_websocket_service(bus=bus)
@@ -468,25 +508,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to initialize WebSocket service: {e}")
         websocket_service = None
-    
+
     # Initialize killswitch (will be connected to engine facade later)
     killswitch = KillSwitch(bus)
-    
-    # Start background task to forward events from EventBus to WebSocket topics
-    asyncio.create_task(forward_events_to_topics())
-    
+
+    # Start background tasks with safe wrappers (prevent silent failures)
+    asyncio.create_task(safe_task_wrapper(forward_events_to_topics(), "forward_events"))
+
     # Start background task to forward Redis pub/sub to WebSocket topics
     if redis_state_manager:
-        asyncio.create_task(forward_redis_to_topics())
-    
+        asyncio.create_task(safe_task_wrapper(forward_redis_to_topics(), "forward_redis"))
+
     # Start background task to periodically broadcast metrics
-    asyncio.create_task(broadcast_metrics_periodically())
+    asyncio.create_task(safe_task_wrapper(broadcast_metrics_periodically(), "broadcast_metrics"))
 
     # Start heartbeat loop (publishes to system_heartbeat topic)
-    heartbeat_task = asyncio.create_task(heartbeat_loop())
-    
+    heartbeat_task = asyncio.create_task(safe_task_wrapper(heartbeat_loop(), "heartbeat"))
+
     # Start market ticks publisher (publishes market_ticks topic every 500ms-1s)
-    asyncio.create_task(market_ticks_publisher_loop())
+    asyncio.create_task(safe_task_wrapper(market_ticks_publisher_loop(), "market_ticks"))
 
     # Emit initial heartbeat for fast UI priming
     initial_state = "RUNNING" if (engine_facade and engine_facade.is_running) else telemetry_service.get_engine_state()
@@ -496,24 +536,23 @@ async def lifespan(app: FastAPI):
         ws_clients=connection_manager.active_count(),
         source="startup",
     )
-    
-    # AUTO-START ENGINE FOR PAPER TRADING MODE
-    if settings.trading_mode == "paper" and not settings.is_live:
+
+    # AUTO-START ENGINE (for all modes including live testnet)
+    if True:
         try:
-            logger.info("🚀 AUTO-STARTING ENGINE FOR PAPER TRADING MODE...")
+            logger.info("AUTO-STARTING ENGINE...")
             result = await engine_facade.start()
-            logger.info("✅ ENGINE STARTED: SCANNING LIQUIDITY")
-            logger.info(f"✅ Engine started successfully - Paper Trading active: {result}")
-            
+            logger.info(f"ENGINE STARTED: mode={settings.trading_mode}, result={result}")
+
             # Wait a moment for engine to fully initialize
             await asyncio.sleep(0.5)
-            
+
             # Push initial state immediately after engine starts
             if engine_facade.is_running:
                 try:
                     status = await engine_facade.get_status()
                     equity = status.get("equity", settings.initial_capital)
-                    
+
                     # Broadcast initial balance to all WebSocket clients
                     await connection_manager.broadcast_to_topic(
                         "metrics",
@@ -523,10 +562,10 @@ async def lifespan(app: FastAPI):
                             "daily_pnl": status.get("daily_pnl", 0.0),
                             "return_pct": 0.0,
                             "open_positions": 0,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         }
                     )
-                    
+
                     # Broadcast engine status
                     await connection_manager.broadcast_to_topic(
                         "system_status",
@@ -534,47 +573,102 @@ async def lifespan(app: FastAPI):
                             "type": "engine_status",
                             "engine_running": True,
                             "trading_mode": settings.trading_mode,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         }
                     )
-                    
+
                     logger.info(f"✅ Initial state pushed: Equity=${equity:.2f}, Engine=RUNNING")
                     await sync_trading_state_from_engine(reason="startup")
                 except Exception as e:
                     logger.warning(f"Failed to push initial state: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"❌ Failed to auto-start engine: {e}", exc_info=True)
-    
+
     yield
-    
-    # Cleanup
+
+    # Graceful shutdown with timeout
+    logger.info("🛑 Starting graceful shutdown...")
+
+    shutdown_tasks = []
+
+    # 1. Cancel heartbeat task first
     if heartbeat_task:
+        logger.info("Cancelling heartbeat task...")
         heartbeat_task.cancel()
-        try:
-            await heartbeat_task
-        except asyncio.CancelledError:
-            pass
-    await connection_manager.disconnect("all")  # Disconnect all
+        shutdown_tasks.append(heartbeat_task)
+
+    # 2. Disconnect all WebSocket clients
+    logger.info("Disconnecting WebSocket clients...")
+    try:
+        await asyncio.wait_for(
+            connection_manager.disconnect("all"),
+            timeout=5.0
+        )
+        logger.info("✅ WebSocket clients disconnected")
+    except TimeoutError:
+        logger.warning("⚠️  WebSocket disconnect timeout (5s)")
+
+    # 3. Stop engine if running
     if engine_facade and engine_facade.is_running:
-        await engine_facade.stop()
+        logger.info("Stopping trading engine...")
+        try:
+            await asyncio.wait_for(
+                engine_facade.stop(),
+                timeout=10.0
+            )
+            logger.info("✅ Engine stopped")
+        except TimeoutError:
+            logger.warning("⚠️  Engine stop timeout (10s)")
+        except Exception as e:
+            logger.error(f"❌ Engine stop failed: {e}")
+
+    # 4. Stop event bus
     if bus:
-        await bus.stop()
+        logger.info("Stopping event bus...")
+        try:
+            await asyncio.wait_for(
+                bus.stop(),
+                timeout=5.0
+            )
+            logger.info("✅ Event bus stopped")
+        except TimeoutError:
+            logger.warning("⚠️  Event bus stop timeout (5s)")
+        except Exception as e:
+            logger.error(f"❌ Event bus stop failed: {e}")
+
+    # 5. Disconnect Redis
     if redis_state_manager:
-        await redis_state_manager.disconnect()
+        logger.info("Disconnecting Redis...")
+        try:
+            await asyncio.wait_for(
+                redis_state_manager.disconnect(),
+                timeout=3.0
+            )
+            logger.info("✅ Redis disconnected")
+        except TimeoutError:
+            logger.warning("⚠️  Redis disconnect timeout (3s)")
+        except Exception as e:
+            logger.error(f"❌ Redis disconnect failed: {e}")
+
+    # Wait for cancelled tasks to complete
+    if shutdown_tasks:
+        await asyncio.gather(*shutdown_tasks, return_exceptions=True)
+
+    logger.info("✅ Graceful shutdown complete")
 
 async def market_ticks_publisher_loop():
     """Publish market ticks to WebSocket clients every 500ms-1s for live chart updates."""
     global engine_facade
     default_symbol = settings.trading_symbols[0] if settings.trading_symbols else "BTCUSDT"
     last_price = None
-    
+
     while True:
         try:
             await asyncio.sleep(0.5)  # Publish every 500ms for smooth chart updates
-            
+
             # Get latest tick from market_data_store
             tick = await market_data_store.latest_tick(default_symbol)
-            
+
             if tick and tick.get("price"):
                 price = tick.get("price")
                 # Only publish if price changed or it's been >1s since last publish
@@ -662,11 +756,11 @@ async def forward_events_to_topics():
             payload = {"kind": "tick", **(await market_data_store.record_tick(tick_obj))}
         else:
             symbol = event.data.get("symbol")
-            ts_iso = event.data.get("timestamp") or datetime.now(timezone.utc).isoformat()
+            ts_iso = event.data.get("timestamp") or datetime.now(UTC).isoformat()
             try:
                 ts_ms = int(datetime.fromisoformat(ts_iso.replace("Z", "+00:00")).timestamp() * 1000)
             except Exception:
-                ts_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                ts_ms = int(datetime.now(UTC).timestamp() * 1000)
             payload = {
                 "kind": "tick",
                 "symbol": symbol,
@@ -751,7 +845,7 @@ async def forward_events_to_topics():
             context={"symbol": payload.get("symbol")},
         )
         await connection_manager.broadcast_to_topic("strategy_events", envelope)
-        
+
         # Emit SIGNAL_DETECTED for trading funnel observability
         signal_detected_payload = {
             "signal_id": signal_id,
@@ -763,7 +857,7 @@ async def forward_events_to_topics():
             "signal_type": signal_type,
             "features": features,
         }
-        signal_detected_envelope = await emit_topic_event(
+        await emit_topic_event(
             topic="trading_events",
             event_type="SIGNAL_DETECTED",
             payload=signal_detected_payload,
@@ -775,7 +869,7 @@ async def forward_events_to_topics():
                 "symbol": payload.get("symbol"),
             },
         )
-        
+
         # Record in metrics
         await trading_metrics.record_signal(
             symbol=payload.get("symbol", ""),
@@ -850,8 +944,8 @@ async def forward_events_to_topics():
         notional = (price or 0.0) * (quantity or 0.0)
         margin_used = notional / leverage if leverage else notional
         status_value = (
-            getattr(order, "status").value
-            if hasattr(order, "status") and hasattr(getattr(order, "status"), "value")
+            order.status.value
+            if hasattr(order, "status") and hasattr(order.status, "value")
             else str(getattr(order, "status", event.event_type.value))
         )
 
@@ -860,7 +954,7 @@ async def forward_events_to_topics():
             timeline.append(
                 {
                     "status": status_value,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
             )
         metadata["status_timeline"] = timeline
@@ -874,8 +968,8 @@ async def forward_events_to_topics():
             "quantity": quantity,
             "price": price,
             "status": status_value,
-            "created_at": getattr(order, "timestamp", datetime.now(timezone.utc)).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": getattr(order, "timestamp", datetime.now(UTC)).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
             "filled_qty": getattr(order, "filled_size", 0.0),
             "avg_fill_price": getattr(order, "avg_fill_price", price),
             "fee": event.data.get("fee") or metadata.get("fee"),
@@ -980,7 +1074,7 @@ async def forward_events_to_topics():
                 payload={"positions": snapshot["positions"], "type": "pnl_update"},
                 source="engine",
             )
-        
+
         # Emit PNL_SNAPSHOT for funnel (every 2-5 seconds, throttled)
         global last_account_broadcast
         now = time.time()
@@ -1002,7 +1096,7 @@ async def forward_events_to_topics():
                 source="engine",
                 context={"reason": "periodic_snapshot"},
             )
-            
+
             # Update metrics
             await trading_metrics.update_pnl(
                 unrealized=pnl_snapshot_payload["unrealized_pnl"],
@@ -1036,7 +1130,7 @@ async def forward_events_to_topics():
             "strategy_id": getattr(position, "strategy_id", None),
             "exit_plan": getattr(position, "metadata", {}) or {},
             "status": "closed" if event.event_type == EventType.POSITION_CLOSED else "open",
-            "closed_at": datetime.now(timezone.utc).isoformat()
+            "closed_at": datetime.now(UTC).isoformat()
             if event.event_type == EventType.POSITION_CLOSED
             else None,
         }
@@ -1049,7 +1143,7 @@ async def forward_events_to_topics():
             correlation_id=payload.get("position_id"),
             context={"symbol": payload.get("symbol")},
         )
-        
+
         # Emit POSITION_UPDATE for funnel
         position_update_payload = {
             "symbol": payload.get("symbol"),
@@ -1068,14 +1162,14 @@ async def forward_events_to_topics():
             correlation_id=payload.get("position_id"),
             context={"symbol": payload.get("symbol")},
         )
-        
+
         # Record in metrics
         await trading_metrics.record_position(
             event_type=event.event_type.value.upper(),
             symbol=payload.get("symbol"),
             strategy_id=payload.get("strategy_id"),
         )
-        
+
         await sync_trading_state_from_engine(reason=f"position_{event.event_type.value}")
 
     async def handle_order_decision(event: Event) -> None:
@@ -1084,7 +1178,7 @@ async def forward_events_to_topics():
             return
         decision = event.data or {}
         await record_order_decision(decision)
-        
+
         # Enhanced ORDER_DECISION for funnel
         decision_payload = {
             "decision": decision.get("decision") or decision.get("type", "UNKNOWN"),
@@ -1103,7 +1197,7 @@ async def forward_events_to_topics():
             },
             **decision,
         }
-        
+
         envelope = await emit_topic_event(
             topic="order_decisions",
             event_type="ORDER_DECISION",
@@ -1112,9 +1206,9 @@ async def forward_events_to_topics():
             correlation_id=decision.get("signal_id") or decision.get("position_id"),
         )
         await connection_manager.broadcast_to_topic("strategy_events", envelope)
-        
+
         # Also emit to trading_events for funnel
-        funnel_envelope = await emit_topic_event(
+        await emit_topic_event(
             topic="trading_events",
             event_type="ORDER_DECISION",
             payload=decision_payload,
@@ -1125,7 +1219,7 @@ async def forward_events_to_topics():
                 "symbol": decision.get("symbol"),
             },
         )
-        
+
         # Record in metrics
         await trading_metrics.record_decision(
             decision=decision.get("decision") or decision.get("type", "UNKNOWN"),
@@ -1166,7 +1260,7 @@ async def forward_events_to_topics():
                 "type": "killswitch_triggered",
                 "reason": event.data.get("reason"),
                 "source": event.data.get("source"),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
             await emit_topic_event(
                 topic="system_status",
@@ -1192,7 +1286,7 @@ async def forward_events_to_topics():
                 "symbol": event.data.get("symbol"),
                 "strategy_id": event.data.get("strategy_id"),
                 "metadata": event.data.get("metadata", {}),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
             await emit_topic_event(
                 topic="risk_events",
@@ -1201,6 +1295,50 @@ async def forward_events_to_topics():
                 source="engine",
                 severity="WARN",
             )
+
+    async def handle_physics_update(event: Event) -> None:
+        """Forward physics updates to WebSocket clients."""
+        try:
+            payload = event.data
+            await emit_topic_event(
+                topic="physics_update",
+                event_type="PHYSICS_UPDATE",
+                payload={
+                    "temperature": payload.get("temperature", 0.0),
+                    "entropy": payload.get("entropy", 0.5),
+                    "phase": payload.get("phase", "WATER"),
+                    "regime": payload.get("regime", "normal"),
+                    "liquidations": payload.get("liquidations", []),
+                    "players": payload.get("players", {
+                        "marketMaker": 0,
+                        "institutional": 0,
+                        "arbBot": 0,
+                        "retail": 0,
+                        "whale": 0,
+                    }),
+                },
+                source="physics_engine",
+            )
+        except Exception as exc:
+            logger.debug(f"Failed to broadcast physics update: {exc}")
+
+    async def handle_brain_analysis(event: Event) -> None:
+        """Forward brain analysis to WebSocket clients."""
+        try:
+            payload = event.data
+            await emit_topic_event(
+                topic="brain_update",
+                event_type="BRAIN_ANALYSIS",
+                payload={
+                    "stage": payload.get("stage", "analyze"),
+                    "content": payload.get("content", ""),
+                    "confidence": payload.get("confidence", 0.5),
+                    "analysis": payload.get("analysis", {}),
+                },
+                source="brain",
+            )
+        except Exception as exc:
+            logger.debug(f"Failed to broadcast brain analysis: {exc}")
 
     bus.subscribe(EventType.TICK, handle_tick)
     bus.subscribe(EventType.CANDLE, handle_candle)
@@ -1216,6 +1354,8 @@ async def forward_events_to_topics():
     bus.subscribe(EventType.ORDER_EXIT_DECISION, handle_order_exit_decision)
     bus.subscribe(EventType.KILLSWITCH_TRIGGERED, handle_killswitch)
     bus.subscribe(EventType.RISK_BLOCKED, handle_risk_event)
+    bus.subscribe(EventType.PHYSICS_UPDATE, handle_physics_update)
+    bus.subscribe(EventType.BRAIN_ANALYSIS, handle_brain_analysis)
 
     # Keep running
     while True:
@@ -1225,7 +1365,7 @@ async def forward_redis_to_topics():
     """Forward Redis pub/sub messages to WebSocket topics."""
     if not redis_state_manager:
         return
-        
+
     # Subscribe to Redis channels and forward to WebSocket topics
     # This allows C++ core to publish directly to Redis and have it streamed to frontend
     try:
@@ -1240,19 +1380,20 @@ async def broadcast_metrics_periodically():
     while True:
         try:
             await asyncio.sleep(1.0)  # Update every second
-            
+
             # Check Redis connection status
             redis_status = "disconnected"
             if redis_state_manager:
                 try:
                     await redis_state_manager._client.ping()
                     redis_status = "connected"
-                except:
+                except Exception as e:
+                    logger.warning(f"Redis ping failed in broadcast loop: {e}")
                     redis_status = "disconnected"
-            
+
             # Check engine status
             engine_running = engine_facade and engine_facade.is_running
-            
+
             if engine_running:
                 try:
                     status = await engine_facade.get_status()
@@ -1262,7 +1403,7 @@ async def broadcast_metrics_periodically():
                     initial_capital = status.get("initial_capital", settings.initial_capital)
                     return_pct = ((equity - initial_capital) / initial_capital * 100) if initial_capital > 0 else 0.0
                     open_positions = risk_status.get("current_positions", 0)
-                    
+
                     # Broadcast metrics to all clients subscribed to "metrics" topic
                     await connection_manager.broadcast_to_topic(
                         "metrics",
@@ -1273,10 +1414,10 @@ async def broadcast_metrics_periodically():
                             "return_pct": return_pct,
                             "open_positions": open_positions,
                             "engine_running": True,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         }
                     )
-                    
+
                     # CRITICAL: Broadcast system_status message with exact format for UI sync
                     await connection_manager.broadcast_to_topic(
                         "system_status",
@@ -1285,11 +1426,11 @@ async def broadcast_metrics_periodically():
                             "engine": "running",
                             "redis": redis_status,
                             "equity": equity,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         }
                     )
                     await sync_trading_state_from_engine(reason="metrics_loop", full_snapshot=False)
-                    
+
                     # Update trading metrics state
                     open_orders = risk_status.get("current_orders", 0)
                     await trading_metrics.update_state(
@@ -1298,7 +1439,7 @@ async def broadcast_metrics_periodically():
                         active_orders=open_orders,
                         active_positions=open_positions,
                     )
-                    
+
                     # Broadcast trading_metrics every 2 seconds
                     metrics_data = await trading_metrics.get_metrics()
                     await connection_manager.broadcast_to_topic(
@@ -1306,7 +1447,7 @@ async def broadcast_metrics_periodically():
                         {
                             "type": "trading_metrics_update",
                             **metrics_data,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         }
                     )
                 except Exception as e:
@@ -1319,7 +1460,7 @@ async def broadcast_metrics_periodically():
                             "engine": "running",
                             "redis": redis_status,
                             "equity": settings.initial_capital,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         }
                     )
             else:
@@ -1331,10 +1472,10 @@ async def broadcast_metrics_periodically():
                         "engine": "stopped",
                         "redis": redis_status,
                         "equity": settings.initial_capital,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     }
                 )
-                
+
                 # Still broadcast trading_metrics even when engine is stopped
                 try:
                     metrics_data = await trading_metrics.get_metrics()
@@ -1343,7 +1484,7 @@ async def broadcast_metrics_periodically():
                         {
                             "type": "trading_metrics_update",
                             **metrics_data,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         }
                     )
                 except Exception as e:
@@ -1354,6 +1495,9 @@ async def broadcast_metrics_periodically():
             logger.error(f"Error in metrics broadcast loop: {e}", exc_info=True)
             await asyncio.sleep(5.0)  # Back off on error
 
+# Create rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
 # Create the unified FastAPI app
 app = FastAPI(
     title="HEAN Trading System - Unified API Gateway",
@@ -1362,14 +1506,44 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# Add rate limiter to app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS middleware - SECURITY HARDENED
+# Build CORS origins based on environment
+ALLOWED_ORIGINS = []
+
+if settings.environment == "development":
+    # Development: allow all origins (iOS simulator, web dev servers, etc.)
+    ALLOWED_ORIGINS.append("*")
+elif settings.environment == "production":
+    # Production: Load allowed origins from CORS_ALLOWED_ORIGINS env var
+    import os as _os
+    _cors_origins_env = _os.getenv("CORS_ALLOWED_ORIGINS", "")
+    if _cors_origins_env:
+        ALLOWED_ORIGINS.extend([
+            origin.strip()
+            for origin in _cors_origins_env.split(",")
+            if origin.strip()
+        ])
+    else:
+        logger.warning(
+            "CORS_ALLOWED_ORIGINS not set in production mode. "
+            "Set CORS_ALLOWED_ORIGINS environment variable."
+        )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to specific origins
-    allow_credentials=True,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=(settings.environment != "development"),  # No credentials with wildcard origins
     allow_methods=["*"],
     allow_headers=["*"],
+    max_age=3600,
 )
+
+# Setup API authentication (enable via API_AUTH_ENABLED=true and API_AUTH_KEY=<key>)
+setup_auth(app)
 
 # Request ID middleware
 @app.middleware("http")
@@ -1382,26 +1556,56 @@ async def add_request_id(request: Request, call_next):
     return response
 
 # Include all existing routers from app.py
-from hean.api.routers import analytics, changelog, engine, graph_engine, market, risk, risk_governor, strategies, system, telemetry, trading
+from hean.api.routers import (  # noqa: E402
+    analytics,
+    causal_inference,
+    changelog,
+    engine,
+    graph_engine,
+    market,
+    meta_learning,
+    multimodal_swarm,
+    brain,
+    physics,
+    risk,
+    risk_governor,
+    singularity,
+    storage,
+    strategies,
+    system,
+    telemetry,
+    temporal,
+    trading,
+)
 
-app.include_router(engine.router)
-app.include_router(trading.router)
-app.include_router(trading.why_router)
-app.include_router(strategies.router)
-app.include_router(risk.router)
-app.include_router(risk_governor.router)
-app.include_router(analytics.router)
-app.include_router(system.router)
-app.include_router(graph_engine.router)
-app.include_router(telemetry.router)
-app.include_router(market.router)
-app.include_router(changelog.router)
+API_PREFIX = "/api/v1"
+
+app.include_router(engine.router, prefix=API_PREFIX)
+app.include_router(trading.router, prefix=API_PREFIX)
+app.include_router(trading.why_router, prefix=API_PREFIX)
+app.include_router(strategies.router, prefix=API_PREFIX)
+app.include_router(risk.router, prefix=API_PREFIX)
+app.include_router(risk_governor.router, prefix=API_PREFIX)
+app.include_router(analytics.router, prefix=API_PREFIX)
+app.include_router(system.router, prefix=API_PREFIX)
+app.include_router(graph_engine.router, prefix=API_PREFIX)
+app.include_router(telemetry.router, prefix=API_PREFIX)
+app.include_router(market.router, prefix=API_PREFIX)
+app.include_router(changelog.router, prefix=API_PREFIX)
+app.include_router(causal_inference.router, prefix=API_PREFIX)
+app.include_router(meta_learning.router, prefix=API_PREFIX)
+app.include_router(multimodal_swarm.router, prefix=API_PREFIX)
+app.include_router(singularity.router, prefix=API_PREFIX)
+app.include_router(physics.router, prefix=API_PREFIX)
+app.include_router(temporal.router, prefix=API_PREFIX)
+app.include_router(brain.router, prefix=API_PREFIX)
+app.include_router(storage.router, prefix=API_PREFIX)
 
 # WebSocket endpoint for Pub/Sub
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time Pub/Sub communication.
-    
+
     Protocol:
     - Client sends: {"action": "subscribe", "topic": "ticker_btc"}
     - Client sends: {"action": "unsubscribe", "topic": "ticker_btc"}
@@ -1412,13 +1616,13 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(f"[HEAN API] WebSocket connection attempt from {client_host}, connection_id: {connection_id}")
     await connection_manager.connect(websocket, connection_id)
     logger.info(f"[HEAN API] WebSocket connection established: {connection_id}")
-    
+
     # Keepalive task to send periodic pings
     keepalive_task = None
     last_ping_time = time.time()
     PING_INTERVAL = 30.0  # Send ping every 30 seconds
     CONNECTION_TIMEOUT = 120.0  # Close connection if no activity for 2 minutes
-    
+
     async def keepalive_loop():
         """Send periodic pings to keep connection alive."""
         nonlocal last_ping_time
@@ -1429,7 +1633,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     try:
                         await websocket.send_json({
                             "type": "ping",
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         })
                         last_ping_time = time.time()
                     except Exception as e:
@@ -1440,17 +1644,44 @@ async def websocket_endpoint(websocket: WebSocket):
             except Exception as e:
                 logger.debug(f"Keepalive loop error for {connection_id}: {e}")
                 break
-    
+
     keepalive_task = asyncio.create_task(keepalive_loop())
-    
+
     try:
         while True:
             try:
                 # Receive message from client with timeout
-                data = await asyncio.wait_for(websocket.receive_json(), timeout=CONNECTION_TIMEOUT)
+                # Use receive() directly to handle both text and binary frames gracefully
+                ws_msg = await asyncio.wait_for(websocket.receive(), timeout=CONNECTION_TIMEOUT)
+                if ws_msg.get("type") == "websocket.disconnect":
+                    logger.info(f"Client {connection_id} sent disconnect frame")
+                    break
+                text = ws_msg.get("text") or (ws_msg.get("bytes", b"") or b"").decode("utf-8", errors="replace")
+                if not text:
+                    continue
+                try:
+                    raw_data = json.loads(text)
+                except (json.JSONDecodeError, ValueError):
+                    logger.debug(f"Non-JSON message from {connection_id}: {text[:100]}")
+                    continue
                 last_ping_time = time.time()  # Update last activity time
-                action = data.get("action")
-            except asyncio.TimeoutError:
+
+                # Validate incoming message with Pydantic
+                try:
+                    message = WebSocketMessage(**raw_data)
+                    action = message.action.value
+                    topic = message.topic.value if message.topic else None
+                except ValidationError as e:
+                    logger.warning(f"Invalid WebSocket message from {connection_id}: {e}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": "Invalid message format",
+                        "details": e.errors(),
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    })
+                    continue
+
+            except TimeoutError:
                 # Check if connection is still alive
                 if time.time() - last_ping_time > CONNECTION_TIMEOUT:
                     logger.warning(f"WebSocket connection {connection_id} timed out (no activity for {CONNECTION_TIMEOUT}s)")
@@ -1459,16 +1690,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 try:
                     await websocket.send_json({
                         "type": "ping",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     })
                     last_ping_time = time.time()
                 except Exception:
                     logger.debug(f"Connection {connection_id} appears dead, closing")
                     break
                 continue
-            
+
             if action == "subscribe":
-                topic = data.get("topic")
                 if topic:
                     connection_manager.subscribe(connection_id, topic)
                     await websocket.send_json({
@@ -1483,20 +1713,22 @@ async def websocket_endpoint(websocket: WebSocket):
                             try:
                                 await redis_state_manager._client.ping()
                                 redis_status = "connected"
-                            except:
+                            except Exception as e:
+                                logger.warning(f"Redis ping failed on system_status subscription: {e}")
                                 redis_status = "disconnected"
-                        
+
                         engine_running = engine_facade and engine_facade.is_running
                         equity = settings.initial_capital
-                        
+
                         # Try to get real equity if engine is running
                         if engine_running:
                             try:
                                 status = await engine_facade.get_status()
                                 equity = status.get("equity", settings.initial_capital)
-                            except:
+                            except Exception as e:
+                                logger.warning(f"Failed to get equity on system_status subscription: {e}")
                                 equity = settings.initial_capital
-                        
+
                         await connection_manager.send_to_connection(connection_id, {
                             "topic": "system_status",
                             "data": {
@@ -1504,9 +1736,9 @@ async def websocket_endpoint(websocket: WebSocket):
                                 "engine": "running" if engine_running else "stopped",
                                 "redis": redis_status,
                                 "equity": equity,
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         })
                     elif topic == "system_heartbeat":
                         heartbeat = telemetry_service.last_heartbeat()
@@ -1521,9 +1753,9 @@ async def websocket_endpoint(websocket: WebSocket):
                                     "ws_clients": connection_manager.active_count(),
                                     "uptime_sec": telemetry_service.uptime_seconds(),
                                     "events_per_sec": telemetry_service.events_per_sec(),
-                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                    "timestamp": datetime.now(UTC).isoformat(),
                                 },
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
                         )
                     elif topic in {"orders", "orders_snapshot"}:
@@ -1533,7 +1765,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             {
                                 "topic": "orders_snapshot",
                                 "data": {"orders": cached_orders, "type": "snapshot"},
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
                         )
                     elif topic == "positions":
@@ -1543,7 +1775,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             {
                                 "topic": "positions",
                                 "data": {"positions": cached_positions, "type": "snapshot"},
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
                         )
                     elif topic == "account_state":
@@ -1554,7 +1786,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 {
                                     "topic": "account_state",
                                     "data": cached_account,
-                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                    "timestamp": datetime.now(UTC).isoformat(),
                                 },
                             )
                     elif topic == "order_decisions":
@@ -1567,7 +1799,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                     "type": "order_decisions_snapshot",
                                     "decisions": cached_decisions,
                                 },
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
                         )
                     elif topic == "trading_metrics":
@@ -1581,7 +1813,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                     "type": "trading_metrics_snapshot",
                                     **metrics_data,
                                 },
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
                         )
                     elif topic == "trading_events":
@@ -1606,7 +1838,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                     "type": "trading_events_snapshot",
                                     "events": recent_events,
                                 },
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
                         )
                     elif topic == "snapshot":
@@ -1616,7 +1848,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             {
                                 "topic": "snapshot",
                                 "data": snapshot,
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
                         )
                     elif topic in {"risk_events", "strategy_events"}:
@@ -1628,9 +1860,9 @@ async def websocket_endpoint(websocket: WebSocket):
                                     "type": "snapshot",
                                     "items": [],
                                     "note": "No events yet",
-                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                    "timestamp": datetime.now(UTC).isoformat(),
                                 },
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
                         )
                     elif topic == "ai_catalyst":
@@ -1645,32 +1877,31 @@ async def websocket_endpoint(websocket: WebSocket):
                                     "events": [],
                                     "note": "AI Catalyst topic subscribed",
                                 },
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
                         )
-                    
+
             elif action == "unsubscribe":
-                topic = data.get("topic")
                 if topic:
                     connection_manager.unsubscribe(connection_id, topic)
                     await websocket.send_json({
                         "type": "unsubscribed",
                         "topic": topic,
                     })
-                    
+
             elif action == "ping":
                 # Heartbeat
                 await websocket.send_json({
                     "type": "pong",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 })
-                
+
             else:
                 await websocket.send_json({
                     "type": "error",
                     "message": f"Unknown action: {action}",
                 })
-                
+
     except WebSocketDisconnect:
         logger.info(f"WebSocket client {connection_id} disconnected normally")
         if keepalive_task:
@@ -1691,22 +1922,22 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # Emergency Kill-Switch endpoint (high priority)
 @app.post("/api/v1/emergency/killswitch", status_code=status.HTTP_200_OK)
-async def trigger_killswitch(request: Request) -> Dict[str, Any]:
+async def trigger_killswitch(request: Request) -> dict[str, Any]:
     """Emergency kill-switch endpoint - HIGH PRIORITY.
-    
+
     Immediately triggers the killswitch to halt all trading.
     Connected to C++ Emergency Kill-Switch via EventBus.
     """
     start_time = time.time()
-    
+
     if not bus:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Event bus not initialized"
         )
-    
+
     reason = f"Emergency killswitch triggered via API (request_id: {request.state.request_id})"
-    
+
     try:
         # Trigger killswitch via event bus
         await bus.publish(
@@ -1715,11 +1946,11 @@ async def trigger_killswitch(request: Request) -> Dict[str, Any]:
                 data={"reason": reason, "source": "api_panic_button"},
             )
         )
-        
+
         # Also trigger killswitch directly if available
         if killswitch:
             await killswitch._trigger(reason)
-        
+
         # Broadcast to all WebSocket clients
         await connection_manager.broadcast_to_topic(
             "system_status",
@@ -1727,44 +1958,46 @@ async def trigger_killswitch(request: Request) -> Dict[str, Any]:
                 "type": "killswitch_triggered",
                 "reason": reason,
                 "source": "panic_button",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )
-        
+
         response_time_ms = (time.time() - start_time) * 1000
-        
+
         logger.critical(f"EMERGENCY KILLSWITCH TRIGGERED via API: {reason} ({response_time_ms:.2f}ms)")
-        
+
         return {
             "status": "success",
             "message": "Killswitch triggered",
             "reason": reason,
             "response_time_ms": response_time_ms,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to trigger killswitch: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to trigger killswitch: {str(e)}"
-        )
+        ) from e
 
 # Health check endpoint
 @app.get("/health")
-async def health_check() -> Dict[str, Any]:
-    """Health check endpoint."""
+@limiter.limit("60/minute")
+async def health_check(request: Request) -> dict[str, Any]:
+    """Health check endpoint. Rate limited to 60 requests per minute."""
     redis_status = "unknown"
     if redis_state_manager:
         try:
             await redis_state_manager._client.ping()
             redis_status = "connected"
-        except:
+        except Exception as e:
+            logger.warning(f"Redis health check failed: {e}")
             redis_status = "disconnected"
-    
+
     return {
         "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "components": {
             "api": "healthy",
             "event_bus": "running" if bus else "stopped",
@@ -1773,13 +2006,69 @@ async def health_check() -> Dict[str, Any]:
         },
     }
 
+
+# Settings endpoint (secrets masked) - REQUIRES AUTHENTICATION
+from hean.api.auth import verify_auth
+
+@app.get("/settings")
+@limiter.limit("30/minute")
+async def get_settings(request: Request, authenticated: bool = Depends(verify_auth)) -> dict[str, Any]:
+    """Get current settings with ALL secrets masked. Requires authentication."""
+
+    def mask_secret(value: str | None) -> str | None:
+        """Mask a secret value, showing only presence."""
+        if not value:
+            return None
+        return "***" + value[-4:] if len(value) > 4 else "***"
+
+    return {
+        # Trading Mode
+        "trading_mode": settings.trading_mode,
+        "environment": settings.environment,
+        "is_live": settings.is_live,
+
+        # Exchange Settings (MASKED)
+        "bybit_testnet": settings.bybit_testnet,
+        "bybit_api_key": mask_secret(settings.bybit_api_key),
+        "bybit_api_secret": mask_secret(settings.bybit_api_secret),
+
+        # API Auth (MASKED)
+        "api_auth_enabled": settings.api_auth_enabled,
+        "api_auth_key": mask_secret(settings.api_auth_key),
+        "jwt_secret": mask_secret(settings.jwt_secret),
+
+        # LLM Keys (MASKED)
+        "gemini_api_key": mask_secret(settings.gemini_api_key),
+
+        # Capital & Risk (safe to show)
+        "initial_capital": settings.initial_capital,
+        "max_trade_risk_pct": settings.max_trade_risk_pct,
+        "max_open_positions": settings.max_open_positions,
+        "max_daily_drawdown_pct": settings.max_daily_drawdown_pct,
+        "killswitch_drawdown_pct": settings.killswitch_drawdown_pct,
+
+        # Trading Symbols
+        "trading_symbols": settings.trading_symbols[:5] if len(settings.trading_symbols) > 5 else settings.trading_symbols,
+        "total_symbols": len(settings.trading_symbols),
+
+        # Observability
+        "debug_mode": settings.debug_mode,
+        "log_level": settings.log_level,
+
+        # Strategy Flags
+        "impulse_engine_enabled": settings.impulse_engine_enabled,
+        "funding_harvester_enabled": settings.funding_harvester_enabled,
+        "basis_arbitrage_enabled": settings.basis_arbitrage_enabled,
+    }
+
+
 # Error handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler."""
     request_id = getattr(request.state, "request_id", "unknown")
     logger.error(f"Unhandled exception [request_id={request_id}]: {exc}", exc_info=True)
-    
+
     return JSONResponse(
         status_code=500,
         content={

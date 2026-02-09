@@ -50,7 +50,7 @@ def test_block_expires_after_configured_time() -> None:
 
     # Manually rewind block_until to simulate expiry. Tests are allowed to
     # touch internals for determinism.
-    stats_map = getattr(dm, "_stats")
+    stats_map = dm._stats
     stats_obj = stats_map[(strategy_id, context_key)]
     stats_obj.block_until = now - timedelta(hours=settings.memory_block_hours + 1)
 
@@ -102,7 +102,7 @@ def test_penalty_returns_zero_when_blocked() -> None:
 
     # Context should be blocked
     assert dm.blocked(strategy_id, context_key) is True
-    
+
     # Penalty should return 0.0 for blocked contexts
     penalty_value = dm.penalty(strategy_id, context_key)
     assert penalty_value == 0.0

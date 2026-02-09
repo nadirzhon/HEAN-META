@@ -6,11 +6,12 @@ Tests:
 3. report totals match ledger sums
 """
 
-import pytest
 from datetime import datetime, timedelta
 
+import pytest
+
 from hean.process_factory.schemas import ProcessRun, ProcessRunStatus
-from hean.process_factory.truth_layer import TruthLayer, LedgerEntry, LedgerEntryType
+from hean.process_factory.truth_layer import LedgerEntryType, TruthLayer
 
 
 @pytest.fixture

@@ -75,6 +75,12 @@ class IcebergOrder:
         for idx in range(micro_count):
             size = micro_size if remaining > micro_size else remaining
             remaining -= size
+
+            # Skip if size too small (prevents size=0 validation errors)
+            if size <= 0 or size < 0.000001:
+                logger.debug(f"Skipping micro-order {idx+1} with size={size:.8f} (too small)")
+                continue
+
             micro_metadata = dict(metadata)
             micro_metadata.update(
                 {
@@ -100,12 +106,21 @@ class IcebergOrder:
                 )
             )
 
+        # If all micro-orders were filtered out due to size, return original
+        if not micro_requests:
+            logger.warning(
+                f"Iceberg split resulted in no valid orders (all too small), using original: "
+                f"{order_request.symbol} {order_request.side} size={order_request.size:.6f}"
+            )
+            return [order_request]
+
         logger.info(
-            "Iceberg order detected: %s %s size=%.6f split=%d",
+            "Iceberg order detected: %s %s size=%.6f split=%d (created %d valid orders)",
             order_request.symbol,
             order_request.side,
             order_request.size,
             micro_count,
+            len(micro_requests),
         )
 
         return micro_requests

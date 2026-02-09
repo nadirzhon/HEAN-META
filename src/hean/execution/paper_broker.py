@@ -18,6 +18,12 @@ class PaperBroker:
 
     def __init__(self, bus: EventBus) -> None:
         """Initialize the paper broker."""
+        import warnings
+        warnings.warn(
+            "PaperBroker is deprecated. System uses Bybit testnet execution router.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._bus = bus
         self._pending_orders: dict[str, Order] = {}
         self._current_prices: dict[str, float] = {}
@@ -185,47 +191,32 @@ class PaperBroker:
                 )
                 order.status = OrderStatus.PLACED
 
-            # CRITICAL FIX: Always fill orders immediately, regardless of order type
-            # For limit orders, use order price if available
-            # For market orders, use current market price
-            fill_price = None
-
-            if order.order_type == "limit" and order.price:
-                # Limit order: use limit price
-                fill_price = order.price
-            elif order.order_type == "market":
-                # Market order: use current market price
-                if order.side == "buy":
-                    # Buy at ask price
-                    fill_price = self._current_asks.get(order.symbol) or self._current_prices.get(
-                        order.symbol
-                    )
-                else:  # sell
-                    # Sell at bid price
-                    fill_price = self._current_bids.get(order.symbol) or self._current_prices.get(
-                        order.symbol
-                    )
-
-            # Fallback: use current price or symbol-based fallback
-            if fill_price is None:
-                fill_price = self._current_prices.get(order.symbol)
-                if fill_price is None:
-                    # Final fallback price based on symbol
-                    fill_price = 50000.0 if "BTC" in order.symbol else 3000.0
-                    logger.warning(
-                        f"[FORCED_BROKER] No price for {order.symbol}, using fallback {fill_price}"
-                    )
-
-            logger.info(
-                f"[FORCED_FILL] Filling order {order_id} ({order.order_type}, status={order.status}) immediately at {fill_price:.2f}"
-            )
-            try:
-                await self._fill_order(order, fill_price)
-                logger.info(
-                    f"[FORCED_FILL] Order {order_id} fill completed successfully, new status={order.status}"
+            # Use proper fill price calculation that respects market conditions
+            current_price = self._current_prices.get(order.symbol)
+            if current_price is None or current_price <= 0:
+                logger.debug(
+                    f"[FORCED_BROKER] Cannot process order {order_id} - no price data for {order.symbol}"
                 )
-            except Exception as e:
-                logger.error(f"[FORCED_FILL] Error filling order {order_id}: {e}", exc_info=True)
+                continue
+
+            fill_price = await self._calculate_fill_price(order, current_price)
+
+            # Only fill if conditions are met (price touched for limit, immediate for market)
+            if fill_price is not None:
+                logger.info(
+                    f"[FORCED_FILL] Filling order {order_id} ({order.order_type}, status={order.status}) at {fill_price:.2f}"
+                )
+                try:
+                    await self._fill_order(order, fill_price)
+                    logger.info(
+                        f"[FORCED_FILL] Order {order_id} fill completed successfully, new status={order.status}"
+                    )
+                except Exception as e:
+                    logger.error(f"[FORCED_FILL] Error filling order {order_id}: {e}", exc_info=True)
+            else:
+                logger.debug(
+                    f"[FORCED_BROKER] Order {order_id} conditions not met for fill (limit={order.price}, current={current_price})"
+                )
 
     async def _calculate_fill_price(self, order: Order, current_price: float) -> float | None:
         """Calculate fill price for an order, considering slippage.

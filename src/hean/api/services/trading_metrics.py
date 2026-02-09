@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import Counter, defaultdict, deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from hean.logging import get_logger
@@ -18,13 +18,13 @@ class TradingMetrics:
 
     def __init__(self, window_seconds: int = 300):
         """Initialize metrics service.
-        
+
         Args:
             window_seconds: Time window for per-minute aggregations (default 5 minutes)
         """
         self._window_seconds = window_seconds
         self._lock = asyncio.Lock()
-        
+
         # Session counters (since start)
         self._session_counters = {
             "signals_total": 0,
@@ -42,7 +42,7 @@ class TradingMetrics:
             "pnl_realized": 0.0,
             "equity": 0.0,
         }
-        
+
         # Per-minute ring buffers (timestamp -> count)
         self._minute_buffers: dict[str, deque[tuple[float, int | float]]] = {
             "signals_total": deque(maxlen=window_seconds),
@@ -56,27 +56,27 @@ class TradingMetrics:
             "positions_open": deque(maxlen=window_seconds),
             "positions_closed": deque(maxlen=window_seconds),
         }
-        
+
         # Breakdown by symbol and strategy
         self._symbol_breakdown: dict[str, Counter] = defaultdict(Counter)
         self._strategy_breakdown: dict[str, Counter] = defaultdict(Counter)
-        
+
         # Reason codes tracking
         self._reason_codes: deque[tuple[float, str]] = deque(maxlen=1000)
-        
+
         # Timestamps
         self._last_signal_ts: float | None = None
         self._last_order_ts: float | None = None
         self._last_fill_ts: float | None = None
-        
+
         # Engine state
         self._engine_state: str = "STOPPED"
         self._mode: str = "paper"
-        
+
         # Current state snapshots
         self._active_orders_count: int = 0
         self._active_positions_count: int = 0
-        
+
         self._start_time = time.time()
 
     async def record_signal(self, symbol: str, strategy_id: str) -> None:
@@ -105,10 +105,10 @@ class TradingMetrics:
             elif decision_upper in ("BLOCK", "REJECT", "SUPPRESSED"):
                 self._session_counters["decisions_block"] += 1
                 self._minute_buffers["decisions_block"].append((now, 1))
-            
+
             if reason_code:
                 self._reason_codes.append((now, reason_code))
-            
+
             if symbol:
                 self._symbol_breakdown["decisions"][symbol] += 1
             if strategy_id:
@@ -135,7 +135,7 @@ class TradingMetrics:
             elif event_upper in ("ORDER_REJECTED", "REJECTED"):
                 self._session_counters["orders_rejected"] += 1
                 self._minute_buffers["orders_rejected"].append((now, 1))
-            
+
             if symbol:
                 self._symbol_breakdown["orders"][symbol] += 1
             if strategy_id:
@@ -154,7 +154,7 @@ class TradingMetrics:
             elif event_upper in ("POSITION_CLOSED", "CLOSE"):
                 self._session_counters["positions_closed"] += 1
                 self._minute_buffers["positions_closed"].append((now, 1))
-            
+
             if symbol:
                 self._symbol_breakdown["positions"][symbol] += 1
             if strategy_id:
@@ -193,14 +193,14 @@ class TradingMetrics:
         """Get aggregated metrics for last 1m, 5m, and session."""
         async with self._lock:
             now = time.time()
-            
+
             # Calculate per-minute counts
             last_1m = {}
             last_5m = {}
             for key, buffer in self._minute_buffers.items():
                 last_1m[key] = self._count_in_window(buffer, 60)
                 last_5m[key] = self._count_in_window(buffer, 300)
-            
+
             # Top reason codes (last 5 minutes)
             cutoff = now - 300
             recent_reasons = [code for ts, code in self._reason_codes if ts >= cutoff]
@@ -209,7 +209,7 @@ class TradingMetrics:
                 {"code": code, "count": count, "pct": round(count / max(len(recent_reasons), 1) * 100, 1)}
                 for code, count in reason_counts.most_common(10)
             ]
-            
+
             # Top symbols and strategies
             top_symbols = [
                 {"symbol": sym, "count": count}
@@ -219,7 +219,7 @@ class TradingMetrics:
                 {"strategy_id": sid, "count": count}
                 for sid, count in self._strategy_breakdown["signals"].most_common(5)
             ]
-            
+
             return {
                 "counters": {
                     "last_1m": last_1m,
@@ -229,13 +229,13 @@ class TradingMetrics:
                 "top_reasons_for_skip_block": top_reasons,
                 "active_orders_count": self._active_orders_count,
                 "active_positions_count": self._active_positions_count,
-                "last_signal_ts": datetime.fromtimestamp(self._last_signal_ts, tz=timezone.utc).isoformat()
+                "last_signal_ts": datetime.fromtimestamp(self._last_signal_ts, tz=UTC).isoformat()
                 if self._last_signal_ts
                 else None,
-                "last_order_ts": datetime.fromtimestamp(self._last_order_ts, tz=timezone.utc).isoformat()
+                "last_order_ts": datetime.fromtimestamp(self._last_order_ts, tz=UTC).isoformat()
                 if self._last_order_ts
                 else None,
-                "last_fill_ts": datetime.fromtimestamp(self._last_fill_ts, tz=timezone.utc).isoformat()
+                "last_fill_ts": datetime.fromtimestamp(self._last_fill_ts, tz=UTC).isoformat()
                 if self._last_fill_ts
                 else None,
                 "engine_state": self._engine_state,

@@ -57,13 +57,13 @@ void LightweightPredictor::initialize_default_model() {
 }
 
 bool LightweightPredictor::load_onnx_model(const std::string& model_path) {
-    // TODO: Implement ONNX Runtime loading
+    // NOTE: ONNX Runtime loading not implemented - using heuristic fallback
     // For now, use default model
     return model_loaded_;
 }
 
 bool LightweightPredictor::load_weights(const std::string& weights_path) {
-    // TODO: Load weights from file
+    // NOTE: Weight loading from file not implemented - using default weights
     return model_loaded_;
 }
 

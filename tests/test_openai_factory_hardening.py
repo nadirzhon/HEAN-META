@@ -8,11 +8,12 @@ Tests:
 """
 
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from hean.process_factory.integrations.openai_factory import OpenAIProcessFactory
-from hean.process_factory.schemas import BybitEnvironmentSnapshot, ProcessPortfolioEntry
+from hean.process_factory.schemas import BybitEnvironmentSnapshot
 
 
 @pytest.fixture

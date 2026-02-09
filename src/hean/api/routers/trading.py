@@ -4,6 +4,8 @@ import asyncio
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 import hean.api.state as state
 from hean.api.schemas import (
@@ -12,15 +14,16 @@ from hean.api.schemas import (
     TestOrderRequest,
     TestRoundtripRequest,
 )
+from hean.api.services.trading_metrics import trading_metrics
 from hean.config import settings
 from hean.core.types import Event, EventType, OrderStatus, Signal, Tick
 from hean.logging import get_logger
-from hean.api.services.trading_metrics import trading_metrics
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/orders", tags=["trading"])
 why_router = APIRouter(prefix="/trading", tags=["trading"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 def _get_facade(request: Request):
@@ -32,6 +35,10 @@ def _get_facade(request: Request):
 
 def _check_live_trading(confirm_phrase: str | None) -> None:
     """Check if live trading is allowed."""
+    # Testnet mode - no confirmation required
+    if settings.bybit_testnet:
+        return
+
     if not settings.is_live:
         return  # Paper trading, no check needed
 
@@ -55,37 +62,56 @@ def _check_live_trading(confirm_phrase: str | None) -> None:
 
 
 @router.get("/positions")
-async def get_positions(request: Request) -> list[dict]:
+async def get_positions(request: Request) -> dict:
     """Get current positions."""
     engine_facade = _get_facade(request)
 
     try:
         result = await engine_facade.get_positions()
-        return result
+        return {"positions": result}
     except Exception as e:
         logger.error(f"Failed to get positions: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/positions/monitor/stats")
+async def get_position_monitor_stats(request: Request) -> dict:
+    """Get position monitor statistics (force-close tracking)."""
+    _get_facade(request)  # Validates facade exists
+
+    try:
+        # Get position monitor from trading system
+        trading_system = getattr(request.app.state, "trading_system", None)
+        if not trading_system or not hasattr(trading_system, "_position_monitor"):
+            raise HTTPException(status_code=500, detail="Position monitor not available")
+
+        stats = trading_system._position_monitor.get_statistics()
+        return stats
+    except Exception as e:
+        logger.error(f"Failed to get position monitor stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("")
 async def get_orders(
     request: Request,
     status: str = Query(default="all", description="Filter by status: all, open, filled")
-) -> list[dict]:
+) -> dict:
     """Get orders."""
     engine_facade = _get_facade(request)
 
     try:
         result = await engine_facade.get_orders(status=status)  # type: ignore
-        return result
+        return {"orders": result}
     except Exception as e:
         logger.error(f"Failed to get orders: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/test")
+@limiter.limit("10/minute")
 async def place_test_order(request: Request, payload: TestOrderRequest) -> dict:
-    """Place a test order (paper only)."""
+    """Place a test order (paper only). Rate limited to 10 requests per minute."""
     engine_facade = _get_facade(request)
     bus = getattr(request.app.state, "bus", None)
 
@@ -138,10 +164,11 @@ async def place_test_order(request: Request, payload: TestOrderRequest) -> dict:
         }
     except Exception as e:
         logger.error(f"Failed to place test order: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/close-position")
+@limiter.limit("10/minute")
 async def close_position(request: Request, payload: ClosePositionRequest) -> dict:
     """Close a position."""
     engine_facade = _get_facade(request)
@@ -155,10 +182,41 @@ async def close_position(request: Request, payload: ClosePositionRequest) -> dic
         return result
     except Exception as e:
         logger.error(f"Failed to close position: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/cancel")
+@limiter.limit("30/minute")
+async def cancel_order(request: Request, payload: dict) -> dict:
+    """Cancel a single order by order_id."""
+    engine_facade = _get_facade(request)
+    order_id = payload.get("order_id")
+    if not order_id:
+        raise HTTPException(status_code=400, detail="order_id is required")
+
+    try:
+        trading_system = getattr(engine_facade, "_trading_system", None)
+        if trading_system is None:
+            raise HTTPException(status_code=500, detail="Engine not running")
+
+        for order in trading_system._order_manager.get_open_orders():
+            if getattr(order, "order_id", None) == order_id or str(getattr(order, "id", "")) == order_id:
+                order.status = OrderStatus.CANCELLED
+                await trading_system._bus.publish(
+                    Event(event_type=EventType.ORDER_CANCELLED, data={"order": order})
+                )
+                return {"status": "success", "message": f"Order {order_id} cancelled"}
+
+        raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to cancel order: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/cancel-all")
+@limiter.limit("5/minute")
 async def cancel_all_orders(request: Request, payload: CancelAllOrdersRequest) -> dict:
     """Cancel all open orders."""
     engine_facade = _get_facade(request)
@@ -185,10 +243,11 @@ async def cancel_all_orders(request: Request, payload: CancelAllOrdersRequest) -
         }
     except Exception as e:
         logger.error(f"Failed to cancel all orders: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/test_roundtrip")
+@limiter.limit("10/minute")
 async def test_roundtrip(request: Request, payload: TestRoundtripRequest) -> dict:
     """Open + close a paper position to validate full lifecycle."""
     engine_facade = _get_facade(request)
@@ -213,8 +272,11 @@ async def test_roundtrip(request: Request, payload: TestRoundtripRequest) -> dic
         if hasattr(execution_router, "_current_prices")
         else None
     )
-    if price is None:
-        price = 50000.0 if "BTC" in payload.symbol else 3000.0
+    if price is None or price <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No price data available for {payload.symbol}. Wait for market data to arrive."
+        )
 
     side = payload.side.lower()
     tp = price * (1 + payload.take_profit_pct / 100) if side == "buy" else price * (1 - payload.take_profit_pct / 100)
@@ -262,16 +324,52 @@ async def test_roundtrip(request: Request, payload: TestRoundtripRequest) -> dic
     }
 
 
+@router.post("/close-all-positions")
+async def close_all_positions(request: Request) -> dict:
+    """Close all open positions and cancel open orders."""
+    engine_facade = _get_facade(request)
+    try:
+        result = await engine_facade.close_all_positions(reason="close_all_positions_api")
+        return result
+    except Exception as e:
+        logger.error(f"Failed to close all positions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/close-position-by-symbol")
+@limiter.limit("10/minute")
+async def close_position_by_symbol(request: Request, payload: dict) -> dict:
+    """Close a position by symbol name."""
+    engine_facade = _get_facade(request)
+    symbol = payload.get("symbol")
+    if not symbol:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    try:
+        positions = await engine_facade.get_positions()
+        target = next((p for p in positions if p["symbol"] == symbol), None)
+        if not target:
+            return {"status": "not_found", "message": f"No open position for {symbol}"}
+
+        result = await engine_facade.close_position(target["position_id"], reason="api_close_by_symbol")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to close position by symbol: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/paper/close_all")
 async def panic_close_all(request: Request) -> dict:
-    """Panic close all paper positions and cancel open orders."""
+    """Panic close all paper positions and cancel open orders (legacy endpoint)."""
     engine_facade = _get_facade(request)
     try:
         result = await engine_facade.close_all_positions(reason="panic_close_all_api")
         return result
     except Exception as e:
         logger.error(f"Failed to panic close all: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/paper/reset_state")
@@ -283,7 +381,7 @@ async def reset_paper_state(request: Request) -> dict:
         return result
     except Exception as e:
         logger.error(f"Failed to reset paper state: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/orderbook-presence")
@@ -292,7 +390,7 @@ async def get_orderbook_presence(
     symbol: str | None = Query(default=None, description="Symbol filter (optional)")
 ) -> dict | list[dict]:
     """Get our orderbook presence (Phase 3: Smart Limit Engine).
-    
+
     Shows our limit orders as glowing clusters in the orderbook,
     with their distance from mid-price.
     """
@@ -303,13 +401,13 @@ async def get_orderbook_presence(
         return result
     except Exception as e:
         logger.error(f"Failed to get orderbook presence: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @why_router.get("/why")
 async def why_not_trading(request: Request) -> dict:
     """Explain why orders are not being created (transparency panel).
-    
+
     Returns comprehensive diagnostics per AFO-Director spec:
     - engine_state, killswitch_state
     - last_tick_age_sec, last_signal_ts, last_decision_ts, last_order_ts, last_fill_ts
@@ -321,30 +419,32 @@ async def why_not_trading(request: Request) -> dict:
     - multi_symbol (enabled, symbols_count, last_scanned_symbol, scan_cursor, scan_cycle_ts)
     """
     facade = _get_facade(request)
-    
+
     try:
         # Get engine status
         engine_status = await facade.get_status() if facade.is_running else {}
         risk_status = await facade.get_risk_status() if facade.is_running else {}
-        
+
         # Get killswitch status directly from risk router
         killswitch_status = {}
         try:
             if facade.is_running:
-                from hean.api.routers.risk import get_killswitch_status as _get_killswitch_status_impl
+                from hean.api.routers.risk import (
+                    get_killswitch_status as _get_killswitch_status_impl,
+                )
                 killswitch_status = await _get_killswitch_status_impl(request) if facade.is_running else {}
         except Exception as e:
             logger.debug(f"Could not get killswitch status: {e}")
             killswitch_status = {}
-        
+
         # Get trading metrics
         metrics = await trading_metrics.get_metrics() if facade.is_running else {}
-        
+
         # Get recent order decisions (last 5 minutes worth)
         from hean.api import main as api_main
         async with api_main.trading_state_lock:
             all_decisions = list(api_main.trading_state_cache.get("order_decisions", []))
-        
+
         # Filter decisions from last 5 minutes
         now = datetime.utcnow()
         five_min_ago = now - timedelta(minutes=5)
@@ -361,19 +461,19 @@ async def why_not_trading(request: Request) -> dict:
                         recent_decisions.append(decision)
                 except Exception:
                     pass
-        
+
         # Analyze reasons from last 5 minutes
         reason_code_counts = {}
         for decision in recent_decisions:
             reason_code = decision.get("reason_code") or decision.get("decision") or "UNKNOWN"
             reason_code_counts[reason_code] = reason_code_counts.get(reason_code, 0) + 1
-        
+
         # Top 10 reason codes from last 5m
         top_reason_codes_last_5m = [
             {"code": code, "count": count}
             for code, count in sorted(reason_code_counts.items(), key=lambda x: x[1], reverse=True)[:10]
         ]
-        
+
         # Analyze engine state
         engine_state = engine_status.get("status", "STOPPED") if facade.is_running else "STOPPED"
         killswitch_triggered = killswitch_status.get("triggered", False) or risk_status.get("killswitch_triggered", False)
@@ -382,7 +482,7 @@ async def why_not_trading(request: Request) -> dict:
             "reasons": killswitch_status.get("reasons", []),
             "triggered_at": killswitch_status.get("triggered_at"),
         }
-        
+
         # Get last activity timestamps
         last_signal_ts = metrics.get("last_signal_ts")
         last_order_ts = metrics.get("last_order_ts")
@@ -391,7 +491,7 @@ async def why_not_trading(request: Request) -> dict:
         if recent_decisions:
             last_decision = recent_decisions[-1]
             last_decision_ts = last_decision.get("timestamp")
-        
+
         # Calculate last tick age
         last_tick_age_sec = None
         if facade.is_running:
@@ -399,14 +499,14 @@ async def why_not_trading(request: Request) -> dict:
                 trading_system = getattr(facade, "_trading_system", None)
                 if trading_system and hasattr(trading_system, "_last_tick_at"):
                     max_age = 0.0
-                    for symbol, last_tick in trading_system._last_tick_at.items():
+                    for _symbol, last_tick in trading_system._last_tick_at.items():
                         age = (now - last_tick).total_seconds()
                         if age > max_age:
                             max_age = age
                     last_tick_age_sec = max_age if max_age > 0 else None
             except Exception as e:
                 logger.debug(f"Could not check market data staleness: {e}")
-        
+
         # Get account state for equity/pnl
         account_state = {}
         equity = None
@@ -415,7 +515,7 @@ async def why_not_trading(request: Request) -> dict:
         real_pnl = None
         margin_used = None
         margin_free = None
-        
+
         if facade.is_running:
             try:
                 snapshot = await facade.get_trading_state()
@@ -430,7 +530,7 @@ async def why_not_trading(request: Request) -> dict:
                     margin_free = max(balance - margin_used, 0.0)
             except Exception as e:
                 logger.debug(f"Could not get account state: {e}")
-        
+
         # Profit capture state (will be implemented in B2)
         profit_capture_state = {
             "enabled": False,
@@ -454,7 +554,7 @@ async def why_not_trading(request: Request) -> dict:
                     profit_capture_state = trading_system._profit_capture.get_state()
             except Exception as e:
                 logger.debug(f"Could not get profit capture state: {e}")
-        
+
         # Execution quality (AFO-Director / Execution Alpha v0)
         execution_quality = {
             "ws_ok": None,
@@ -481,7 +581,7 @@ async def why_not_trading(request: Request) -> dict:
                         execution_quality["slippage_est_5m"] = diag.get_slippage_est_5m() if hasattr(diag, "get_slippage_est_5m") else None
             except Exception as e:
                 logger.debug(f"Could not get execution quality: {e}")
-        
+
         # Multi-symbol state (will be implemented in D2)
         multi_symbol = {
             "enabled": False,
@@ -502,7 +602,7 @@ async def why_not_trading(request: Request) -> dict:
             if hasattr(settings, "multi_symbol_enabled") and settings.multi_symbol_enabled:
                 multi_symbol["enabled"] = True
                 multi_symbol["symbols_count"] = len(getattr(settings, "symbols", []))
-        
+
         return {
             "engine_state": engine_state,
             "killswitch_state": killswitch_state,
@@ -549,6 +649,32 @@ async def why_not_trading(request: Request) -> dict:
         }
 
 
+@why_router.get("/equity-history")
+async def get_equity_history(
+    request: Request,
+    limit: int = Query(default=50, description="Number of equity snapshots to return", ge=1, le=500),
+) -> dict:
+    """Return recent equity snapshots for performance sparkline chart."""
+    facade = _get_facade(request)
+
+    if not facade.is_running or not facade._trading_system:
+        return {"snapshots": [], "count": 0}
+
+    try:
+        accounting = facade._trading_system._accounting
+        history = accounting._equity_history[-limit:]
+        snapshots = []
+        for snap in history:
+            snapshots.append({
+                "timestamp": snap.timestamp.isoformat() if hasattr(snap.timestamp, "isoformat") else str(snap.timestamp),
+                "equity": snap.equity,
+            })
+        return {"snapshots": snapshots, "count": len(snapshots)}
+    except Exception as e:
+        logger.error(f"Failed to get equity history: {e}", exc_info=True)
+        return {"snapshots": [], "count": 0}
+
+
 @why_router.get("/metrics")
 async def get_trading_metrics(request: Request) -> dict:
     """Get aggregated trading funnel metrics."""
@@ -579,34 +705,34 @@ async def get_trading_metrics(request: Request) -> dict:
 async def get_trading_state(request: Request) -> dict:
     """Get current trading state snapshot (positions, orders, fills, decisions)."""
     facade = _get_facade(request)
-    
+
     try:
         # Get trading state from engine
         snapshot = await facade.get_trading_state() if facade.is_running else {}
-        
+
         # Get recent decisions
         from hean.api import main as api_main
         async with api_main.trading_state_lock:
             recent_decisions = list(api_main.trading_state_cache.get("order_decisions", []))[-50:]
             recent_exit_decisions = list(api_main.trading_state_cache.get("order_exit_decisions", []))[-50:]
-        
+
         # Get open positions
         positions = snapshot.get("positions", [])
         open_positions = [p for p in positions if p.get("status") != "closed"]
-        
+
         # Get open orders
         orders = snapshot.get("orders", [])
         open_orders = [
             o for o in orders
             if o.get("status", "").upper() not in ("FILLED", "CANCELLED", "REJECTED")
         ]
-        
+
         # Get recent fills (filled orders)
         recent_fills = [
             o for o in orders
             if o.get("status", "").upper() == "FILLED"
         ][-50:]
-        
+
         return {
             "status": "ok",
             "open_positions": open_positions,

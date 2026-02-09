@@ -1,8 +1,8 @@
 """API router for Meta-Learning Engine."""
 
-from fastapi import APIRouter, Request
+
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from typing import Dict, List, Optional
 
 from hean.logging import get_logger
 
@@ -18,7 +18,7 @@ class MetaLearningStateResponse(BaseModel):
     failures_detected: int
     patches_applied: int
     performance_improvement: float
-    last_simulation_time: Optional[str] = None
+    last_simulation_time: str | None = None
 
 
 class CodeWeightResponse(BaseModel):
@@ -27,7 +27,7 @@ class CodeWeightResponse(BaseModel):
     file_path: str
     line_number: int
     current_value: float
-    value_range: List[float]
+    value_range: list[float]
     impact_score: float
 
 
@@ -43,20 +43,16 @@ class PatchHistoryResponse(BaseModel):
 @router.get("/state", response_model=MetaLearningStateResponse)
 async def get_state(request: Request):
     """Get meta-learning engine state."""
-    engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_meta_learning_engine'):
-        return MetaLearningStateResponse(
-            total_scenarios_simulated=0,
-            scenarios_per_second=0.0,
-            failures_detected=0,
-            patches_applied=0,
-            performance_improvement=0.0
+    engine_facade = getattr(request.state, 'engine_facade', None)
+
+    meta_engine = getattr(engine_facade, '_meta_learning_engine', None) if engine_facade else None
+    if not meta_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Meta-learning engine not initialized"
         )
-    
-    meta_engine = engine_facade._meta_learning_engine
     state = meta_engine.get_state()
-    
+
     return MetaLearningStateResponse(
         total_scenarios_simulated=state.total_scenarios_simulated,
         scenarios_per_second=state.scenarios_per_second,
@@ -67,17 +63,19 @@ async def get_state(request: Request):
     )
 
 
-@router.get("/weights", response_model=List[CodeWeightResponse])
+@router.get("/weights", response_model=list[CodeWeightResponse])
 async def get_weights(request: Request):
     """Get all code weights."""
-    engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_meta_learning_engine'):
-        return []
-    
-    meta_engine = engine_facade._meta_learning_engine
+    engine_facade = getattr(request.state, 'engine_facade', None)
+
+    meta_engine = getattr(engine_facade, '_meta_learning_engine', None) if engine_facade else None
+    if not meta_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Meta-learning engine not initialized"
+        )
     weights = meta_engine.get_weights()
-    
+
     return [
         CodeWeightResponse(
             name=w.name,
@@ -91,17 +89,20 @@ async def get_weights(request: Request):
     ]
 
 
-@router.get("/patches", response_model=List[PatchHistoryResponse])
+@router.get("/patches", response_model=list[PatchHistoryResponse])
 async def get_patch_history(request: Request, limit: int = 10):
     """Get patch history."""
-    engine_facade = request.state.engine_facade
-    
-    if not engine_facade or not hasattr(engine_facade, '_meta_learning_engine'):
-        return []
-    
-    meta_engine = engine_facade._meta_learning_engine
+    engine_facade = getattr(request.state, 'engine_facade', None)
+
+    meta_engine = getattr(engine_facade, '_meta_learning_engine', None) if engine_facade else None
+    if not meta_engine:
+        raise HTTPException(
+            status_code=503,
+            detail="Meta-learning engine not initialized"
+        )
+
     patches = meta_engine.get_patch_history()
-    
+
     return [
         PatchHistoryResponse(
             timestamp=p['timestamp'].isoformat(),

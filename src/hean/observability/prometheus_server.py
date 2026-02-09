@@ -1,8 +1,6 @@
 """Prometheus metrics endpoint server."""
 
-import asyncio
 from aiohttp import web
-from typing import Any
 
 from hean.logging import get_logger
 from hean.observability.metrics_exporter import get_exporter
@@ -28,29 +26,32 @@ class PrometheusServer:
 
     async def handle_metrics(self, request: web.Request) -> web.Response:
         """Handle /metrics endpoint for Prometheus scraping."""
-        # Get current metrics from system
-        # This is a placeholder - in real implementation, would get from TradingSystem
         exporter = get_exporter()
 
-        # Default values (should be updated from actual system state)
-        prometheus_text = exporter.export_prometheus_format(
-            equity=0.0,
-            realized_pnl=0.0,
-            unrealized_pnl=0.0,
-            drawdown_pct=0.0,
-            fees=0.0,
-            funding=0.0,
-            rewards=0.0,
-            opp_cost=0.0,
-            profit_illusion_flag=False,
-            health_score=1.0,
-            actions_enabled=False,
-            snapshot_staleness_seconds=None,
-            order_rejects=0,
-            slippage_bps=0.0,
-            maker_taker_ratio=0.0,
-            api_latency_ms=0.0,
-        )
+        # Use stored metrics if available, otherwise report zeros with warning
+        metrics = getattr(self, '_current_metrics', None)
+        if metrics:
+            prometheus_text = exporter.export_prometheus_format(**metrics)
+        else:
+            logger.warning("[PROMETHEUS] No metrics received yet from TradingSystem")
+            prometheus_text = exporter.export_prometheus_format(
+                equity=0.0,
+                realized_pnl=0.0,
+                unrealized_pnl=0.0,
+                drawdown_pct=0.0,
+                fees=0.0,
+                funding=0.0,
+                rewards=0.0,
+                opp_cost=0.0,
+                profit_illusion_flag=False,
+                health_score=0.0,
+                actions_enabled=False,
+                snapshot_staleness_seconds=None,
+                order_rejects=0,
+                slippage_bps=0.0,
+                maker_taker_ratio=0.0,
+                api_latency_ms=0.0,
+            )
 
         return web.Response(text=prometheus_text, content_type="text/plain")
 

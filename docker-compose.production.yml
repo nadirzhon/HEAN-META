@@ -1,0 +1,200 @@
+# ============================================
+# HEAN Production Docker Compose
+# ============================================
+# Features:
+# - Multi-replica API with autoscaling
+# - Redis persistence with AOF + RDB
+# - Resource limits and reservations
+# - Health checks and auto-restart
+# - Network isolation
+# - Optional monitoring stack
+
+version: '3.9'
+
+services:
+  # ============================================
+  # Python FastAPI Backend (3 replicas)
+  # ============================================
+  api:
+    image: hean-api:production
+    build:
+      context: .
+      dockerfile: api/Dockerfile.optimized
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    env_file:
+      - backend.env
+    environment:
+      PYTHONUNBUFFERED: 1
+      PYTHONPATH: /app/src
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      - ./logs:/app/logs
+      - api-data:/app/data
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - backend
+      - frontend
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 1G
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        monitor: 30s
+        order: start-first
+
+  # ============================================
+  # Redis - State & Cache with Persistence
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============================================
+  # Prometheus - Metrics Collection (Optional)
+  # ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["monitoring"]
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: always
+    networks:
+      - monitoring
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============================================
+  # Grafana - Visualization (Optional)
+  # ============================================
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["monitoring"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: redis-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3001:3000"
+    restart: always
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+# ============================================
+# Networks - Isolation Strategy
+# ============================================
+networks:
+  frontend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  backend:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+  monitoring:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+
+# ============================================
+# Persistent Volumes
+# ============================================
+volumes:
+  redis-data:
+    driver: local
+  api-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local

@@ -1,7 +1,8 @@
 """Tests for Process Factory selector."""
 
-import pytest
 from datetime import datetime
+
+import pytest
 
 from hean.process_factory.schemas import (
     ProcessPortfolioEntry,
@@ -42,7 +43,7 @@ def test_selector_update_portfolio_entry():
     assert updated.runs_count == 2
     assert updated.wins == 1
     assert updated.losses == 1
-    assert updated.pnl_sum == 5.0  # 10.0 - 5.0
+    assert updated.pnl_sum == pytest.approx(5.0, abs=1e-6)  # 10.0 - 5.0 with floating point tolerance
     assert updated.fail_rate == 0.5
 
 

@@ -1,6 +1,12 @@
 """Execution edge estimator for signal filtering."""
 
+import pickle
 from collections import deque
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import numpy as np
 
 from hean.config import settings
 from hean.core.regime import Regime
@@ -27,13 +33,31 @@ class ExecutionEdgeEstimator:
     - Regime adjustment (IMPULSE: higher threshold, RANGE: stricter threshold)
     """
 
-    def __init__(self) -> None:
-        """Initialize the edge estimator."""
+    def __init__(self, model_path: str | None = None) -> None:
+        """Initialize the edge estimator.
+
+        Args:
+            model_path: Path to saved ML model (optional)
+        """
         self._volatility_history: dict[str, deque[float]] = {}
         self._window_size = 20  # Lookback window for volatility
         self._signals_blocked_by_edge = 0
         self._edge_sum = 0.0
         self._edge_count = 0
+
+        # ML-based edge prediction components
+        self._ml_enabled = False
+        self._ml_model: dict[str, Any] | None = None
+        self._feature_scaler: dict[str, tuple[np.ndarray, np.ndarray]] | None = None
+        self._training_data: deque = deque(maxlen=10000)  # Store (features, actual_edge, outcome)
+        self._model_path = model_path or str(Path.home() / ".hean" / "edge_model.pkl")
+
+        # OFI (Order Flow Imbalance) tracking
+        self._ofi_history: dict[str, deque[float]] = {}
+
+        # Try to load existing model
+        if Path(self._model_path).exists():
+            self.load_model(self._model_path)
 
     def estimate_edge(self, signal: Signal, tick: Tick, regime: Regime) -> float:
         """Estimate execution edge in basis points.
@@ -158,12 +182,12 @@ class ExecutionEdgeEstimator:
             base_threshold = settings.min_edge_bps_range * 0.5
         else:  # NORMAL
             base_threshold = settings.min_edge_bps_normal * 0.5
-        
+
         # Apply paper assist reduction
         if is_paper_assist_enabled():
             reduction_pct = get_edge_threshold_reduction_pct()
             base_threshold = base_threshold * (1.0 - reduction_pct / 100.0)
-        
+
         return base_threshold
 
     def should_emit_signal(self, signal: Signal, tick: Tick, regime: Regime) -> bool:
@@ -224,3 +248,305 @@ class ExecutionEdgeEstimator:
         self._signals_blocked_by_edge = 0
         self._edge_sum = 0.0
         self._edge_count = 0
+
+    def _extract_features(self, signal: Signal, tick: Tick, regime: Regime) -> np.ndarray:
+        """
+        Extract features for ML-based edge prediction.
+
+        Features:
+        - spread_bps: Bid-ask spread in basis points
+        - volatility: Recent price volatility
+        - ofi: Order flow imbalance
+        - time_of_day: Hour of day (normalized)
+        - regime_impulse: 1 if IMPULSE, 0 otherwise
+        - regime_range: 1 if RANGE, 0 otherwise
+        - expected_move_bps: Expected move to TP in bps
+        - volume: Current volume (log-normalized)
+
+        Args:
+            signal: Trading signal
+            tick: Current tick
+            regime: Market regime
+
+        Returns:
+            Feature array (8 features)
+        """
+        # Spread in bps
+        spread = (tick.ask - tick.bid) if tick.bid and tick.ask else 0.0
+        spread_bps = (spread / tick.price) * 10000 if tick.price > 0 else 0.0
+
+        # Volatility
+        volatility = self._get_volatility_penalty(tick.symbol, tick.price)
+
+        # OFI (Order Flow Imbalance) - simplified proxy
+        ofi = self._get_ofi(tick)
+
+        # Time of day (hour normalized to 0-1)
+        hour = datetime.utcnow().hour
+        time_of_day = hour / 24.0
+
+        # Regime indicators
+        regime_impulse = 1.0 if regime == Regime.IMPULSE else 0.0
+        regime_range = 1.0 if regime == Regime.RANGE else 0.0
+
+        # Expected move to TP in bps
+        expected_move_bps = 0.0
+        if signal.take_profit:
+            if signal.side == "buy":
+                move = (signal.take_profit - signal.entry_price) / signal.entry_price if signal.entry_price != 0 else 0.0
+            else:
+                move = (signal.entry_price - signal.take_profit) / signal.entry_price if signal.entry_price != 0 else 0.0
+            expected_move_bps = move * 10000
+
+        # Volume (log-normalized)
+        volume = np.log1p(tick.volume) if tick.volume > 0 else 0.0
+
+        features = np.array([
+            spread_bps,
+            volatility,
+            ofi,
+            time_of_day,
+            regime_impulse,
+            regime_range,
+            expected_move_bps,
+            volume,
+        ], dtype=np.float32)
+
+        return features
+
+    def _get_ofi(self, tick: Tick) -> float:
+        """
+        Calculate Order Flow Imbalance (OFI) proxy.
+
+        OFI = (bid_volume - ask_volume) / (bid_volume + ask_volume)
+
+        For now, use simplified version based on spread asymmetry.
+
+        Args:
+            tick: Current tick
+
+        Returns:
+            OFI value (-1 to 1)
+        """
+        if not tick.bid or not tick.ask:
+            return 0.0
+
+        # Simplified OFI: if price is closer to ask, buyers are aggressive (positive OFI)
+        # If price closer to bid, sellers are aggressive (negative OFI)
+        mid = (tick.bid + tick.ask) / 2.0
+
+        # If price above mid, positive OFI (buy pressure)
+        # If price below mid, negative OFI (sell pressure)
+        if mid == 0:
+            return 0.0
+
+        ofi = (tick.price - mid) / (tick.ask - tick.bid) if (tick.ask - tick.bid) > 0 else 0.0
+
+        # Clamp to [-1, 1]
+        ofi = max(-1.0, min(1.0, ofi))
+
+        # Store in history
+        if tick.symbol not in self._ofi_history:
+            self._ofi_history[tick.symbol] = deque(maxlen=20)
+        self._ofi_history[tick.symbol].append(ofi)
+
+        # Return smoothed OFI
+        return float(np.mean(list(self._ofi_history[tick.symbol])))
+
+    def estimate_edge_ml(self, signal: Signal, tick: Tick, regime: Regime) -> float:
+        """
+        Estimate edge using ML model.
+
+        Args:
+            signal: Trading signal
+            tick: Current tick
+            regime: Market regime
+
+        Returns:
+            Estimated edge in bps
+        """
+        if not self._ml_enabled or not self._ml_model:
+            # Fallback to rule-based
+            return self.estimate_edge(signal, tick, regime)
+
+        # Extract features
+        features = self._extract_features(signal, tick, regime)
+
+        # Normalize features
+        if self._feature_scaler:
+            mean, std = self._feature_scaler["mean"], self._feature_scaler["std"]
+            features = (features - mean) / (std + 1e-8)
+
+        # Predict edge using simple gradient boosting (simulated with weighted average for now)
+        # In production, use sklearn GradientBoostingRegressor or XGBoost
+        predicted_edge = self._predict_with_model(features)
+
+        return predicted_edge
+
+    def _predict_with_model(self, features: np.ndarray) -> float:
+        """
+        Predict edge using trained model.
+
+        Args:
+            features: Normalized feature array
+
+        Returns:
+            Predicted edge in bps
+        """
+        if not self._ml_model:
+            return 0.0
+
+        # Simple linear model for now (in production, use GradientBoosting)
+        weights = self._ml_model.get("weights", np.zeros(len(features)))
+        bias = self._ml_model.get("bias", 0.0)
+
+        prediction = float(np.dot(features, weights) + bias)
+        return prediction
+
+    def update_ml_model(self, signal: Signal, tick: Tick, regime: Regime, actual_outcome: float) -> None:
+        """
+        Update ML model with actual trade outcome for online learning.
+
+        Args:
+            signal: Original signal
+            tick: Tick at signal time
+            regime: Regime at signal time
+            actual_outcome: Actual edge achieved (in bps)
+        """
+        features = self._extract_features(signal, tick, regime)
+        rule_based_edge = self.estimate_edge(signal, tick, regime)
+
+        # Store training sample
+        self._training_data.append({
+            "features": features,
+            "predicted_edge": rule_based_edge,
+            "actual_edge": actual_outcome,
+            "timestamp": datetime.utcnow(),
+        })
+
+        # Retrain model if we have enough samples
+        if len(self._training_data) >= 100 and len(self._training_data) % 50 == 0:
+            self._train_ml_model()
+
+    def _train_ml_model(self) -> None:
+        """
+        Train ML model using accumulated training data.
+        Uses simple gradient descent for online learning.
+        """
+        if len(self._training_data) < 100:
+            return
+
+        # Prepare training data
+        X = np.array([sample["features"] for sample in self._training_data])
+        y = np.array([sample["actual_edge"] for sample in self._training_data])
+
+        # Normalize features
+        mean = np.mean(X, axis=0)
+        std = np.std(X, axis=0) + 1e-8
+        X_normalized = (X - mean) / std
+
+        # Store scaler
+        self._feature_scaler = {"mean": mean, "std": std}
+
+        # Simple linear regression with L2 regularization
+        # In production, use sklearn.ensemble.GradientBoostingRegressor
+        n_features = X_normalized.shape[1]
+
+        # Initialize or update weights
+        if not self._ml_model:
+            self._ml_model = {
+                "weights": np.zeros(n_features),
+                "bias": 0.0,
+            }
+
+        # Gradient descent update
+        learning_rate = 0.01
+        l2_lambda = 0.001
+
+        # Predictions
+        predictions = X_normalized @ self._ml_model["weights"] + self._ml_model["bias"]
+
+        # Gradients
+        errors = predictions - y
+        grad_weights = (X_normalized.T @ errors) / len(y) + l2_lambda * self._ml_model["weights"]
+        grad_bias = np.mean(errors)
+
+        # Update
+        self._ml_model["weights"] -= learning_rate * grad_weights
+        self._ml_model["bias"] -= learning_rate * grad_bias
+
+        # Enable ML
+        self._ml_enabled = True
+
+        logger.info(
+            f"ML edge model updated: {len(self._training_data)} samples, "
+            f"MSE: {np.mean(errors**2):.2f}"
+        )
+
+    def save_model(self, path: str | None = None) -> bool:
+        """
+        Save ML model to disk.
+
+        Args:
+            path: Path to save model (default: ~/.hean/edge_model.pkl)
+
+        Returns:
+            True if saved successfully
+        """
+        save_path = path or self._model_path
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(save_path, "wb") as f:
+                pickle.dump({
+                    "model": self._ml_model,
+                    "scaler": self._feature_scaler,
+                    "ml_enabled": self._ml_enabled,
+                    "training_samples": len(self._training_data),
+                }, f)
+            logger.info(f"ML edge model saved to {save_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save ML model: {e}")
+            return False
+
+    def load_model(self, path: str | None = None) -> bool:
+        """
+        Load ML model from disk.
+
+        Args:
+            path: Path to load model from (default: ~/.hean/edge_model.pkl)
+
+        Returns:
+            True if loaded successfully
+        """
+        load_path = path or self._model_path
+
+        try:
+            with open(load_path, "rb") as f:
+                data = pickle.load(f)
+                self._ml_model = data.get("model")
+                self._feature_scaler = data.get("scaler")
+                self._ml_enabled = data.get("ml_enabled", False)
+            logger.info(
+                f"ML edge model loaded from {load_path}: "
+                f"{data.get('training_samples', 0)} training samples"
+            )
+            return True
+        except Exception as e:
+            logger.debug(f"No ML model loaded: {e}")
+            return False
+
+    def enable_ml(self, enabled: bool = True) -> None:
+        """
+        Enable or disable ML-based edge estimation.
+
+        Args:
+            enabled: True to enable ML, False to use rule-based only
+        """
+        if enabled and not self._ml_model:
+            logger.warning("ML model not trained yet, continuing with rule-based")
+            return
+
+        self._ml_enabled = enabled
+        logger.info(f"ML edge estimation {'enabled' if enabled else 'disabled'}")

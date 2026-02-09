@@ -46,18 +46,18 @@ class SpreadFilter(BaseFilter):
         # FORCED: Always allow for debug mode
         if settings.debug_mode:
             return True
-        
+
         if not tick.bid or not tick.ask or tick.bid <= 0 or tick.ask <= 0:
             return True  # Can't calculate spread
-        
+
         spread = (tick.ask - tick.bid) / tick.bid
         spread_bps = spread * 10000
-        
+
         max_spread_bps = settings.impulse_max_spread_bps
         if is_paper_assist_enabled():
             multiplier = get_spread_threshold_multiplier()
             max_spread_bps = max_spread_bps * multiplier
-        
+
         if spread_bps > max_spread_bps:
             # Determine agent name from context if available
             agent_name = context.get("strategy_id", "impulse_engine") if context else "impulse_engine"
@@ -70,7 +70,7 @@ class SpreadFilter(BaseFilter):
                 agent_name=agent_name,
             )
             return False
-        
+
         log_allow_reason("spread_ok", symbol=tick.symbol)
         return True
 
@@ -91,14 +91,14 @@ class VolatilityExpansionFilter(BaseFilter):
         # FORCED: Always allow for debug mode
         if settings.debug_mode:
             return True
-        
+
         # In paper assist mode, relax volatility requirements
         if is_paper_assist_enabled():
             min_mult, max_mult = get_volatility_gate_relaxation()
             # Allow more lenient volatility checks
             log_allow_reason("volatility_ok", symbol=tick.symbol, note="paper_assist_relaxed")
             return True
-        
+
         # Default: use context if available
         if context:
             vol_short = context.get("vol_short")
@@ -118,7 +118,7 @@ class VolatilityExpansionFilter(BaseFilter):
                         agent_name=agent_name,
                     )
                     return False
-        
+
         return True
 
 
@@ -133,8 +133,52 @@ class TimeWindowFilter(BaseFilter):
 
     def allow(self, tick: Tick, context: dict[str, Any] | None = None) -> bool:
         """Check if current time is within allowed trading hours."""
-        # FORCED: Always allow for debug mode
-        return True
+        allowed_hours = settings.impulse_allowed_hours
+
+        # If no restrictions, allow all
+        if not allowed_hours:
+            return True
+
+        # Get current time from tick timestamp (UTC)
+        current_time = tick.timestamp
+        current_minutes = current_time.hour * 60 + current_time.minute
+
+        # Get expansion from context if available
+        expansion_hours = 0
+        if context and "time_window_expansion_hours" in context:
+            expansion_hours = context["time_window_expansion_hours"]
+        expansion_minutes = int(expansion_hours * 60)
+
+        # Check each allowed time range
+        for time_range in allowed_hours:
+            if "-" not in time_range:
+                continue
+
+            parts = time_range.split("-")
+            if len(parts) != 2:
+                continue
+
+            start_str, end_str = parts
+            try:
+                start_h, start_m = map(int, start_str.split(":"))
+                end_h, end_m = map(int, end_str.split(":"))
+            except ValueError:
+                continue
+
+            start_minutes = start_h * 60 + start_m - expansion_minutes
+            end_minutes = end_h * 60 + end_m + expansion_minutes
+
+            # Handle overnight ranges (e.g., 22:00-06:00)
+            if end_minutes <= start_minutes:
+                # Range crosses midnight
+                if current_minutes >= start_minutes or current_minutes <= end_minutes:
+                    return True
+            else:
+                # Normal range
+                if start_minutes <= current_minutes <= end_minutes:
+                    return True
+
+        return False
 
 
 class ImpulseFilterPipeline:

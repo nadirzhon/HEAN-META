@@ -1,7 +1,7 @@
 """Tests for trading strategies."""
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -28,11 +28,24 @@ async def test_funding_harvester() -> None:
 
     bus.subscribe(EventType.SIGNAL, track_signal)
 
-    # Send funding event with positive rate
+    # Send tick event first (required by enhanced FundingHarvester)
+    tick = Tick(
+        symbol="BTCUSDT",
+        price=50000.0,
+        timestamp=datetime.utcnow(),
+        volume=1.0,
+        bid=49995.0,
+        ask=50005.0,
+    )
+    await bus.publish(Event(event_type=EventType.TICK, data={"tick": tick}))
+    await asyncio.sleep(0.05)
+
+    # Send funding event with positive rate and next_funding_time in optimal window
     funding = FundingRate(
         symbol="BTCUSDT",
         rate=0.0002,  # 0.02% positive funding
         timestamp=datetime.utcnow(),
+        next_funding_time=datetime.utcnow() + timedelta(hours=1.5),
     )
 
     await bus.publish(Event(event_type=EventType.FUNDING, data={"funding": funding}))

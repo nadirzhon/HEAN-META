@@ -7,17 +7,15 @@ Runs generated code in a restricted Python sandbox with shadow testing.
 
 import ast
 import asyncio
-import inspect
 import json
 import re
 import subprocess
-import sys
-import tempfile
 import time
-from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from hean.core.bus import EventBus
 from hean.core.types import Event, EventType
@@ -49,7 +47,7 @@ class GeneratedCode:
     description: str
     target_component: str  # e.g., "warden", "position_sizer", "edge_estimator"
     generation_timestamp: datetime
-    test_results: Optional[dict[str, Any]] = None
+    test_results: dict[str, Any] | None = None
     shadow_test_duration_hours: float = 0.0
     approval_status: str = "pending"  # pending, shadow_testing, approved, rejected
 
@@ -61,7 +59,7 @@ class RestrictedSandbox:
         'math', 'random', 'statistics', 'collections', 'dataclasses',
         'typing', 'decimal', 'fractions', 'itertools', 'operator'
     }
-    
+
     FORBIDDEN_PATTERNS = [
         r'__import__',
         r'exec\s*\(',
@@ -91,7 +89,7 @@ class RestrictedSandbox:
                 'type': type, 'zip': zip,
             }
         }
-        
+
         # Import allowed modules
         for module_name in self.ALLOWED_MODULES:
             try:
@@ -100,9 +98,9 @@ class RestrictedSandbox:
             except ImportError:
                 pass
 
-    def validate_code(self, code: str) -> tuple[bool, Optional[str]]:
+    def validate_code(self, code: str) -> tuple[bool, str | None]:
         """Validate code before execution.
-        
+
         Returns:
             (is_valid, error_message)
         """
@@ -110,54 +108,54 @@ class RestrictedSandbox:
         for pattern in self.FORBIDDEN_PATTERNS:
             if re.search(pattern, code, re.IGNORECASE):
                 return False, f"Forbidden pattern detected: {pattern}"
-        
+
         # Parse and validate AST
         try:
             tree = ast.parse(code, mode='exec')
         except SyntaxError as e:
             return False, f"Syntax error: {e}"
-        
+
         # Check AST nodes for dangerous operations
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name.split('.')[0] not in self.ALLOWED_MODULES:
                         return False, f"Forbidden import: {alias.name}"
-            
+
             if isinstance(node, ast.ImportFrom):
                 if node.module and node.module.split('.')[0] not in self.ALLOWED_MODULES:
                     return False, f"Forbidden import from: {node.module}"
-            
+
             if isinstance(node, (ast.Call, ast.Attribute)):
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                     if node.func.id in ('eval', 'exec', 'compile', '__import__'):
                         return False, f"Forbidden function call: {node.func.id}"
-        
+
         return True, None
 
-    def execute(self, code: str, inputs: dict[str, Any]) -> tuple[bool, Any, Optional[str]]:
+    def execute(self, code: str, inputs: dict[str, Any]) -> tuple[bool, Any, str | None]:
         """Execute code in sandbox.
-        
+
         Args:
             code: Python code to execute
             inputs: Input variables to provide
-            
+
         Returns:
             (success, result, error_message)
         """
         is_valid, error = self.validate_code(code)
         if not is_valid:
             return False, None, error
-        
+
         # Prepare execution environment
         exec_globals = self._globals.copy()
         exec_globals.update(inputs)
         exec_locals = {}
-        
+
         try:
             # Execute code
             exec(compile(code, '<sandbox>', 'exec'), exec_globals, exec_locals)
-            
+
             # Extract result (look for common output patterns)
             if 'result' in exec_locals:
                 return True, exec_locals['result'], None
@@ -174,9 +172,9 @@ class RestrictedSandbox:
 class LLMCodeGenerator:
     """LLM-powered code generator using llama.cpp."""
 
-    def __init__(self, model_path: Optional[str] = None, llama_cpp_path: str = "llama-cli"):
+    def __init__(self, model_path: str | None = None, llama_cpp_path: str = "llama-cli"):
         """Initialize LLM code generator.
-        
+
         Args:
             model_path: Path to LLM model file (GGUF format)
             llama_cpp_path: Path to llama-cli or llama.cpp executable
@@ -202,25 +200,25 @@ class LLMCodeGenerator:
         self,
         loss_events: list[LossEvent],
         target_component: str,
-        prompt_template: Optional[str] = None
-    ) -> Optional[GeneratedCode]:
+        prompt_template: str | None = None
+    ) -> GeneratedCode | None:
         """Generate code based on loss event analysis.
-        
+
         Args:
             loss_events: List of recent loss events
             target_component: Target component to generate code for
             prompt_template: Optional custom prompt template
-            
+
         Returns:
             GeneratedCode object or None if generation fails
         """
         if not self._available or not self.model_path or not self.model_path.exists():
             logger.warning("LLM not available. Using fallback code generation.")
             return self._fallback_generation(loss_events, target_component)
-        
+
         # Build prompt
         prompt = self._build_prompt(loss_events, target_component, prompt_template)
-        
+
         try:
             # Call llama.cpp
             result = subprocess.run(
@@ -237,15 +235,15 @@ class LLMCodeGenerator:
                 text=True,
                 timeout=30
             )
-            
+
             if result.returncode != 0:
                 logger.error(f"LLM generation failed: {result.stderr}")
                 return None
-            
+
             # Parse response
             response = result.stdout.strip()
             code, description = self._parse_llm_response(response)
-            
+
             return GeneratedCode(
                 code=code,
                 description=description,
@@ -260,7 +258,7 @@ class LLMCodeGenerator:
         self,
         loss_events: list[LossEvent],
         target_component: str,
-        custom_template: Optional[str]
+        custom_template: str | None
     ) -> str:
         """Build prompt for LLM."""
         if custom_template:
@@ -268,10 +266,10 @@ class LLMCodeGenerator:
                 loss_events=loss_events,
                 target_component=target_component
             )
-        
+
         # Default prompt template
         loss_summary = self._summarize_loss_events(loss_events)
-        
+
         return f"""You are a quantitative trading system analyst. Analyze the following loss events and generate improved mathematical logic.
 
 Loss Events Summary:
@@ -298,14 +296,14 @@ Code:"""
         """Summarize loss events for prompt."""
         if not events:
             return "No loss events"
-        
+
         total_loss = sum(e.pnl for e in events if e.pnl < 0)
         avg_loss_pct = sum(e.pnl_pct for e in events if e.pnl_pct < 0) / len([e for e in events if e.pnl_pct < 0])
-        
+
         strategies = {}
         for event in events:
             strategies[event.strategy_id] = strategies.get(event.strategy_id, 0) + 1
-        
+
         return f"""
 Total Loss Events: {len(events)}
 Total Loss: ${total_loss:.2f}
@@ -324,14 +322,14 @@ Most Recent: {events[-1].symbol} @ {events[-1].timestamp}
                 return data.get('code', ''), data.get('description', '')
             except json.JSONDecodeError:
                 pass
-        
+
         # Fallback: extract code blocks
         code_match = re.search(r'```python\n(.*?)\n```', response, re.DOTALL)
         if code_match:
             code = code_match.group(1)
             description = response.split('```')[0].strip()
             return code, description
-        
+
         # Last resort: return entire response
         return response, "Generated code"
 
@@ -344,7 +342,7 @@ Most Recent: {events[-1].symbol} @ {events[-1].timestamp}
         # Simple heuristic-based generation
         if target_component == "position_sizer":
             avg_loss = abs(sum(e.pnl_pct for e in loss_events if e.pnl_pct < 0) / max(len(loss_events), 1))
-            code = f"""
+            code = """
 def calculate_position_size(capital, risk_pct):
     # Reduced risk based on recent losses
     adjusted_risk = risk_pct * 0.8  # 20% reduction
@@ -354,7 +352,7 @@ def calculate_position_size(capital, risk_pct):
         else:
             code = "# No improvement generated"
             description = "Fallback: No LLM available"
-        
+
         return GeneratedCode(
             code=code,
             description=description,
@@ -370,11 +368,11 @@ class CodegenEngine:
         self,
         bus: EventBus,
         accounting: PortfolioAccounting,
-        model_path: Optional[str] = None,
+        model_path: str | None = None,
         shadow_test_duration_hours: float = 1.0
     ):
         """Initialize code generation engine.
-        
+
         Args:
             bus: Event bus for publishing events
             accounting: Portfolio accounting for accessing loss data
@@ -386,11 +384,11 @@ class CodegenEngine:
         self._sandbox = RestrictedSandbox()
         self._generator = LLMCodeGenerator(model_path)
         self._shadow_test_duration = shadow_test_duration_hours
-        
+
         # Track loss events
         self._loss_events: list[LossEvent] = []
         self._max_loss_events = 100
-        
+
         # Track generated code
         self._generated_code: list[GeneratedCode] = []
         self._shadow_testing_code: dict[str, GeneratedCode] = {}
@@ -411,7 +409,7 @@ class CodegenEngine:
         position = event.data.get("position")
         if not position:
             return
-        
+
         # Record loss event if position was a loss
         if position.realized_pnl < 0:
             loss_event = LossEvent(
@@ -422,17 +420,17 @@ class CodegenEngine:
                 exit_price=position.exit_price or position.entry_price,
                 pnl=position.realized_pnl,
                 pnl_pct=(position.realized_pnl / position.entry_price * position.size) * 100,
-                holding_time_seconds=0.0,  # TODO: Calculate from timestamps
-                market_conditions={},  # TODO: Extract from regime/volatility
+                holding_time_seconds=0.0,  # NOTE: Timestamp data not available in position object
+                market_conditions={},  # NOTE: Regime/volatility data not accessible in this context
                 metadata={}
             )
-            
+
             self._loss_events.append(loss_event)
             if len(self._loss_events) > self._max_loss_events:
                 self._loss_events.pop(0)
-            
+
             logger.info(f"Recorded loss event: {loss_event.symbol} - ${loss_event.pnl:.2f}")
-            
+
             # Trigger code generation if threshold reached
             if len(self._loss_events) >= 10:
                 await self._analyze_and_generate()
@@ -441,29 +439,29 @@ class CodegenEngine:
         """Analyze loss events and generate new code."""
         if len(self._loss_events) < 10:
             return
-        
+
         logger.info(f"Analyzing {len(self._loss_events)} loss events for code generation...")
-        
+
         # Generate code for different components
         components = ["position_sizer", "warden", "edge_estimator"]
-        
+
         for component in components:
             generated = self._generator.generate_code(
                 loss_events=self._loss_events[-20:],  # Last 20 events
                 target_component=component
             )
-            
+
             if generated:
                 # Validate and test in sandbox
                 is_valid, result, error = self._sandbox.execute(
                     generated.code,
                     inputs={"capital": 1000.0, "risk_pct": 2.0}
                 )
-                
+
                 if is_valid:
                     generated.test_results = {"sandbox_test": "passed", "result": str(result)}
                     self._generated_code.append(generated)
-                    
+
                     # Start shadow testing
                     await self._start_shadow_testing(generated)
                     logger.info(f"Generated code for {component}: {generated.description}")
@@ -474,15 +472,15 @@ class CodegenEngine:
         """Start shadow testing for generated code."""
         generated_code.approval_status = "shadow_testing"
         generated_code.shadow_test_duration_hours = 0.0
-        
+
         test_id = f"{generated_code.target_component}_{int(time.time())}"
         self._shadow_testing_code[test_id] = generated_code
-        
+
         logger.info(f"Started shadow testing for {test_id}: {generated_code.description}")
-        
+
         # Schedule approval check
         await asyncio.sleep(self._shadow_test_duration_hours * 3600)
-        
+
         # After shadow testing period, evaluate performance
         await self._evaluate_shadow_test(test_id)
 
@@ -490,21 +488,21 @@ class CodegenEngine:
         """Evaluate shadow test results and approve/reject code."""
         if test_id not in self._shadow_testing_code:
             return
-        
+
         generated_code = self._shadow_testing_code[test_id]
-        
-        # TODO: Evaluate performance metrics from shadow testing
+
+        # NOTE: Shadow testing performance metrics not yet implemented
         # For now, approve if no errors occurred
         if generated_code.test_results and generated_code.test_results.get("sandbox_test") == "passed":
             generated_code.approval_status = "approved"
             logger.info(f"Approved code: {test_id}")
-            
+
             # Integrate into dynamic logic layer
             await self._integrate_code(generated_code)
         else:
             generated_code.approval_status = "rejected"
             logger.warning(f"Rejected code: {test_id}")
-        
+
         del self._shadow_testing_code[test_id]
 
     async def _integrate_code(self, generated_code: GeneratedCode) -> None:
@@ -512,4 +510,4 @@ class CodegenEngine:
         # This would integrate the code into the appropriate component
         # For now, just store it
         logger.info(f"Integrating approved code into {generated_code.target_component}")
-        # TODO: Actual integration logic would go here
+        logger.debug("[CODEGEN] Dynamic code integration not yet implemented - code stored for manual review")

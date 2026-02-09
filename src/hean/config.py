@@ -26,11 +26,20 @@ def parse_list_env(value: Any) -> Any:
     return value
 
 
+def _find_env_file() -> str:
+    """Find .env file: check project root first, then CWD."""
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    env_path = os.path.join(project_root, ".env")
+    if os.path.exists(env_path):
+        return env_path
+    return ".env"
+
+
 class HEANSettings(BaseSettings):
     """Main configuration for HEAN system."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_find_env_file(),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -56,9 +65,15 @@ class HEANSettings(BaseSettings):
         description="Max concurrent simulations for meta-learning",
     )
 
-    # Trading Mode
+    # Environment
+    environment: Literal["development", "production"] = Field(
+        default="development",
+        description="Application environment (development or production)"
+    )
+
+    # Trading Mode (BYBIT TESTNET ONLY - NO PAPER TRADING)
     live_confirm: str = Field(default="YES", description="Must be 'YES' to enable live trading")
-    trading_mode: Literal["paper", "live"] = Field(default="paper", description="Trading mode")
+    trading_mode: Literal["live"] = Field(default="live", description="Trading mode - ALWAYS LIVE (testnet)")
 
     # Capital Management
     initial_capital: float = Field(default=300.0, gt=0, description="Initial capital in USDT")
@@ -70,6 +85,14 @@ class HEANSettings(BaseSettings):
     )
     cash_reserve_rate: float = Field(
         default=0.2, ge=0, le=1, description="Cash reserve rate (not allocated)"
+    )
+    capital_allocation_mode: str = Field(
+        default="adaptive",
+        description="Capital allocation mode: 'equal' (equal split), 'adaptive' (performance-based)",
+    )
+    force_equal_allocation: bool = Field(
+        default=False,
+        description="Force equal capital allocation regardless of performance (1/N for N strategies)",
     )
 
     # Profit Targets
@@ -96,16 +119,16 @@ class HEANSettings(BaseSettings):
 
     # Risk Management
     max_daily_drawdown_pct: float = Field(
-        default=15.0,
+        default=3.0,
         gt=0,
         le=100,
-        description="Maximum daily drawdown percentage (default 15% for $400 capital)",
+        description="Maximum daily drawdown percentage (HEAN v2 Iron Rule: -3% → STOP 24h)",
     )
     max_trade_risk_pct: float = Field(
-        default=2.0,
+        default=1.0,
         gt=0,
         le=100,
-        description="Maximum risk per trade percentage (default 2% for aggressive trading)",
+        description="Maximum risk per trade percentage (HEAN v2 Iron Rule: -1% per trade)",
     )
     max_open_positions: int = Field(
         default=10, gt=0, description="Maximum number of open positions (anti-runaway guard)"
@@ -120,6 +143,31 @@ class HEANSettings(BaseSettings):
         gt=0,
         description="Maximum time to hold a position before force-closing (anti-stuck TTL, default 15m)",
     )
+    position_monitor_check_interval: int = Field(
+        default=30,
+        gt=0,
+        description="How often to check for stale positions (seconds, default 30s)",
+    )
+    position_monitor_enabled: bool = Field(
+        default=True,
+        description="Enable automatic force-closing of stale positions",
+    )
+
+    # Liquidity Sweep Detector Strategy
+    liquidity_sweep_enabled: bool = Field(
+        default=True,
+        description="Enable Liquidity Sweep Detector strategy for catching institutional sweeps",
+    )
+    liquidity_sweep_threshold_pct: float = Field(
+        default=0.003,
+        description="Sweep threshold as decimal (0.003 = 0.3%)",
+    )
+    liquidity_sweep_cooldown_minutes: int = Field(
+        default=15,
+        ge=5,
+        description="Cooldown between trades per symbol (minutes)",
+    )
+
     max_concurrent_risk_pct: float = Field(
         default=20.0,
         gt=0,
@@ -144,10 +192,17 @@ class HEANSettings(BaseSettings):
         description="Maximum loss per hour as % of initial capital (default 15%)",
     )
     consecutive_losses_limit: int = Field(
-        default=5, ge=1, description="Number of consecutive losses before pause (default 5)"
+        default=3, ge=1, description="Number of consecutive losses before pause (HEAN v2 Iron Rule: 3)"
     )
     consecutive_losses_cooldown_hours: int = Field(
-        default=1, gt=0, description="Hours to pause after consecutive losses (default 1)"
+        default=2, gt=0, description="Hours to pause after consecutive losses (HEAN v2 Iron Rule: 2h)"
+    )
+
+    # Minimum Risk:Reward Ratio (HEAN v2 Iron Rule #5)
+    min_risk_reward_ratio: float = Field(
+        default=2.0,
+        gt=0,
+        description="Minimum Risk:Reward ratio to enter a trade (HEAN v2 Iron Rule: 1:2)",
     )
 
     # Deposit Protection
@@ -204,6 +259,29 @@ class HEANSettings(BaseSettings):
     )
     impulse_engine_enabled: bool = Field(default=True, description="Enable impulse engine strategy")
 
+    # Dormant Strategies (AFO-Director Phase 5 - disabled by default until tested)
+    hf_scalping_enabled: bool = Field(
+        default=False, description="Enable high-frequency scalping strategy (40-60 trades/day, 0.2-0.4% TP)"
+    )
+    enhanced_grid_enabled: bool = Field(
+        default=False, description="Enable enhanced grid trading strategy (range-bound markets only)"
+    )
+    momentum_trader_enabled: bool = Field(
+        default=False, description="Enable momentum trader strategy (trend following)"
+    )
+    inventory_neutral_mm_enabled: bool = Field(
+        default=False, description="Enable inventory-neutral market making strategy"
+    )
+    correlation_arb_enabled: bool = Field(
+        default=False, description="Enable correlation arbitrage strategy"
+    )
+    rebate_farmer_enabled: bool = Field(
+        default=False, description="Enable rebate farmer strategy (maker fee capture)"
+    )
+    sentiment_strategy_enabled: bool = Field(
+        default=False, description="Enable sentiment-based trading strategy"
+    )
+
     # Trading Symbols
     trading_symbols: list[str] = Field(
         default=[
@@ -251,18 +329,18 @@ class HEANSettings(BaseSettings):
         description="Use Bybit public market data in paper mode (instead of synthetic feed). Default False to guarantee ticks in PAPER.",
     )
 
-    # Triangular arbitrage
+    # Triangular arbitrage (Phase 2 Profit Doubling: Optimized for Bybit)
     triangular_arb_enabled: bool = Field(
         default=True,
         description="Enable triangular arbitrage scanner",
     )
     triangular_fee_buffer: float = Field(
-        default=0.001,
+        default=0.0006,  # Optimized: 0.06% (Bybit maker: -0.01%, taker: 0.055%)
         ge=0,
         description="Fee buffer ratio for triangular arbitrage scanning",
     )
     triangular_min_profit_bps: float = Field(
-        default=5.0,
+        default=3.0,  # Optimized: Lower threshold = more opportunities (0.03%)
         ge=0,
         description="Minimum profit in bps required for triangular arbitrage",
     )
@@ -347,10 +425,47 @@ class HEANSettings(BaseSettings):
     # Bybit API (for future live trading)
     bybit_api_key: str = Field(default="", description="Bybit API key")
     bybit_api_secret: str = Field(default="", description="Bybit API secret")
-    bybit_testnet: bool = Field(default=False, description="Use Bybit testnet")
+    bybit_testnet: bool = Field(default=True, description="Use Bybit testnet (default True for safety)")
+
+    # Safety: require explicit confirmation for LIVE trading
+    require_live_confirm: bool = Field(
+        default=False,
+        description="Require explicit LIVE confirmation (set to True after all smoke tests PASS)",
+    )
 
     # LLM API Keys (for agent generation and catalyst)
     gemini_api_key: str = Field(default="", description="Google Gemini API key for agent generation and catalyst")
+
+    # Claude Brain
+    anthropic_api_key: str = Field(default="", description="Anthropic API key for Claude Brain analysis")
+    brain_analysis_interval: int = Field(default=30, gt=5, description="Brain analysis interval in seconds")
+    brain_enabled: bool = Field(default=True, description="Enable Claude Brain analysis module")
+
+    # API Authentication (CRITICAL: Enable in production!)
+    api_auth_enabled: bool = Field(
+        default=False,
+        description="Enable API authentication (set to True in production)",
+    )
+    api_auth_key: str = Field(
+        default="",
+        description="API key for authentication (generate with: python -c 'import secrets; print(secrets.token_hex(32))')",
+    )
+    jwt_secret: str = Field(
+        default="",
+        description="JWT secret for token signing (auto-generated if not set)",
+    )
+    ws_allowed_origins: list[str] = Field(
+        default=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],
+        description="Allowed origins for WebSocket connections (CORS)",
+    )
+
+    @field_validator("ws_allowed_origins", mode="before")
+    @classmethod
+    def parse_ws_allowed_origins(cls, v: Any) -> Any:
+        """Parse ws_allowed_origins from env values."""
+        if v is None or v == "":
+            return ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]
+        return parse_list_env(v)
 
     # Observability
     log_level: str = Field(default="INFO", description="Logging level")
@@ -389,9 +504,9 @@ class HEANSettings(BaseSettings):
         description="Use maker-first execution (post-only limit orders) - ALWAYS TRUE!",
     )
     maker_ttl_ms: int = Field(
-        default=8000,
+        default=150,  # Phase 2 Optimization: 150ms (was 8000ms) for HFT execution
         gt=0,
-        description="Time-to-live for maker orders in milliseconds (increased from 3000 to 8000 for better fill rate)",
+        description="Time-to-live for maker orders in milliseconds (Phase 2: 150ms optimal for HFT, +5-15 bps per execution)",
     )
     allow_taker_fallback: bool = Field(
         default=True,
@@ -528,10 +643,10 @@ class HEANSettings(BaseSettings):
         description="Allow Bybit actions from Process Factory (disabled by default, requires explicit enable)",
     )
 
-    # Dry Run / Execution Safety
+    # Dry Run - REMOVED (No paper trading - Bybit testnet only)
     dry_run: bool = Field(
         default=False,
-        description="Dry run mode (default False). Set to True to enable paper trading mode",
+        description="DEPRECATED - No longer used. System uses Bybit testnet for all trading.",
     )
 
     # Execution Smoke Test
@@ -557,11 +672,10 @@ class HEANSettings(BaseSettings):
         description="Smoke test mode (default PLACE_CANCEL: place and immediately cancel)",
     )
 
-    # Paper Trade Assist (for testing/debugging in paper mode only)
+    # Paper Trade Assist - REMOVED (No paper trading mode)
     paper_trade_assist: bool = Field(
         default=False,
-        description="Enable paper trade assist mode - softens filters/limits in paper/dry_run mode only. "
-        "FORBIDDEN in live trading (DRY_RUN=false && LIVE_CONFIRM=YES).",
+        description="DEPRECATED - No longer used. System uses Bybit testnet only.",
     )
 
     # Profit Capture (AFO-Director feature)
@@ -669,6 +783,26 @@ class HEANSettings(BaseSettings):
 
     def model_post_init(self, __context: Any) -> None:
         """Validate trading mode after initialization."""
+        # CRITICAL SAFETY CHECK: Prevent LIVE trading without explicit confirmation
+        is_attempting_live = (
+            not self.dry_run
+            and self.live_confirm == "YES"
+            and not self.bybit_testnet
+        )
+
+        if is_attempting_live and not self.require_live_confirm:
+            raise ValueError(
+                "🚨 LIVE TRADING BLOCKED 🚨\n"
+                "LIVE trading mode requires REQUIRE_LIVE_CONFIRM=true.\n"
+                "This safety check ensures all smoke tests have PASSED before enabling real trading.\n"
+                f"Current config: DRY_RUN={self.dry_run}, LIVE_CONFIRM={self.live_confirm}, "
+                f"BYBIT_TESTNET={self.bybit_testnet}, REQUIRE_LIVE_CONFIRM={self.require_live_confirm}\n"
+                "To enable LIVE trading:\n"
+                "1. Run all smoke tests and verify PASS\n"
+                "2. Set REQUIRE_LIVE_CONFIRM=true in backend.env\n"
+                "3. Set BYBIT_TESTNET=false, DRY_RUN=false, LIVE_CONFIRM=YES"
+            )
+
         # Check environment for LIVE_CONFIRM if not already set
         live_confirm_env = os.getenv("LIVE_CONFIRM", "")
         if live_confirm_env == "YES" and self.trading_mode == "paper":
@@ -685,33 +819,19 @@ class HEANSettings(BaseSettings):
         dry_run_env = os.getenv("DRY_RUN", "").lower()
         if dry_run_env and dry_run_env not in ("true", "1", "yes", "false", "0", "no"):
             # Only override if explicitly set in env and value is valid
-            pass
+            from hean.logging import get_logger
+            logger = get_logger(__name__)
+            logger.warning(f"Invalid DRY_RUN value: {dry_run_env!r}. Ignoring.")
         elif dry_run_env in ("false", "0", "no"):
             object.__setattr__(self, "dry_run", False)
 
-        # Validate PAPER_TRADE_ASSIST - can only be enabled in paper/sandbox mode
-        if self.paper_trade_assist:
-            is_paper_safe = self.dry_run or self.bybit_testnet
-            is_live_unsafe = not self.dry_run and self.live_confirm == "YES"
-            
-            if is_live_unsafe:
-                raise ValueError(
-                    "PAPER_TRADE_ASSIST=true is FORBIDDEN in live trading. "
-                    "It can only be enabled when DRY_RUN=true OR bybit_testnet=true. "
-                    f"Current: DRY_RUN={self.dry_run}, LIVE_CONFIRM={self.live_confirm}, "
-                    f"bybit_testnet={self.bybit_testnet}"
-                )
-            
-            if not is_paper_safe:
-                raise ValueError(
-                    "PAPER_TRADE_ASSIST=true requires DRY_RUN=true OR bybit_testnet=true. "
-                    f"Current: DRY_RUN={self.dry_run}, bybit_testnet={self.bybit_testnet}"
-                )
+        # Paper trade assist is deprecated - no validation needed
+        # System always uses Bybit testnet for safety
 
     @property
     def is_live(self) -> bool:
-        """Check if system is in live trading mode."""
-        return self.trading_mode == "live" and not self.dry_run
+        """Check if system is in live trading mode (Always True - Bybit testnet)."""
+        return True  # Always live mode with Bybit testnet
 
 
 # Global settings instance

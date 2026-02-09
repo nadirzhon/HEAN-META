@@ -8,7 +8,7 @@ import pytest
 from hean.config import settings
 from hean.core.bus import EventBus
 from hean.core.regime import Regime
-from hean.core.types import Event, EventType, Position, Signal, Tick
+from hean.core.types import Event, EventType, Position, Tick
 from hean.strategies.impulse_engine import ImpulseEngine
 
 

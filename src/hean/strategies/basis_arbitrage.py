@@ -26,8 +26,11 @@ class BasisArbitrage(BaseStrategy):
         """Initialize the basis arbitrage strategy."""
         super().__init__("basis_arbitrage", bus)
         self._symbols = symbols or ["BTCUSDT", "ETHUSDT"]
-        self._spot_prices: dict[str, float] = {}
-        self._perp_prices: dict[str, float] = {}
+        # Real price tracking: mark price (perp) vs index price (spot)
+        # Bybit sends these in WebSocket ticker updates
+        self._mark_prices: dict[str, float] = {}   # Perpetual mark price
+        self._index_prices: dict[str, float] = {}   # Index/spot price
+        self._last_price: dict[str, float] = {}     # Last traded price (fallback)
         self._basis_history: dict[str, deque[float]] = {}
         self._positions: dict[str, bool] = {}  # symbol -> has_position
         self._basis_threshold = 0.002  # 0.2% basis threshold
@@ -37,8 +40,24 @@ class BasisArbitrage(BaseStrategy):
         # Execution edge estimator
         self._edge_estimator = ExecutionEdgeEstimator()
 
+        # Anti-overtrading: Cooldown and signal limits
+        from datetime import timedelta
+        self._last_signal_time: dict[str, datetime] = {}  # Per-symbol last signal time
+        self._signal_cooldown = timedelta(hours=2)  # Min 2 hours between signals per symbol
+        self._daily_signals: int = 0
+        self._max_daily_signals: int = 4  # Max 4 signals per day (conservative for arb)
+        self._daily_reset_time: datetime | None = None
+
     async def on_tick(self, event: Event) -> None:
-        """Handle tick events."""
+        """Handle tick events.
+
+        For Bybit linear perpetuals, uses:
+        - Tick price as the last traded price
+        - Mark price from event metadata (perp reference)
+        - Index price from event metadata (spot proxy)
+
+        The basis is calculated as: (mark_price - index_price) / index_price
+        """
         tick: Tick = event.data["tick"]
 
         # Skip ticks with invalid price (zero or negative)
@@ -49,25 +68,42 @@ class BasisArbitrage(BaseStrategy):
         # Update edge estimator price history
         self._edge_estimator.update_price_history(tick.symbol, tick.price)
 
-        # In paper mode, we simulate spot vs perp by using slight price variations
-        # In real system, we'd have separate feeds for spot and perp
-        symbol_base = tick.symbol.replace("USDT", "")
-        spot_symbol = f"{symbol_base}USDT"  # Spot
-        perp_symbol = f"{symbol_base}USDT"  # Perp (same symbol in our simplified model)
+        # Store last price as fallback
+        self._last_price[tick.symbol] = tick.price
 
-        # Simulate basis: perp price = spot price * (1 + synthetic_basis)
-        # We'll use a synthetic basis that varies
-        import random
+        # Extract mark price and index price from event metadata
+        # Bybit WebSocket sends these in ticker updates
+        mark_price = event.data.get("mark_price") or tick.price
+        index_price = event.data.get("index_price")
 
-        synthetic_basis = random.gauss(0.0005, 0.001)  # Mean 0.05%, std 0.1%
+        # Update our price caches
+        self._mark_prices[tick.symbol] = mark_price
 
-        spot_price = tick.price
-        perp_price = spot_price * (1 + synthetic_basis)
+        # If we have real index price, use it; otherwise estimate from bid/ask midpoint
+        if index_price:
+            self._index_prices[tick.symbol] = index_price
+        elif tick.bid and tick.ask:
+            # Use bid/ask midpoint as spot proxy
+            self._index_prices[tick.symbol] = (tick.bid + tick.ask) / 2.0
+        else:
+            # No index price available yet — wait for data
+            if tick.symbol not in self._index_prices:
+                logger.debug(
+                    f"[BASIS_ARB] {tick.symbol}: No index/spot price available yet, "
+                    f"using mark={mark_price:.2f}"
+                )
+                return
 
-        self._spot_prices[spot_symbol] = spot_price
-        self._perp_prices[perp_symbol] = perp_price
+        # Get spot and perp prices
+        perp_price = self._mark_prices[tick.symbol]
+        spot_price = self._index_prices[tick.symbol]
 
-        await self._evaluate_basis(spot_symbol, spot_price, perp_price)
+        logger.debug(
+            f"[BASIS_ARB] {tick.symbol} mark={perp_price:.2f} index={spot_price:.2f} "
+            f"basis={(perp_price - spot_price) / spot_price * 100:.4f}%"
+        )
+
+        await self._evaluate_basis(tick.symbol, spot_price, perp_price)
 
     async def on_funding(self, event: Event) -> None:
         """Handle funding events - not used for this strategy."""
@@ -99,6 +135,33 @@ class BasisArbitrage(BaseStrategy):
         # Check if we should open a position
         if symbol not in self._positions or not self._positions[symbol]:
             if abs(basis) > self._basis_threshold:
+                # Anti-overtrading checks
+                from datetime import timedelta
+                now = datetime.utcnow()
+
+                # Reset daily counter if new day
+                if self._daily_reset_time is None or now.date() > self._daily_reset_time.date():
+                    self._daily_signals = 0
+                    self._daily_reset_time = now
+
+                # Check daily signal limit
+                if self._daily_signals >= self._max_daily_signals:
+                    logger.debug(
+                        f"Daily signal limit reached ({self._max_daily_signals}), "
+                        f"skipping {symbol}"
+                    )
+                    return
+
+                # Check per-symbol cooldown
+                if symbol in self._last_signal_time:
+                    time_since = now - self._last_signal_time[symbol]
+                    if time_since < self._signal_cooldown:
+                        logger.debug(
+                            f"Signal blocked: {symbol} in cooldown "
+                            f"(last signal {time_since.total_seconds() / 3600:.1f}h ago)"
+                        )
+                        return
+
                 await self._open_arbitrage_position(symbol, spot_price, perp_price, basis)
         else:
             # Check if we should close (mean reversion)
@@ -184,6 +247,11 @@ class BasisArbitrage(BaseStrategy):
             await self._publish_signal(spot_signal)
             await self._publish_signal(perp_signal)
             self._positions[symbol] = True
+
+            # Anti-overtrading: Update signal tracking
+            self._last_signal_time[symbol] = datetime.utcnow()
+            self._daily_signals += 1
+
             logger.info(f"Basis arbitrage opened: {symbol} basis={basis:.4f}")
         else:
             logger.debug(

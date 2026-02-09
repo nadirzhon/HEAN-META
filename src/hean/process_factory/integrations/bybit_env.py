@@ -61,7 +61,7 @@ class BybitEnvScanner:
             try:
                 # Execute with timeout
                 return await asyncio.wait_for(func(*args, **kwargs), timeout=self.timeout_sec)
-            except asyncio.TimeoutError as e:
+            except TimeoutError as e:
                 last_exception = e
                 if attempt < self.max_retries:
                     logger.warning(
@@ -201,7 +201,7 @@ class BybitEnvScanner:
                             categories.add(product["category"])
                         if "coin" in product:
                             coins.add(product["coin"])
-                    
+
                     snapshot.earn_availability = {
                         "status": "AVAILABLE",
                         "reason": f"API accessible, {len(earn_products)} products found",

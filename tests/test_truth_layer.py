@@ -12,6 +12,8 @@ def _make_no_trade(
         totals=totals or {},
         per_strategy={},
         per_symbol={},
+        pipeline_counters={},
+        pipeline_per_strategy={},
     )
 
 

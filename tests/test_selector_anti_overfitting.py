@@ -7,8 +7,9 @@ Tests:
 4. regime bucket diversification gating
 """
 
-import pytest
 from datetime import datetime, timedelta
+
+import pytest
 
 from hean.process_factory.schemas import (
     ProcessPortfolioEntry,

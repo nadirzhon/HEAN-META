@@ -14,15 +14,18 @@ class EventType(str, Enum):
     # Market events
     TICK = "tick"
     FUNDING = "funding"
+    FUNDING_UPDATE = "funding_update"
     ORDER_BOOK_UPDATE = "order_book_update"
     REGIME_UPDATE = "regime_update"
 
     # Strategy events
     SIGNAL = "signal"
+    STRATEGY_PARAMS_UPDATED = "strategy_params_updated"
 
     # Risk events
     ORDER_REQUEST = "order_request"
     RISK_BLOCKED = "risk_blocked"
+    RISK_ALERT = "risk_alert"
 
     # Execution events
     ORDER_PLACED = "order_placed"
@@ -43,14 +46,27 @@ class EventType(str, Enum):
     # System events
     STOP_TRADING = "stop_trading"
     KILLSWITCH_TRIGGERED = "killswitch_triggered"
+    KILLSWITCH_RESET = "killswitch_reset"
     ERROR = "error"
+    STATUS = "status"
+    HEARTBEAT = "heartbeat"
 
     # Market structure / context events
     CANDLE = "candle"
     CONTEXT_UPDATE = "context_update"
-    
+
     # Meta-learning events
     META_LEARNING_PATCH = "meta_learning_patch"
+
+    # Brain/AI analysis events
+    BRAIN_ANALYSIS = "brain_analysis"
+
+    # Integration events (ContextAggregator)
+    CONTEXT_READY = "context_ready"
+    PHYSICS_UPDATE = "physics_update"
+    ORACLE_PREDICTION = "oracle_prediction"
+    OFI_UPDATE = "ofi_update"
+    CAUSAL_SIGNAL = "causal_signal"
 
 
 @dataclass
@@ -83,7 +99,13 @@ class FundingRate(BaseModel):
 
 
 class Signal(BaseModel):
-    """Trading signal from a strategy."""
+    """Trading signal from a strategy.
+
+    Required fields for proper risk management:
+    - confidence: Signal quality (0.0-1.0), used for Kelly sizing
+    - urgency: Time sensitivity (0.0-1.0), used for execution routing
+    - stop_loss: Required for position sizing, if None will be rejected by risk layer
+    """
 
     strategy_id: str
     symbol: str
@@ -93,6 +115,8 @@ class Signal(BaseModel):
     take_profit: float | None = None
     take_profit_1: float | None = None  # First take profit level (for break-even)
     size: float | None = None  # If None, risk layer will size
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)  # Signal quality for Kelly sizing
+    urgency: float = Field(default=0.5, ge=0.0, le=1.0)  # Time sensitivity for execution
     metadata: dict[str, Any] = Field(default_factory=dict)
     prefer_maker: bool = False  # Prefer maker orders
     min_maker_edge_bps: int | None = None  # Minimum maker edge in bps

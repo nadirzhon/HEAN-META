@@ -1,13 +1,13 @@
 # HEAN-Bybit
 
-Production-grade, modular, event-driven crypto trading research system focused on Bybit.
+Production-grade, modular, event-driven crypto trading system focused on Bybit Testnet.
 
-**⚠️ WARNING: This is a research system. Paper trading is the default. Live trading is locked behind `LIVE_CONFIRM=YES` environment variable. Use at your own risk.**
+**⚠️ BYBIT TESTNET ONLY: This system uses ONLY Bybit testnet for safe trading with virtual funds. Paper trading has been removed - all trades execute on Bybit testnet.**
 
 ## Features
 
 - **Event-driven architecture** with async-first design
-- **Paper trading by default** with realistic simulation (fees, slippage)
+- **Bybit Testnet Trading**: All trades execute on Bybit testnet with virtual funds (safe learning environment)
 - **Multiple strategies**: Funding harvester, Basis arbitrage, Impulse engine
 - **Agent generation**: LLM-powered automatic trading agent generation
 - **Auto-improvement system**: Self-learning catalyst that optimizes strategies and capital allocation
@@ -47,10 +47,10 @@ This starts:
 - **Prometheus**: http://localhost:9091 (Metrics)
 - **Grafana**: http://localhost:3001 (Dashboards, admin/admin)
 
-### Running in Paper Mode (CLI)
+### Running on Bybit Testnet (CLI)
 
 ```bash
-# Run the system (paper trading by default)
+# Run the system (Bybit testnet only)
 make run
 
 # Or directly:
@@ -58,10 +58,10 @@ python -m hean.main run
 ```
 
 The system will:
-- Start with a simulated price feed for BTCUSDT and ETHUSDT
-- Run strategies in paper mode
+- Connect to Bybit testnet WebSocket for real market data
+- Execute trades on Bybit testnet with virtual funds
 - Print status every 10 seconds (equity, daily PnL, drawdown)
-- Simulate fills, fees, and slippage
+- Real fills, fees, and slippage from Bybit testnet
 
 ### Order decision telemetry (debugging zero trades)
 
@@ -446,13 +446,14 @@ mypy src/
 
 ## Safety Notes
 
-1. **Paper trading is the default** - No real orders are placed unless explicitly enabled
-2. **Live trading requires `LIVE_CONFIRM=YES`** - Even then, order placement is disabled by default
+1. **Bybit Testnet ONLY** - All trades execute on testnet with virtual funds (100% safe)
+2. **No real money at risk** - Testnet uses virtual USDT for safe learning
 3. **Killswitch protection** - System automatically stops trading on:
    - Max daily drawdown exceeded
    - Repeated errors
    - Extreme volatility/spread
 4. **Risk limits** - Configurable per-trade risk, position limits, leverage caps
+5. **Live trading requires mainnet keys** - System defaults to testnet for safety
 
 ## Architecture
 
