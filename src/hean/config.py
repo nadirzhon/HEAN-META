@@ -433,13 +433,26 @@ class HEANSettings(BaseSettings):
         description="Require explicit LIVE confirmation (set to True after all smoke tests PASS)",
     )
 
-    # LLM API Keys (for agent generation and catalyst)
+    # LLM API Keys (for agent generation, catalyst, and process factory)
     gemini_api_key: str = Field(default="", description="Google Gemini API key for agent generation and catalyst")
+    openai_api_key: str = Field(default="", description="OpenAI API key for process factory and agent generation")
 
     # Claude Brain
     anthropic_api_key: str = Field(default="", description="Anthropic API key for Claude Brain analysis")
     brain_analysis_interval: int = Field(default=30, gt=5, description="Brain analysis interval in seconds")
     brain_enabled: bool = Field(default=True, description="Enable Claude Brain analysis module")
+
+    # AI Factory (Shadow → Canary → Production pipeline)
+    ai_factory_enabled: bool = Field(
+        default=False,
+        description="Enable AI Factory for automated strategy testing and promotion",
+    )
+    canary_percent: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Percentage of traffic for canary testing (default 10%)",
+    )
 
     # API Authentication (CRITICAL: Enable in production!)
     api_auth_enabled: bool = Field(
