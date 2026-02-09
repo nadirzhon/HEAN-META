@@ -662,6 +662,9 @@ class TradingSystem:
                         self._deposit_protector.update_initial_capital(balance)
                         # Update killswitch with real balance
                         self._killswitch.set_initial_capital(balance)
+                        # Update profit capture so it doesn't see config vs exchange diff as gain
+                        if self._profit_capture:
+                            self._profit_capture.sync_start_equity(balance)
                         logger.info(f"✅ Synced with exchange balance: ${balance:,.2f} USDT")
                         logger.info("📊 System ready to trade with any capital amount")
                     else:
@@ -702,6 +705,11 @@ class TradingSystem:
                 logger.info("Triangular Arbitrage Scanner started")
             except Exception as e:
                 logger.warning(f"Failed to start Triangular Arbitrage Scanner: {e}")
+
+        # Killswitch auto-reset is enabled by default; keep testnet-friendly settings
+        if settings.bybit_testnet and self._killswitch:
+            self._killswitch.enable_auto_reset(True)
+            logger.info("Killswitch configured for testnet: auto-reset enabled (15min cooldown, 10% recovery, max 10/day)")
 
         # Start strategies
         if settings.funding_harvester_enabled:

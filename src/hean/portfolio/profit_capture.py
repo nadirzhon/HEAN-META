@@ -274,23 +274,22 @@ class ProfitCapture:
         self._last_reason = reason
         self._last_action_ts = datetime.utcnow()
 
-        # Publish event
-        await self._bus.publish(
-            Event(
-                event_type=EventType.STOP_TRADING,  # Use existing event type
-                data={
-                    "type": "PROFIT_CAPTURE_EXECUTED",
-                    "reason": reason,
-                    "mode": self._mode,
-                    "after_action": self._after_action,
-                    "growth_pct": growth_pct,
-                    "drawdown_pct": drawdown_pct,
-                    "start_equity": self._start_equity,
-                    "peak_equity": self._peak_equity,
-                    "current_equity": trading_system._accounting.get_equity(),
-                },
+        # Publish event — only STOP_TRADING if we actually want to pause/stop
+        event_data = {
+            "type": "PROFIT_CAPTURE_EXECUTED",
+            "reason": reason,
+            "mode": self._mode,
+            "after_action": self._after_action,
+            "growth_pct": growth_pct,
+            "drawdown_pct": drawdown_pct,
+            "start_equity": self._start_equity,
+            "peak_equity": self._peak_equity,
+            "current_equity": trading_system._accounting.get_equity(),
+        }
+        if self._after_action != "continue":
+            await self._bus.publish(
+                Event(event_type=EventType.STOP_TRADING, data=event_data)
             )
-        )
 
         if self._mode == "full":
             # Close all positions and cancel all orders
@@ -349,12 +348,30 @@ class ProfitCapture:
             trading_system._stop_trading = True
             logger.info("Profit capture: Trading PAUSED after capture")
         elif self._after_action == "continue":
-            # Apply reduced risk multiplier (must be visible in /trading/why + decisions)
-            # This will be handled by position sizer or risk limits
+            # Ensure trading is NOT stopped when after_action is continue
+            trading_system._stop_trading = False
             logger.info(f"Profit capture: Trading CONTINUES with {self._continue_risk_mult}x risk multiplier")
             # Store risk multiplier in trading system for position sizer to use
             if hasattr(trading_system, "_profit_capture_risk_mult"):
                 trading_system._profit_capture_risk_mult = self._continue_risk_mult
+
+    def sync_start_equity(self, exchange_balance: float) -> None:
+        """Sync start equity with actual exchange balance.
+
+        Must be called after fetching the real balance from the exchange,
+        so profit capture doesn't see the difference between config
+        initial_capital and actual balance as a "gain".
+
+        Args:
+            exchange_balance: Actual wallet balance from the exchange
+        """
+        old = self._start_equity
+        self._start_equity = exchange_balance
+        self._peak_equity = exchange_balance
+        self._intra_session_compounding.reset(exchange_balance)
+        logger.info(
+            f"Profit capture start equity synced: ${old:.2f} -> ${exchange_balance:.2f}"
+        )
 
     def arm(self) -> None:
         """Arm profit capture (enable monitoring)."""

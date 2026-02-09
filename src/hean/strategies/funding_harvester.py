@@ -108,10 +108,15 @@ class FundingHarvester(BaseStrategy):
         }
 
     async def on_tick(self, event: Event) -> None:
-        """Handle tick events - store for funding prediction."""
+        """Handle tick events - store for funding prediction and generate fallback signals."""
         tick: Tick = event.data.get("tick")
         if tick and tick.symbol in self._symbols:
             self._last_tick[tick.symbol] = tick
+
+            # FALLBACK: If no funding data available, generate simple directional signals based on price momentum
+            # This allows the strategy to work even without funding API data
+            if tick.symbol not in self._last_funding or len(self._historical_funding[tick.symbol]) == 0:
+                await self._generate_momentum_fallback_signal(tick)
 
     async def on_funding(self, event: Event) -> None:
         """Handle funding rate events."""
@@ -225,7 +230,6 @@ class FundingHarvester(BaseStrategy):
             return
 
         # Anti-overtrading: Reset daily counter if new day
-        from datetime import timedelta
         now = datetime.utcnow()
         if self._daily_reset_time is None or now.date() > self._daily_reset_time.date():
             self._daily_signals = 0
@@ -538,6 +542,79 @@ class FundingHarvester(BaseStrategy):
             confidence=confidence,
             features=features,
             recommended_leverage=recommended_leverage,
+        )
+
+    async def _generate_momentum_fallback_signal(self, tick: Tick) -> None:
+        """Generate fallback signal based on price momentum when funding data is unavailable.
+
+        This allows the strategy to function without funding API by trading simple
+        momentum reversals with funding-like position holding times.
+        """
+        symbol = tick.symbol
+
+        # Need price history
+        if len(self._price_history[symbol]) < 20:
+            return
+
+        # Anti-overtrading: Check cooldown
+        now = datetime.utcnow()
+        if symbol in self._last_signal_time:
+            time_since = now - self._last_signal_time[symbol]
+            if time_since < self._signal_cooldown:
+                return
+
+        # Check daily limit
+        if self._daily_reset_time is None or now.date() > self._daily_reset_time.date():
+            self._daily_signals = 0
+            self._daily_reset_time = now
+
+        if self._daily_signals >= self._max_daily_signals:
+            return
+
+        # Check position limits
+        if self._active_positions_count >= self._max_concurrent_positions:
+            return
+
+        # Calculate simple momentum (compare recent vs older prices)
+        prices = list(self._price_history[symbol])
+        recent_avg = sum(prices[-5:]) / 5
+        older_avg = sum(prices[-15:-5]) / 10
+        momentum_pct = (recent_avg - older_avg) / older_avg
+
+        # Only trade if momentum is significant (>0.2%)
+        if abs(momentum_pct) < 0.002:
+            return
+
+        # Trade against momentum (mean reversion, similar to funding harvesting)
+        side = "sell" if momentum_pct > 0 else "buy"
+        confidence = min(0.6, abs(momentum_pct) * 100)  # 0.4-0.6 confidence
+
+        signal = Signal(
+            strategy_id=self.strategy_id,
+            symbol=symbol,
+            side=side,
+            entry_price=tick.price,
+            stop_loss=tick.price * (0.985 if side == "buy" else 1.015),
+            take_profit=tick.price * (1.008 if side == "buy" else 0.992),
+            metadata={
+                "type": "momentum_fallback",
+                "momentum_pct": momentum_pct,
+                "confidence": confidence,
+                "note": "fallback_signal_no_funding_data",
+            },
+            prefer_maker=True,
+            min_maker_edge_bps=2.0,
+        )
+
+        await self._publish_signal(signal)
+        self._positions[symbol] = side
+        self._active_positions_count += 1
+        self._last_signal_time[symbol] = now
+        self._daily_signals += 1
+
+        logger.info(
+            f"[FUNDING FALLBACK] {symbol} {side.upper()} @ ${tick.price:.2f} "
+            f"(momentum={momentum_pct:.2%}, no funding data available)"
         )
 
     async def fetch_funding_rates(self) -> None:

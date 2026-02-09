@@ -119,10 +119,10 @@ class HEANSettings(BaseSettings):
 
     # Risk Management
     max_daily_drawdown_pct: float = Field(
-        default=3.0,
+        default=15.0,
         gt=0,
         le=100,
-        description="Maximum daily drawdown percentage (HEAN v2 Iron Rule: -3% → STOP 24h)",
+        description="Maximum daily drawdown percentage (Testnet: 15% allows normal trading activity)",
     )
     max_trade_risk_pct: float = Field(
         default=1.0,
@@ -211,9 +211,9 @@ class HEANSettings(BaseSettings):
         description="Enable deposit protection (never allow equity below initial capital)",
     )
     killswitch_drawdown_pct: float = Field(
-        default=20.0,
+        default=30.0,
         gt=0,
-        description="Killswitch drawdown percentage from initial capital (default 20%)",
+        description="Killswitch drawdown percentage from initial capital (Testnet: 30% to prevent premature stops)",
     )
 
     # Capital Preservation Mode

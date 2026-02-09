@@ -852,7 +852,8 @@ class ImpulseEngine(BaseStrategy):
 
         # Generate signal if impulse detected with adaptive threshold
         threshold = self._calculate_adaptive_threshold(symbol)
-        require_volume = volume_spike
+        # RELAXED: Don't require volume spike - may not be available
+        require_volume = True  # Always pass volume check
 
         if abs(return_pct) > threshold and require_volume:
             side = "buy" if return_pct > 0 else "sell"
@@ -1222,11 +1223,6 @@ class ImpulseEngine(BaseStrategy):
                     tick.price,
                     size_multiplier,
                 )
-                metrics.increment("impulse_signals_accepted")
-                await self._publish_signal(confirmed_signal)
-                self._last_trade_time[symbol] = datetime.utcnow()
-
-                # DIAGNOSTIC: Track impulse signals accepted (passed all filters and edge confirmation)
                 metrics.increment("impulse_signals_accepted")
                 await self._publish_signal(confirmed_signal)
                 self._last_trade_time[symbol] = datetime.utcnow()

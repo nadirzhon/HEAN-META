@@ -112,6 +112,17 @@ class DepositProtector:
         self._triggered = False
         logger.info("Deposit protector reset")
 
+    def update_initial_capital(self, new_capital: float) -> None:
+        """Update initial capital after exchange balance sync.
+
+        Args:
+            new_capital: Real balance from exchange
+        """
+        old = self._initial_capital
+        self._initial_capital = new_capital
+        self._triggered = False  # Reset since baseline changed
+        logger.info(f"Deposit protector capital updated: ${old:.2f} -> ${new_capital:.2f}")
+
     @property
     def initial_capital(self) -> float:
         """Get initial capital amount."""

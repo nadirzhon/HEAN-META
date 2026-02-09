@@ -14,18 +14,6 @@ services:
       - PYTHONUNBUFFERED=1
       - TZ=UTC
       - PYTHONPATH=/app/src
-      - BYBIT_TESTNET=true
-      - FUNDING_HARVESTER_ENABLED=true
-      - BASIS_ARBITRAGE_ENABLED=true
-      - IMPULSE_ENGINE_ENABLED=true
-      - HF_SCALPING_ENABLED=true
-      - ENHANCED_GRID_ENABLED=true
-      - MOMENTUM_TRADER_ENABLED=true
-      - INVENTORY_NEUTRAL_MM_ENABLED=true
-      - CORRELATION_ARB_ENABLED=true
-      - REBATE_FARMER_ENABLED=true
-      - LIQUIDITY_SWEEP_ENABLED=true
-      - SENTIMENT_STRATEGY_ENABLED=true
     volumes:
       - ./src:/app/src:ro
       - ./logs:/app/logs
@@ -248,7 +236,7 @@ services:
     container_name: hean-risk-svc
     environment:
       - REDIS_URL=redis://redis:6379
-      - INITIAL_CAPITAL=${INITIAL_CAPITAL:-300}
+      - INITIAL_CAPITAL=${INITIAL_CAPITAL:-10000}
       - MAX_DAILY_LOSS_PCT=2.0
       - MAX_WEEKLY_LOSS_PCT=5.0
       - MAX_TRADE_RISK_PCT=1.0

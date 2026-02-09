@@ -155,7 +155,8 @@ class CorrelationArbitrage(BaseStrategy):
 
     def _has_sufficient_data(self) -> bool:
         """Check if we have enough data for correlation calculation."""
-        min_data = 50
+        # RELAXED: Reduce minimum data requirement from 50 to 20 returns
+        min_data = 20
         return (
             len(self._returns_history[self._primary_symbol]) >= min_data
             and len(self._returns_history[self._secondary_symbol]) >= min_data

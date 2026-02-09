@@ -105,10 +105,10 @@ class LiquiditySweepDetector(BaseStrategy):
         self._session_lows: dict[str, deque[float]] = {}
         self._lookback_candles = 24  # Track last 24 4H candles
 
-        # Sweep detection parameters
-        self._sweep_threshold_pct = 0.003  # 0.3% beyond level
-        self._sweep_window_ticks = 5  # Must reverse within 5 ticks
-        self._volume_spike_threshold = 2.0  # 2x average volume
+        # Sweep detection parameters (RELAXED for testnet)
+        self._sweep_threshold_pct = 0.002  # RELAXED: 0.2% beyond level (was 0.3%)
+        self._sweep_window_ticks = 10  # RELAXED: Must reverse within 10 ticks (was 5)
+        self._volume_spike_threshold = 1.5  # RELAXED: 1.5x average volume (was 2.0x)
         self._require_ofi_confirmation = False  # Optional OFI confirmation
 
         # Active sweep tracking
@@ -119,9 +119,9 @@ class LiquiditySweepDetector(BaseStrategy):
         self._allowed_regimes = {Regime.NORMAL, Regime.IMPULSE}
         self._current_regime: dict[str, Regime] = {}
 
-        # Cooldown
+        # Cooldown (RELAXED for testnet)
         self._last_trade_time: dict[str, datetime] = {}
-        self._trade_cooldown = timedelta(minutes=15)
+        self._trade_cooldown = timedelta(minutes=10)  # RELAXED: 10 min (was 15)
 
         # Metrics
         self._total_sweeps_detected = 0
