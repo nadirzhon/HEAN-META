@@ -109,8 +109,8 @@ All routers registered in `src/hean/api/main.py` under `/api/v1/` prefix:
 
 Key endpoints:
 - `GET /api/v1/engine/status` — Engine state, equity, PnL
-- `GET /api/v1/orders/positions` — Raw `[dict]` (not wrapped)
-- `GET /api/v1/orders` — Raw `[dict]` (not wrapped)
+- `GET /api/v1/orders/positions` — `{"positions": [dict]}`
+- `GET /api/v1/orders` — `{"orders": [dict]}`
 - `GET /api/v1/strategies` — `[dict]` with `strategy_id`, `type`, `enabled`
 - `GET /api/v1/risk/governor/status` — `risk_state`, `level`, `reason_codes`
 - `GET /api/v1/physics/state?symbol=X` — Temperature, entropy, phase, Szilard profit

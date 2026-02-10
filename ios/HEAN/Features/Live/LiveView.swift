@@ -16,15 +16,25 @@ struct LiveView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    // Error banner
+                    if let error = viewModel.error {
+                        let engineDown = viewModel.engineState == "ERROR" || viewModel.engineState == "STOPPED"
+                        backendErrorBanner(
+                            message: error,
+                            allDown: !viewModel.backendReachable,
+                            engineDown: engineDown
+                        )
+                    }
+
                     if viewModel.isLoading && viewModel.physics == nil {
-                        ProgressView("Loading live data...")
+                        ProgressView(L.loadingLiveData)
                             .padding(.top, 40)
                     } else {
-                        // Price header
-                        priceHeader
+                        // Equity hero (main focus)
+                        equityHeroCard
 
-                        // Portfolio summary
-                        portfolioSummary
+                        // P&L breakdown
+                        pnlBreakdown
 
                         // AI Explanation
                         if let analysis = viewModel.brainAnalysis {
@@ -60,13 +70,13 @@ struct LiveView: View {
                 .padding()
             }
             .background(Theme.Colors.background.ignoresSafeArea())
-            .navigationTitle("Live")
+            .navigationTitle(L.live)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink {
                         MarketsView()
                     } label: {
-                        Label("Markets", systemImage: "chart.bar.doc.horizontal")
+                        Label(L.markets, systemImage: "chart.bar.doc.horizontal")
                             .labelStyle(.iconOnly)
                             .foregroundColor(Theme.Colors.accent)
                     }
@@ -98,72 +108,150 @@ struct LiveView: View {
     private func startRefresh() {
         Task { await viewModel.refresh() }
         refreshTimer?.invalidate()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
             Task { @MainActor in await viewModel.refresh() }
         }
     }
 
-    // MARK: - Price Header
+    // MARK: - Equity Hero Card
 
-    private var priceHeader: some View {
+    private var equityHeroCard: some View {
         GlassCard(padding: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("BTCUSDT")
-                        .font(.system(.headline, design: .monospaced))
+            VStack(spacing: 12) {
+                // Equity — the main number
+                VStack(spacing: 4) {
+                    Text(L.equity)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(Theme.Colors.textSecondary)
+                        .textCase(.uppercase)
+                        .tracking(1.2)
+
+                    Text(viewModel.equity.asCurrency)
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundColor(Theme.Colors.textPrimary)
-                    Spacer()
-                    Text(viewModel.priceChange24h >= 0 ? "▲" : "▼")
-                        .foregroundColor(viewModel.priceChange24h >= 0 ? Theme.Colors.success : Theme.Colors.error)
-                    Text(String(format: "%.2f%%", viewModel.priceChange24h))
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-                        .foregroundColor(viewModel.priceChange24h >= 0 ? Theme.Colors.success : Theme.Colors.error)
-                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.equity)
                 }
 
-                Text(formatPrice(viewModel.marketPrice))
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .foregroundColor(Theme.Colors.textPrimary)
-                    .contentTransition(.numericText())
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.marketPrice)
+                // Total P&L
+                HStack(spacing: 6) {
+                    Image(systemName: viewModel.pnl.total >= 0 ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 14, weight: .bold))
+                    Text(viewModel.pnl.total.asPnL)
+                        .font(.system(size: 18, weight: .bold, design: .monospaced))
+                    Text("(\(viewModel.pnl.percent.asPercent))")
+                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                }
+                .foregroundColor(viewModel.pnl.total >= 0 ? Theme.Colors.success : Theme.Colors.error)
+
+                // Divider
+                Rectangle()
+                    .fill(Theme.Colors.divider)
+                    .frame(height: 1)
+
+                // Bottom row: Initial Capital | Positions | Market Price
+                HStack(spacing: 0) {
+                    // Initial Capital
+                    VStack(spacing: 2) {
+                        Text(L.totalCapital)
+                            .font(.caption2)
+                            .foregroundColor(Theme.Colors.textTertiary)
+                        Text(viewModel.initialCapital.asCurrency)
+                            .font(.system(.caption, design: .monospaced))
+                            .fontWeight(.semibold)
+                            .foregroundColor(Theme.Colors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    // Vertical divider
+                    Rectangle()
+                        .fill(Theme.Colors.divider)
+                        .frame(width: 1, height: 28)
+
+                    // Positions
+                    VStack(spacing: 2) {
+                        Text(L.positions)
+                            .font(.caption2)
+                            .foregroundColor(Theme.Colors.textTertiary)
+                        Text("\(viewModel.positionCount)")
+                            .font(.system(.caption, design: .monospaced))
+                            .fontWeight(.semibold)
+                            .foregroundColor(Theme.Colors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    // Vertical divider
+                    Rectangle()
+                        .fill(Theme.Colors.divider)
+                        .frame(width: 1, height: 28)
+
+                    // Market price (compact)
+                    VStack(spacing: 2) {
+                        Text(viewModel.symbol)
+                            .font(.caption2)
+                            .foregroundColor(Theme.Colors.textTertiary)
+                        HStack(spacing: 3) {
+                            Text(viewModel.marketPrice.asCompactCurrency)
+                                .font(.system(.caption, design: .monospaced))
+                                .fontWeight(.semibold)
+                                .foregroundColor(Theme.Colors.textSecondary)
+                            Text(viewModel.priceChange24h >= 0 ? "▲" : "▼")
+                                .font(.system(size: 8))
+                                .foregroundColor(viewModel.priceChange24h >= 0 ? Theme.Colors.success : Theme.Colors.error)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
             }
         }
     }
 
-    // MARK: - Portfolio Summary
+    // MARK: - P&L Breakdown
 
-    private var portfolioSummary: some View {
+    private var pnlBreakdown: some View {
         HStack(spacing: 12) {
-            InfoTile(
-                icon: "banknote",
-                title: "Equity",
-                value: viewModel.equity.asCurrency,
-                subtitle: nil,
-                color: Theme.Colors.accent,
-                term: nil,
-                numericValue: nil
-            )
+            // Unrealized P&L
+            GlassCard(padding: 12) {
+                VStack(spacing: 4) {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Theme.Colors.warning)
+                            .frame(width: 6, height: 6)
+                        Text(L.unrealizedPnL)
+                            .font(.caption2)
+                            .foregroundColor(Theme.Colors.textTertiary)
+                    }
+                    Text(viewModel.pnl.unrealized.asPnL)
+                        .font(.system(.subheadline, design: .monospaced))
+                        .fontWeight(.bold)
+                        .foregroundColor(viewModel.pnl.unrealized >= 0 ? Theme.Colors.success : Theme.Colors.error)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .frame(maxWidth: .infinity)
+            }
 
-            InfoTile(
-                icon: "chart.line.uptrend.xyaxis",
-                title: "P&L",
-                value: viewModel.pnl.total.asPnL,
-                subtitle: viewModel.pnl.percent.asPercent,
-                color: viewModel.pnl.total >= 0 ? Theme.Colors.success : Theme.Colors.error,
-                term: nil,
-                numericValue: nil
-            )
-
-            InfoTile(
-                icon: "chart.bar.doc.horizontal",
-                title: "Positions",
-                value: "\(viewModel.positionCount)",
-                subtitle: nil,
-                color: .blue,
-                term: nil,
-                numericValue: nil
-            )
+            // Realized P&L
+            GlassCard(padding: 12) {
+                VStack(spacing: 4) {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Theme.Colors.accent)
+                            .frame(width: 6, height: 6)
+                        Text(L.realizedPnL)
+                            .font(.caption2)
+                            .foregroundColor(Theme.Colors.textTertiary)
+                    }
+                    Text(viewModel.pnl.realized.asPnL)
+                        .font(.system(.subheadline, design: .monospaced))
+                        .fontWeight(.bold)
+                        .foregroundColor(viewModel.pnl.realized >= 0 ? Theme.Colors.success : Theme.Colors.error)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .frame(maxWidth: .infinity)
+            }
         }
     }
 
@@ -197,15 +285,48 @@ struct LiveView: View {
         .explainable(.riskState, value: viewModel.riskState == .normal ? 0.2 : 0.8)
     }
 
-    // MARK: - Helpers
+    // MARK: - Error Banner
 
-    private func formatPrice(_ price: Double) -> String {
-        if price >= 1000 {
-            return String(format: "$%.2f", price)
-        } else if price >= 1 {
-            return String(format: "$%.3f", price)
-        } else {
-            return String(format: "$%.5f", price)
+    private func backendErrorBanner(message: String, allDown: Bool, engineDown: Bool = false) -> some View {
+        let icon = allDown ? "wifi.slash" : engineDown ? "bolt.slash.fill" : "exclamationmark.triangle.fill"
+        let title = allDown ? "Backend Unreachable" : engineDown ? "Engine Stopped" : "Partial Connectivity"
+        let subtitle = allDown ? "Check that the API server is running" : message
+        let color = allDown ? Theme.Colors.error : engineDown ? .orange : Theme.Colors.warning
+
+        return HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.subheadline)
+                .foregroundColor(color)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(color)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundColor(Theme.Colors.textSecondary)
+            }
+
+            Spacer()
+
+            Button {
+                Task { await viewModel.refresh() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.caption)
+                    .foregroundColor(Theme.Colors.accent)
+            }
         }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(color.opacity(0.1))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(color.opacity(0.3), lineWidth: 1)
+        )
     }
+
 }

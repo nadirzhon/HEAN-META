@@ -39,9 +39,11 @@ actor APIClient {
     private let session: URLSession
     private let maxRetries = 1
     private let retryDelay: TimeInterval = 0.5
+    private var authToken: String?
 
-    init(baseURL: String) {
+    init(baseURL: String, authToken: String? = nil) {
         self.baseURL = baseURL
+        self.authToken = authToken
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 5
@@ -49,6 +51,10 @@ actor APIClient {
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
 
         self.session = URLSession(configuration: config)
+    }
+
+    func setAuthToken(_ token: String?) {
+        self.authToken = token
     }
 
     func request<T: Decodable>(
@@ -62,6 +68,9 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = endpoint.method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = self.authToken, !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "X-API-Key")
+        }
 
         if let body = endpoint.body {
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)

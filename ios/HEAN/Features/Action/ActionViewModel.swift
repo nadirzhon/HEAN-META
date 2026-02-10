@@ -27,6 +27,7 @@ final class ActionViewModel: ObservableObject {
     private var apiClient: APIClient?
     private var cancellables = Set<AnyCancellable>()
     private var isConfigured = false
+    private var isRefreshing = false
 
     // MARK: - Configuration
 
@@ -64,6 +65,10 @@ final class ActionViewModel: ObservableObject {
     // MARK: - Refresh
 
     func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+
         guard let tradingService = tradingService,
               let apiClient = apiClient else { return }
 

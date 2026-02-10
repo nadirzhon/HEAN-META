@@ -45,18 +45,20 @@ final class LivePortfolioService: PortfolioServiceProtocol {
 
     private func handleMessage(_ message: WebSocketMessage) {
         guard message.topic == "account_state" || message.topic == "system_status",
-              let data = message.data else { return }
+              let data = message.data as? [String: Any] else { return }
 
         if let equity = data["equity"] as? Double {
             equitySubject.send(equity)
         }
 
         if let realized = data["realized_pnl"] as? Double,
-           let unrealized = data["unrealized_pnl"] as? Double {
+           let unrealized = data["unrealized_pnl"] as? Double,
+           let initialCapital = data["initial_capital"] as? Double {
             let fees = data["fees"] as? Double ?? 0
-            let total = realized + unrealized
-            let equity = equitySubject.value
-            let percent = equity > 0 ? (total / equity) * 100 : 0
+            let equity = data["equity"] as? Double ?? equitySubject.value
+            // Total P&L = equity - initialCapital (not realized + unrealized)
+            let total = equity - initialCapital
+            let percent = initialCapital > 0 ? (total / initialCapital) * 100 : 0
             pnlSubject.send(PnLSnapshot(
                 realized: realized,
                 unrealized: unrealized,
@@ -72,5 +74,11 @@ final class LivePortfolioService: PortfolioServiceProtocol {
         let portfolio: Portfolio = try await apiClient.get("/api/v1/engine/status")
         equitySubject.send(portfolio.equity)
         return portfolio
+    }
+
+    func fetchEquityHistory(limit: Int = 50) async throws -> [EquityPoint] {
+        let response: EquityHistoryResponse = try await apiClient.get(
+            "/api/v1/trading/equity-history?limit=\(limit)")
+        return response.snapshots
     }
 }

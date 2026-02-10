@@ -17,15 +17,21 @@ final class LiveViewModel: ObservableObject {
     @Published var brainAnalysis: BrainAnalysis?
     @Published var anomalies: [Anomaly] = []
     @Published var equity: Double = 0
+    @Published var initialCapital: Double = 0
     @Published var pnl: PnLSnapshot = PnLSnapshot(realized: 0, unrealized: 0, total: 0, percent: 0, fees: 0)
     @Published var riskState: RiskState = .normal
     @Published var positionCount: Int = 0
+    @Published var symbol: String = "BTCUSDT"
     @Published var marketPrice: Double = 0
     @Published var priceChange24h: Double = 0
     @Published var isLoading = true
     @Published var error: String?
+    @Published var backendReachable = true
+    @Published var failedEndpoints: Int = 0
+    @Published var engineState: String = "UNKNOWN"
 
     var connectionStatus: StatusIndicator.ConnectionStatus {
+        if !backendReachable { return .disconnected }
         switch riskState {
         case .normal: return .connected
         case .softBrake, .quarantine: return .reconnecting
@@ -97,30 +103,32 @@ final class LiveViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    private var isRefreshing = false
+
     // MARK: - Refresh
 
     func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+
         guard let apiClient = apiClient else {
             isLoading = false
+            error = "Not configured"
+            backendReachable = false
             return
         }
 
-        // Show UI immediately with defaults if first load
-        if isLoading && physics == nil {
-            physics = PhysicsState(
-                temperature: 0, entropy: 0, phase: "ice",
-                szilardProfit: 0, timestamp: ""
-            )
-            isLoading = false
-        }
+        var failures = 0
+        let totalCalls = 7
 
         // Market price
         do {
             let market: Market = try await apiClient.get("/api/v1/market/ticker?symbol=BTCUSDT")
             self.marketPrice = market.price
             self.priceChange24h = market.changePercent24h
-            print("[LiveVM] Market loaded: \(market.price)")
         } catch {
+            failures += 1
             print("[LiveVM] Market error: \(error)")
         }
 
@@ -128,69 +136,63 @@ final class LiveViewModel: ObservableObject {
         do {
             let state: PhysicsState = try await apiClient.get("/api/v1/physics/state?symbol=BTCUSDT")
             self.physics = state
-            print("[LiveVM] Physics loaded: \(state.phase)")
-        } catch {
-            print("[LiveVM] Physics error: \(error)")
-            if self.physics == nil {
-                self.physics = PhysicsState(
-                    temperature: 50, entropy: 0.5, phase: "water",
-                    szilardProfit: 0, timestamp: ""
-                )
-            }
-        }
+        } catch { failures += 1 }
 
         // Participants
         do {
             let bd: ParticipantBreakdown = try await apiClient.get("/api/v1/physics/participants?symbol=BTCUSDT")
             self.participants = bd
-        } catch {
-            if self.participants == nil {
-                self.participants = ParticipantBreakdown(
-                    mmActivity: 0.35, institutionalFlow: 250000,
-                    retailSentiment: 0.65, whaleActivity: 0.12,
-                    arbPressure: 0.08, dominantPlayer: "market_maker",
-                    metaSignal: "Analyzing..."
-                )
-            }
-        }
+        } catch { failures += 1 }
 
         // Brain analysis
         do {
             let analysis: BrainAnalysis = try await apiClient.get("/api/v1/brain/analysis")
             self.brainAnalysis = analysis
-        } catch {
-            if self.brainAnalysis == nil {
-                self.brainAnalysis = BrainAnalysis(
-                    timestamp: "", thoughts: [], forces: [],
-                    signal: nil, summary: "Analyzing market conditions...",
-                    marketRegime: "unknown"
-                )
-            }
-        }
+        } catch { failures += 1 }
 
         // Anomalies
         do {
             let response: AnomaliesWrapper = try await apiClient.get("/api/v1/physics/anomalies?limit=10")
             self.anomalies = response.anomalies
         } catch {
-            // Keep existing
+            failures += 1
         }
 
-        // Portfolio
-        if let portfolioService = portfolioService {
-            do {
-                let portfolio = try await portfolioService.fetchPortfolio()
-                self.equity = portfolio.equity
-                let total = portfolio.realizedPnL + portfolio.unrealizedPnL
-                let pct = portfolio.initialCapital > 0 ? (total / portfolio.initialCapital) * 100 : 0
-                self.pnl = PnLSnapshot(
-                    realized: portfolio.realizedPnL,
-                    unrealized: portfolio.unrealizedPnL,
-                    total: total,
-                    percent: pct,
-                    fees: portfolio.totalFees ?? 0
-                )
-            } catch { }
+        // Engine state + Portfolio
+        do {
+            // Use inline struct — no CodingKeys needed since JSONDecoder.hean
+            // uses .convertFromSnakeCase automatically
+            struct EngineStatus: Codable {
+                var engineState: String?
+                var running: Bool?
+                var equity: Double?
+                var initialCapital: Double?
+                var unrealizedPnl: Double?
+                var realizedPnl: Double?
+                var dailyPnl: Double?
+                var availableBalance: Double?
+                var usedMargin: Double?
+                var totalFees: Double?
+            }
+            let status: EngineStatus = try await apiClient.get("/api/v1/engine/status")
+            self.engineState = status.engineState ?? "UNKNOWN"
+            let eq = status.equity ?? 0
+            let cap = status.initialCapital ?? 0
+            self.equity = eq
+            self.initialCapital = cap
+            let realized = status.realizedPnl ?? status.dailyPnl ?? 0
+            let unrealized = status.unrealizedPnl ?? 0
+            let total = eq - cap
+            let pct = cap > 0 ? (total / cap) * 100 : 0
+            self.pnl = PnLSnapshot(
+                realized: realized,
+                unrealized: unrealized,
+                total: total,
+                percent: pct,
+                fees: status.totalFees ?? 0
+            )
+        } catch {
+            failures += 1
         }
 
         // Risk
@@ -198,15 +200,34 @@ final class LiveViewModel: ObservableObject {
             do {
                 let status = try await riskService.fetchRiskStatus()
                 self.riskState = status.state
-            } catch { }
+            } catch {
+                failures += 1
+            }
         }
 
-        // Positions count
+        // Positions count (uses tradingService, already counted above if portfolio failed)
         if let tradingService = tradingService {
             do {
                 let positions = try await tradingService.fetchPositions()
                 self.positionCount = positions.count
             } catch { }
+        }
+
+        // Update connectivity state
+        failedEndpoints = failures
+        let engineDown = engineState == "ERROR" || engineState == "STOPPED"
+        if failures >= totalCalls {
+            backendReachable = false
+            error = "Backend unreachable"
+        } else if engineDown {
+            backendReachable = true
+            error = "Engine \(engineState.lowercased()) — data may be stale"
+        } else if failures > 0 {
+            backendReachable = true
+            error = "\(failures) endpoint\(failures == 1 ? "" : "s") failed"
+        } else {
+            backendReachable = true
+            error = nil
         }
 
         isLoading = false

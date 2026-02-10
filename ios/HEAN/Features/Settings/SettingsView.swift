@@ -10,9 +10,10 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var container: DIContainer
     @StateObject private var viewModel = SettingsViewModel()
+    @AppStorage("appLanguage") private var appLanguage: String = "en"
     @AppStorage("apiBaseURL") private var apiURL: String = "http://localhost:8000"
     @AppStorage("wsBaseURL") private var wsURL: String = "ws://localhost:8000/ws"
-    @AppStorage("apiAuthKey") private var authKey: String = ""
+    @State private var authKey: String = KeychainStore.shared.get("api_auth_key") ?? ""
     @AppStorage("enableHaptics") private var enableHaptics: Bool = true
     @AppStorage("enableNotifications") private var enableNotifications: Bool = true
     @AppStorage("showConfidenceScores") private var showConfidence: Bool = true
@@ -34,6 +35,15 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 Section {
+                    Picker(L.language, selection: $appLanguage) {
+                        Text("English").tag("en")
+                        Text("Русский").tag("ru")
+                    }
+                } header: {
+                    Label(L.language, systemImage: "globe")
+                }
+
+                Section {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("API Base URL").font(.caption).foregroundColor(.gray)
                         TextField("http://localhost:8000", text: $apiURL)
@@ -54,15 +64,15 @@ struct SettingsView: View {
                             .font(.system(.body, design: .monospaced))
                     }
                 } header: {
-                    Label("Connection", systemImage: "network")
+                    Label(L.connection, systemImage: "network")
                 }
 
                 Section {
-                    Toggle(isOn: $enableHaptics) { Label("Haptic Feedback", systemImage: "hand.tap") }
-                    Toggle(isOn: $enableNotifications) { Label("Push Notifications", systemImage: "bell.badge") }
-                    Toggle(isOn: $showConfidence) { Label("Show Confidence Scores", systemImage: "percent") }
+                    Toggle(isOn: $enableHaptics) { Label(L.hapticFeedback, systemImage: "hand.tap") }
+                    Toggle(isOn: $enableNotifications) { Label(L.pushNotifications, systemImage: "bell.badge") }
+                    Toggle(isOn: $showConfidence) { Label(L.showConfidenceScores, systemImage: "percent") }
                 } header: {
-                    Label("Preferences", systemImage: "slider.horizontal.3")
+                    Label(L.preferences, systemImage: "slider.horizontal.3")
                 }
 
                 Section {
@@ -70,7 +80,7 @@ struct SettingsView: View {
                         showStartConfirm = true
                     } label: {
                         HStack {
-                            Label("Start Engine", systemImage: "play.fill").foregroundColor(Color(hex: "22C55E"))
+                            Label(L.startEngine, systemImage: "play.fill").foregroundColor(Color(hex: "22C55E"))
                             if isEngineLoading { Spacer(); ProgressView().tint(.white).scaleEffect(0.7) }
                         }
                     }
@@ -79,26 +89,26 @@ struct SettingsView: View {
                     Button {
                         showPauseConfirm = true
                     } label: {
-                        Label("Pause Engine", systemImage: "pause.fill").foregroundColor(Color(hex: "F59E0B"))
+                        Label(L.pauseEngine, systemImage: "pause.fill").foregroundColor(Color(hex: "F59E0B"))
                     }
                     .disabled(isEngineLoading)
 
                     Button {
                         showResumeConfirm = true
                     } label: {
-                        Label("Resume Engine", systemImage: "play.circle.fill").foregroundColor(Color(hex: "3B82F6"))
+                        Label(L.resumeEngine, systemImage: "play.circle.fill").foregroundColor(Color(hex: "3B82F6"))
                     }
                     .disabled(isEngineLoading)
 
                     Button {
                         showStopConfirm = true
                     } label: {
-                        Label("Stop Engine", systemImage: "stop.fill").foregroundColor(Color(hex: "EF4444"))
+                        Label(L.stopEngine, systemImage: "stop.fill").foregroundColor(Color(hex: "EF4444"))
                     }
                     .disabled(isEngineLoading)
 
                     Button { showKillConfirm = true } label: {
-                        Label("Emergency Kill Switch", systemImage: "hand.raised.fill")
+                        Label(L.emergencyKill, systemImage: "hand.raised.fill")
                             .foregroundColor(Color(hex: "EF4444")).fontWeight(.bold)
                     }
                     .disabled(isEngineLoading)
@@ -107,125 +117,132 @@ struct SettingsView: View {
                         Text(msg).font(.caption).foregroundColor(.gray)
                     }
                 } header: {
-                    Label("Engine Control", systemImage: "engine.combustion")
+                    Label(L.engineControl, systemImage: "engine.combustion")
                 }
-                .confirmationDialog("Start Engine", isPresented: $showStartConfirm, titleVisibility: .visible) {
-                    Button("Start", role: .none) {
+                .confirmationDialog(L.startEngine, isPresented: $showStartConfirm, titleVisibility: .visible) {
+                    Button(L.startEngine, role: .none) {
                         Task { await startEngine() }
                     }
-                    Button("Cancel", role: .cancel) {}
+                    Button(L.cancel, role: .cancel) {}
                 } message: {
-                    Text("This will start the trading engine on Bybit Testnet.")
+                    Text(L.startEngineMsg)
                 }
-                .confirmationDialog("Pause Engine", isPresented: $showPauseConfirm, titleVisibility: .visible) {
-                    Button("Pause", role: .none) {
+                .confirmationDialog(L.pauseEngine, isPresented: $showPauseConfirm, titleVisibility: .visible) {
+                    Button(L.pauseEngine, role: .none) {
                         Task { await pauseEngine() }
                     }
-                    Button("Cancel", role: .cancel) {}
+                    Button(L.cancel, role: .cancel) {}
                 } message: {
-                    Text("This will pause order execution while keeping positions open.")
+                    Text(L.pauseEngineMsg)
                 }
-                .confirmationDialog("Resume Engine", isPresented: $showResumeConfirm, titleVisibility: .visible) {
-                    Button("Resume", role: .none) {
+                .confirmationDialog(L.resumeEngine, isPresented: $showResumeConfirm, titleVisibility: .visible) {
+                    Button(L.resumeEngine, role: .none) {
                         Task { await resumeEngine() }
                     }
-                    Button("Cancel", role: .cancel) {}
+                    Button(L.cancel, role: .cancel) {}
                 } message: {
-                    Text("This will resume order execution.")
+                    Text(L.resumeEngineMsg)
                 }
-                .confirmationDialog("Stop Engine", isPresented: $showStopConfirm, titleVisibility: .visible) {
-                    Button("Stop", role: .destructive) {
+                .confirmationDialog(L.stopEngine, isPresented: $showStopConfirm, titleVisibility: .visible) {
+                    Button(L.stopEngine, role: .destructive) {
                         Task { await stopEngine() }
                     }
-                    Button("Cancel", role: .cancel) {}
+                    Button(L.cancel, role: .cancel) {}
                 } message: {
-                    Text("This will stop the trading engine gracefully.")
+                    Text(L.stopEngineMsg)
                 }
-                .confirmationDialog("Emergency Kill Switch", isPresented: $showKillConfirm, titleVisibility: .visible) {
-                    Button("Kill Engine", role: .destructive) {
+                .confirmationDialog(L.emergencyKill, isPresented: $showKillConfirm, titleVisibility: .visible) {
+                    Button(L.emergencyKill, role: .destructive) {
                         Task { await killEngine() }
                     }
-                    Button("Cancel", role: .cancel) {}
+                    Button(L.cancel, role: .cancel) {}
                 } message: {
-                    Text("This will close all positions, cancel all orders, and stop the engine.")
+                    Text(L.killEngineMsg)
                 }
 
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Max Risk per Trade: \(String(format: "%.1f", maxRiskPercent))%")
+                        Text("\(L.maxRiskPerTrade): \(String(format: "%.1f", maxRiskPercent))%")
                             .font(.subheadline)
                         Slider(value: $maxRiskPercent, in: 0.5...10, step: 0.5)
                             .tint(Color(hex: "00D4FF"))
                     }
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Max Leverage: \(String(format: "%.0f", maxLeverage))x")
+                        Text("\(L.maxLeverage): \(String(format: "%.0f", maxLeverage))x")
                             .font(.subheadline)
                         Slider(value: $maxLeverage, in: 1...20, step: 1)
                             .tint(Color(hex: "00D4FF"))
                     }
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Min Risk/Reward: 1:\(String(format: "%.1f", minRiskReward))")
+                        Text("\(L.minRiskReward): 1:\(String(format: "%.1f", minRiskReward))")
                             .font(.subheadline)
                         Slider(value: $minRiskReward, in: 1...5, step: 0.5)
                             .tint(Color(hex: "00D4FF"))
                     }
                 } header: {
-                    Label("Trading Parameters", systemImage: "chart.bar.xaxis")
+                    Label(L.tradingParameters, systemImage: "chart.bar.xaxis")
                 }
 
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Analysis Interval: \(Int(analysisInterval))s")
+                        Text("\(L.analysisInterval): \(Int(analysisInterval))s")
                             .font(.subheadline)
                         Slider(value: $analysisInterval, in: 10...120, step: 5)
                             .tint(Color(hex: "00D4FF"))
                     }
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Confidence Threshold: \(Int(confidenceThreshold * 100))%")
+                        Text("\(L.confidenceThreshold): \(Int(confidenceThreshold * 100))%")
                             .font(.subheadline)
                         Slider(value: $confidenceThreshold, in: 0.3...0.95, step: 0.05)
                             .tint(Color(hex: "00D4FF"))
                     }
                 } header: {
-                    Label("Brain Settings", systemImage: "brain")
+                    Label(L.brainSettings, systemImage: "brain")
                 }
 
                 Section {
-                    HStack { Text("Version"); Spacer(); Text("2.0.0").foregroundColor(.gray) }
-                    HStack { Text("Build"); Spacer(); Text("2026.02").foregroundColor(.gray) }
-                    HStack { Text("Target"); Spacer(); Text("Bybit Testnet").foregroundColor(Color(hex: "00D4FF")) }
+                    HStack { Text(L.version); Spacer(); Text("2.0.0").foregroundColor(.gray) }
+                    HStack { Text(L.build); Spacer(); Text("2026.02").foregroundColor(.gray) }
+                    HStack { Text(L.target); Spacer(); Text("Bybit Testnet").foregroundColor(Color(hex: "00D4FF")) }
                     HStack {
-                        Text("Engine")
+                        Text(L.engine)
                         Spacer()
                         Text(viewModel.engineState)
                             .foregroundColor(viewModel.engineState == "Running" ? Color(hex: "22C55E") : .gray)
                     }
                     HStack {
-                        Text("Uptime")
+                        Text(L.uptime)
                         Spacer()
                         Text(viewModel.formattedUptime)
                             .foregroundColor(.gray)
                     }
                 } header: {
-                    Label("About", systemImage: "info.circle")
+                    Label(L.about, systemImage: "info.circle")
                 }
             }
             .scrollContentBackground(.hidden)
             .background(Color(hex: "0A0A0F"))
-            .navigationTitle("Settings")
+            .navigationTitle(L.settings)
             .onAppear {
+                // One-time migration from UserDefaults to Keychain
+                if let legacyKey = UserDefaults.standard.string(forKey: "apiAuthKey"), !legacyKey.isEmpty {
+                    KeychainStore.shared.save(legacyKey, for: "api_auth_key")
+                    UserDefaults.standard.removeObject(forKey: "apiAuthKey")
+                    authKey = legacyKey
+                }
+
                 viewModel.configure(apiClient: container.apiClient)
                 Task { await viewModel.refresh() }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") { saveSettings() }
+                    Button(L.save) { saveSettings() }
                         .foregroundColor(Color(hex: "00D4FF"))
                 }
             }
             .overlay(alignment: .top) {
                 if showSaved {
-                    Text("Settings Saved").font(.headline).foregroundColor(.white)
+                    Text(L.settingsSaved).font(.headline).foregroundColor(.white)
                         .padding().background(Color(hex: "22C55E").cornerRadius(12))
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -235,7 +252,14 @@ struct SettingsView: View {
     }
 
     private func saveSettings() {
-        // Reconfigure DIContainer with new URLs
+        // Save auth key to Keychain
+        if authKey.isEmpty {
+            KeychainStore.shared.delete("api_auth_key")
+        } else {
+            KeychainStore.shared.save(authKey, for: "api_auth_key")
+        }
+
+        // Reconfigure DIContainer with new URLs (picks up auth token from Keychain)
         container.reconfigure(apiBaseURL: apiURL, wsBaseURL: wsURL)
         Haptics.success()
         showSaved = true

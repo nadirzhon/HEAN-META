@@ -85,6 +85,8 @@
 		A1000077 /* StrategiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000077 /* StrategiesView.swift */; };
 		A1000078 /* StrategiesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000078 /* StrategiesViewModel.swift */; };
 		A1000079 /* SignalFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000079 /* SignalFeedView.swift */; };
+		A1000080 /* Strings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000080 /* Strings.swift */; };
+		A1000081 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000081 /* KeychainStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -167,6 +169,8 @@
 		B1000077 /* StrategiesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrategiesView.swift; sourceTree = "<group>"; };
 		B1000078 /* StrategiesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrategiesViewModel.swift; sourceTree = "<group>"; };
 		B1000079 /* SignalFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalFeedView.swift; sourceTree = "<group>"; };
+		B1000080 /* Strings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Strings.swift; sourceTree = "<group>"; };
+		B1000081 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		C1000001 /* HEAN.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HEAN.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -229,9 +233,18 @@
 				E1000011 /* DI */,
 				E1000012 /* Logger */,
 				E1000013 /* Networking */,
+				E1000036 /* Storage */,
 				E1000014 /* WebSocket */,
 			);
 			path = Core;
+			sourceTree = "<group>";
+		};
+		E1000036 /* Storage */ = {
+			isa = PBXGroup;
+			children = (
+				B1000081 /* KeychainStore.swift */,
+			);
+			path = Storage;
 			sourceTree = "<group>";
 		};
 		E1000006 /* DesignSystem */ = {
@@ -242,6 +255,7 @@
 				E1000017 /* Motion */,
 				E1000018 /* Typography */,
 				B1000021 /* Theme.swift */,
+				B1000080 /* Strings.swift */,
 			);
 			path = DesignSystem;
 			sourceTree = "<group>";
@@ -685,6 +699,8 @@
 				A1000077 /* StrategiesView.swift in Sources */,
 				A1000078 /* StrategiesViewModel.swift in Sources */,
 				A1000079 /* SignalFeedView.swift in Sources */,
+				A1000080 /* Strings.swift in Sources */,
+				A1000081 /* KeychainStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

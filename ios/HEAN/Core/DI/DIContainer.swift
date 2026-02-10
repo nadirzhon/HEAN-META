@@ -82,7 +82,8 @@ class DIContainer: ObservableObject {
     func reconfigure(apiBaseURL: String, wsBaseURL: String) {
         Logger.app.info("Reconfiguring with custom URLs: api=\(apiBaseURL) ws=\(wsBaseURL)")
         webSocketManager?.disconnect()
-        apiClient = APIClient(baseURL: apiBaseURL)
+        let authToken = KeychainStore.shared.get("api_auth_key")
+        apiClient = APIClient(baseURL: apiBaseURL, authToken: authToken)
         webSocketManager = WebSocketManager(url: wsBaseURL)
         rebuildFeatureServices()
         start()
@@ -96,7 +97,8 @@ class DIContainer: ObservableObject {
         let effectiveWS = (userWS?.isEmpty == false) ? userWS! : currentEnvironment.wsURL
 
         // Core
-        apiClient = APIClient(baseURL: effectiveAPI)
+        let authToken = KeychainStore.shared.get("api_auth_key")
+        apiClient = APIClient(baseURL: effectiveAPI, authToken: authToken)
         webSocketManager = WebSocketManager(url: effectiveWS)
 
         rebuildFeatureServices()

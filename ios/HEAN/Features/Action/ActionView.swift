@@ -19,7 +19,7 @@ struct ActionView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     if viewModel.isLoading && viewModel.positions.isEmpty {
-                        ProgressView("Loading trading data...")
+                        ProgressView(L.loadingTradingData)
                             .padding(.top, 40)
                     } else {
                         // Status card
@@ -48,7 +48,7 @@ struct ActionView: View {
                 .padding()
             }
             .background(Theme.Colors.background.ignoresSafeArea())
-            .navigationTitle("Action")
+            .navigationTitle(L.action)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
@@ -65,20 +65,20 @@ struct ActionView: View {
             .onAppear { injectServices(); startRefresh() }
             .onDisappear { refreshTimer?.invalidate() }
             .refreshable { await viewModel.refresh() }
-            .alert("Error", isPresented: .constant(viewModel.error != nil)) {
+            .alert(L.error, isPresented: .constant(viewModel.error != nil)) {
                 Button("OK") { viewModel.error = nil }
             } message: {
                 Text(viewModel.error ?? "")
             }
-            .alert("Close Position", isPresented: $showConfirmClose) {
-                Button("Cancel", role: .cancel) { }
-                Button("Close", role: .destructive) {
+            .alert(L.closePosition, isPresented: $showConfirmClose) {
+                Button(L.cancel, role: .cancel) { }
+                Button(L.close, role: .destructive) {
                     if let symbol = closeSymbol {
                         Task { await viewModel.closePosition(symbol: symbol) }
                     }
                 }
             } message: {
-                Text("Close position for \(closeSymbol ?? "")?")
+                Text("\(L.closePositionFor) \(closeSymbol ?? "")?")
             }
         }
     }
@@ -95,7 +95,7 @@ struct ActionView: View {
     private func startRefresh() {
         Task { await viewModel.refresh() }
         refreshTimer?.invalidate()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
             Task { @MainActor in await viewModel.refresh() }
         }
     }
@@ -110,10 +110,10 @@ struct ActionView: View {
                     .foregroundColor(viewModel.positions.isEmpty ? Theme.Colors.success : Theme.Colors.accent)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(viewModel.positions.isEmpty ? "No Active Positions" : "\(viewModel.positions.count) Position\(viewModel.positions.count == 1 ? "" : "s") Active")
+                    Text(viewModel.positions.isEmpty ? L.noActivePositions : L.positionsActive(viewModel.positions.count))
                         .font(.headline)
                         .foregroundColor(Theme.Colors.textPrimary)
-                    Text(viewModel.orders.isEmpty ? "No pending orders" : "\(viewModel.orders.count) order\(viewModel.orders.count == 1 ? "" : "s") pending")
+                    Text(viewModel.orders.isEmpty ? L.noPendingOrders : L.ordersPending(viewModel.orders.count))
                         .font(.caption)
                         .foregroundColor(Theme.Colors.textSecondary)
                 }
@@ -124,7 +124,7 @@ struct ActionView: View {
                     Button {
                         Task { await viewModel.closeAllPositions() }
                     } label: {
-                        Text("Close All")
+                        Text(L.closeAll)
                             .font(.caption)
                             .fontWeight(.bold)
                             .foregroundColor(Theme.Colors.error)
@@ -147,7 +147,7 @@ struct ActionView: View {
                 HStack {
                     Image(systemName: "lightbulb.fill")
                         .foregroundColor(Theme.Colors.warning)
-                    Text("AI Signal Proposal")
+                    Text(L.aiSignalProposal)
                         .font(.headline)
                         .foregroundColor(Theme.Colors.textPrimary)
                     Spacer()
@@ -181,13 +181,13 @@ struct ActionView: View {
                 if signal.entryPrice != nil || signal.targetPrice != nil || signal.stopPrice != nil {
                     HStack(spacing: 16) {
                         if let entry = signal.entryPrice {
-                            priceLevelMini("Entry", value: entry, color: Theme.Colors.accent)
+                            priceLevelMini(L.entry, value: entry, color: Theme.Colors.accent)
                         }
                         if let target = signal.targetPrice {
-                            priceLevelMini("Target", value: target, color: Theme.Colors.success)
+                            priceLevelMini(L.targetPrice, value: target, color: Theme.Colors.success)
                         }
                         if let stop = signal.stopPrice {
-                            priceLevelMini("Stop", value: stop, color: Theme.Colors.error)
+                            priceLevelMini(L.stopPrice, value: stop, color: Theme.Colors.error)
                         }
                         if let rr = signal.riskReward {
                             VStack(spacing: 2) {
@@ -210,7 +210,7 @@ struct ActionView: View {
                     } label: {
                         HStack {
                             Image(systemName: "checkmark.circle.fill")
-                            Text("CONFIRM")
+                            Text(L.confirm)
                         }
                         .font(.subheadline)
                         .fontWeight(.bold)
@@ -226,7 +226,7 @@ struct ActionView: View {
                     } label: {
                         HStack {
                             Image(systemName: "forward.fill")
-                            Text("SKIP")
+                            Text(L.skip)
                         }
                         .font(.subheadline)
                         .fontWeight(.bold)
@@ -259,7 +259,7 @@ struct ActionView: View {
     private var positionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Active Positions")
+                Text(L.activePositions)
                     .font(.headline)
                     .foregroundColor(Theme.Colors.textPrimary)
                 Spacer()
@@ -270,7 +270,7 @@ struct ActionView: View {
                     HStack {
                         Image(systemName: "tray")
                             .foregroundColor(Theme.Colors.textSecondary)
-                        Text("No active positions")
+                        Text(L.noActivePositions)
                             .font(.subheadline)
                             .foregroundColor(Theme.Colors.textSecondary)
                         Spacer()
@@ -321,7 +321,7 @@ struct ActionView: View {
                         closeSymbol = position.symbol
                         showConfirmClose = true
                     } label: {
-                        Text("Close")
+                        Text(L.close)
                             .font(.caption)
                             .fontWeight(.bold)
                             .foregroundColor(Theme.Colors.error)
@@ -340,7 +340,7 @@ struct ActionView: View {
     private var ordersSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !viewModel.orders.isEmpty {
-                Text("Pending Orders")
+                Text(L.pendingOrders)
                     .font(.headline)
                     .foregroundColor(Theme.Colors.textPrimary)
 
@@ -384,7 +384,7 @@ struct ActionView: View {
 
     private var weeklyStatsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Session Stats")
+            Text(L.sessionStats)
                 .font(.headline)
                 .foregroundColor(Theme.Colors.textPrimary)
 
@@ -393,7 +393,7 @@ struct ActionView: View {
             ], spacing: 12) {
                 InfoTile(
                     icon: "number",
-                    title: "Trades",
+                    title: L.trades,
                     value: "\(viewModel.weeklyStats.totalTrades)",
                     subtitle: nil,
                     color: Theme.Colors.accent,
@@ -402,7 +402,7 @@ struct ActionView: View {
                 )
                 InfoTile(
                     icon: "percent",
-                    title: "Win Rate",
+                    title: L.winRate,
                     value: viewModel.weeklyStats.formattedWinRate,
                     subtitle: nil,
                     color: Theme.Colors.success,
@@ -411,7 +411,7 @@ struct ActionView: View {
                 )
                 InfoTile(
                     icon: "dollarsign.circle",
-                    title: "P&L",
+                    title: L.profit,
                     value: viewModel.weeklyStats.formattedPnL,
                     subtitle: nil,
                     color: viewModel.weeklyStats.isProfit ? Theme.Colors.success : Theme.Colors.error,
@@ -427,21 +427,21 @@ struct ActionView: View {
     private func tradingFunnelMini(_ metrics: TradingMetrics) -> some View {
         GlassCard(padding: 14) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Trading Funnel")
+                Text(L.tradingFunnel)
                     .font(.subheadline)
                     .fontWeight(.bold)
                     .foregroundColor(Theme.Colors.textPrimary)
 
                 HStack(spacing: 0) {
-                    funnelStep("Signals", metrics.signalsDetected, Theme.Colors.accent)
+                    funnelStep(L.signals, metrics.signalsDetected, Theme.Colors.accent)
                     Image(systemName: "chevron.right")
                         .font(.caption2)
                         .foregroundColor(Theme.Colors.textSecondary)
-                    funnelStep("Orders", metrics.ordersCreated, .purple)
+                    funnelStep(L.orders, metrics.ordersCreated, .purple)
                     Image(systemName: "chevron.right")
                         .font(.caption2)
                         .foregroundColor(Theme.Colors.textSecondary)
-                    funnelStep("Filled", metrics.ordersFilled, Theme.Colors.success)
+                    funnelStep(L.filled, metrics.ordersFilled, Theme.Colors.success)
                 }
 
                 if metrics.signalsBlocked > 0 {
@@ -449,7 +449,7 @@ struct ActionView: View {
                         Image(systemName: "xmark.circle.fill")
                             .font(.caption2)
                             .foregroundColor(Theme.Colors.error)
-                        Text("\(metrics.signalsBlocked) blocked by risk")
+                        Text("\(metrics.signalsBlocked) \(L.blockedByRisk)")
                             .font(.caption2)
                             .foregroundColor(Theme.Colors.textSecondary)
                     }
