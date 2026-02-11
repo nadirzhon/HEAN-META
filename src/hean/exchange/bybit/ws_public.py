@@ -54,7 +54,7 @@ class BybitPublicWebSocket:
     async def connect(self, _from_listen: bool = False) -> None:
         """Connect to Bybit public WebSocket."""
         if not settings.is_live and not settings.paper_use_live_feed:
-            logger.info("Bybit public WebSocket: Paper mode - using synthetic feed")
+            logger.info("Bybit public WebSocket: Paper mode without live feed - no ticks will be generated")
             return
 
         if websockets is None:

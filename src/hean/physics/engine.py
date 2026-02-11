@@ -14,7 +14,7 @@ from hean.core.bus import EventBus
 from hean.core.types import Event, EventType
 from hean.logging import get_logger
 from hean.physics.entropy import MarketEntropy
-from hean.physics.phase_detector import MarketPhase, PhaseDetector
+from hean.physics.phase_detector import MarketPhase, PhaseDetector, SSDMode, ResonanceState
 from hean.physics.szilard import SzilardEngine
 from hean.physics.temperature import MarketTemperature
 
@@ -37,6 +37,13 @@ class PhysicsState:
     trade_reason: str = ""
     size_multiplier: float = 0.5
     timestamp: float = field(default_factory=time.time)
+    # SSD: Singular Spectral Determinism fields
+    entropy_flow: float = 0.0            # dH/dt — entropy rate of change
+    entropy_flow_smooth: float = 0.0     # EMA-smoothed entropy flow
+    ssd_mode: str = "normal"             # "silent" | "normal" | "laplace"
+    resonance_strength: float = 0.0      # 0-1 vector alignment score
+    is_resonant: bool = False            # True when market vectors align
+    causal_weight: float = 1.0           # Data collapse factor (0.05 in Laplace, 1.0 normal)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +59,13 @@ class PhysicsState:
             "trade_reason": self.trade_reason,
             "size_multiplier": self.size_multiplier,
             "timestamp": self.timestamp,
+            # SSD fields
+            "entropy_flow": self.entropy_flow,
+            "entropy_flow_smooth": self.entropy_flow_smooth,
+            "ssd_mode": self.ssd_mode,
+            "resonance_strength": self.resonance_strength,
+            "is_resonant": self.is_resonant,
+            "causal_weight": self.causal_weight,
         }
 
 
@@ -123,32 +137,64 @@ class PhysicsEngine:
         # Calculate temperature
         temp_reading = self._temperature.calculate(prices, volumes, symbol)
 
-        # Calculate entropy
+        # Calculate entropy (now includes SSD entropy flow)
         entropy_reading = self._entropy.calculate(volumes, symbol)
 
-        # Detect phase
-        phase = self._phase_detector.detect(
-            temp_reading.value, entropy_reading.value, symbol
+        # SSD: Feed price/volume vectors for resonance calculation
+        self._phase_detector.update_market_vectors(
+            symbol, price, volume, entropy_reading.entropy_flow_smooth
         )
 
-        # Get phase reading for confidence
+        # Detect phase (now includes SSD resonance and mode)
+        phase = self._phase_detector.detect(
+            temp_reading.value, entropy_reading.value, symbol,
+            entropy_flow=entropy_reading.entropy_flow_smooth,
+        )
+
+        # Get phase reading for confidence + SSD state
         phase_reading = self._phase_detector.get_current(symbol)
         phase_confidence = phase_reading.confidence if phase_reading else 0.0
+        ssd_mode = phase_reading.ssd_mode.value if phase_reading else "normal"
+        resonance = phase_reading.resonance if phase_reading else ResonanceState()
 
-        # Calculate Szilard profit
+        # SSD: Data Collapse — in Laplace mode, causal_weight = 0.05 (keep only 5% of inputs)
+        causal_weight = 1.0
+        if ssd_mode == "laplace":
+            causal_weight = 0.05  # 95% collapse
+        elif ssd_mode == "silent":
+            causal_weight = 0.0  # Full collapse — ignore everything
+
+        # Calculate Szilard profit (enhanced with SSD resonance)
+        szilard_probability = 0.5
+        if ssd_mode == "laplace":
+            szilard_probability = min(0.95, 0.5 + resonance.strength * 0.45)
         szilard = self._szilard.calculate_max_profit(
-            temp_reading.value, 0.5  # Default probability
+            temp_reading.value, szilard_probability
         )
 
-        # Should we trade?
-        should_trade, trade_reason = self._szilard.should_trade(
-            temp_reading.value, entropy_reading.value, phase.value
-        )
+        # Should we trade? (SSD-aware)
+        if ssd_mode == "silent":
+            should_trade = False
+            trade_reason = "SSD SILENT — entropy diverging, noise regime"
+        elif ssd_mode == "laplace":
+            should_trade = True
+            trade_reason = (
+                f"SSD LAPLACE — resonance={resonance.strength:.3f}, "
+                f"entropy_flow={entropy_reading.entropy_flow_smooth:.4f}"
+            )
+        else:
+            should_trade, trade_reason = self._szilard.should_trade(
+                temp_reading.value, entropy_reading.value, phase.value
+            )
 
-        # Optimal size
+        # Optimal size (boosted in Laplace mode)
         size_mult = self._szilard.calculate_optimal_size_multiplier(
             temp_reading.value, entropy_reading.value, phase.value
         )
+        if ssd_mode == "laplace":
+            size_mult = min(2.0, size_mult * (1.0 + resonance.strength))
+        elif ssd_mode == "silent":
+            size_mult = 0.0
 
         # Build state
         state = PhysicsState(
@@ -163,6 +209,12 @@ class PhysicsEngine:
             should_trade=should_trade,
             trade_reason=trade_reason,
             size_multiplier=size_mult,
+            entropy_flow=entropy_reading.entropy_flow,
+            entropy_flow_smooth=entropy_reading.entropy_flow_smooth,
+            ssd_mode=ssd_mode,
+            resonance_strength=resonance.strength,
+            is_resonant=resonance.is_resonant,
+            causal_weight=causal_weight,
         )
 
         self._states[symbol] = state

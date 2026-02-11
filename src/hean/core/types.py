@@ -68,6 +68,10 @@ class EventType(str, Enum):
     OFI_UPDATE = "ofi_update"
     CAUSAL_SIGNAL = "causal_signal"
 
+    # Council events
+    COUNCIL_REVIEW = "council_review"
+    COUNCIL_RECOMMENDATION = "council_recommendation"
+
 
 @dataclass
 class Event:
@@ -134,6 +138,7 @@ class OrderRequest(BaseModel):
     order_type: str = "market"  # "market" or "limit"
     stop_loss: float | None = None
     take_profit: float | None = None
+    reduce_only: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("side")

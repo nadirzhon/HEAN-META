@@ -1,633 +1,225 @@
-# HEAN-Bybit
+# HEAN
 
-Production-grade, modular, event-driven crypto trading system focused on Bybit Testnet.
+Production-grade, event-driven crypto trading system for Bybit Testnet. All trades execute on testnet with virtual funds.
 
-**⚠️ BYBIT TESTNET ONLY: This system uses ONLY Bybit testnet for safe trading with virtual funds. Paper trading has been removed - all trades execute on Bybit testnet.**
+## System Overview
 
-## Features
+HEAN is a fully autonomous trading engine built around an async event bus architecture. Market data flows from Bybit WebSocket through a deterministic filter cascade, risk management, and execution pipeline — all in real-time.
 
-- **Event-driven architecture** with async-first design
-- **Bybit Testnet Trading**: All trades execute on Bybit testnet with virtual funds (safe learning environment)
-- **Multiple strategies**: Funding harvester, Basis arbitrage, Impulse engine
-- **Agent generation**: LLM-powered automatic trading agent generation
-- **Auto-improvement system**: Self-learning catalyst that optimizes strategies and capital allocation
-- **Risk management**: Drawdown limits, position sizing, killswitch
-- **Portfolio accounting**: Equity tracking, PnL, profit reinvestment
-- **Backtesting**: Synthetic regime generation and metrics
-- **Strict typing**: Full type hints, mypy-ready
-- **Production-ready**: Structured logging, health checks, observability
+**Stack:**
+- **Backend:** Python 3.11 / FastAPI / async event bus / DuckDB
+- **Exchange:** Bybit Testnet (HTTP + WebSocket)
+- **iOS App:** SwiftUI (iOS 17+) — Command Center with 5 tabs
+- **AI:** Claude Brain for periodic market analysis
+- **Monitoring:** Prometheus + Grafana (optional)
+
+## Architecture
+
+```
+Bybit WebSocket (ticks, orderbook, funding)
+          │
+          ▼
+    ┌─────────────┐
+    │  Event Bus   │ ◄── Priority queues + fast-path dispatch
+    └──────┬──────┘      (SIGNAL, ORDER_REQUEST, ORDER_FILLED)
+           │
+     ┌─────┼─────────────────────────────────────┐
+     │     │     │          │          │          │
+     ▼     ▼     ▼          ▼          ▼          ▼
+ Strategies Risk  Execution Portfolio Physics   Brain
+     │     │     │          │          │          │
+     │     │     ▼          │          │          │
+     │     │  Bybit HTTP   │          │          │
+     │     │  (orders)      │          │          │
+     └─────┴───────────────┴──────────┴──────────┘
+```
+
+**Signal chain (10 nodes):**
+TICK → Strategy → 12-layer filter cascade → SIGNAL → RiskGovernor → ORDER_REQUEST → ExecutionRouter → Bybit → ORDER_FILLED → Position
+
+## Strategies
+
+| Strategy | Description |
+|---|---|
+| **ImpulseEngine** | Momentum-based with 12-layer deterministic filter cascade (70-95% rejection rate) |
+| **FundingHarvester** | Funding rate arbitrage across perpetual contracts |
+| **BasisArbitrage** | Spot-perpetual basis spread capture |
+| **MomentumTrader** | Trend-following with regime awareness |
+| **CorrelationArb** | Cross-asset correlation-based arbitrage |
+| **EnhancedGrid** | Grid trading with dynamic spacing |
+| **HFScalping** | High-frequency scalping on microstructure |
+| **LiquiditySweep** | Liquidity pool sweep detection |
+| **InventoryNeutralMM** | Market making with inventory management |
+| **RebateFarmer** | Exchange fee rebate optimization |
+| **SentimentStrategy** | Sentiment-driven trading signals |
+
+## Risk Management
+
+Graduated risk states: `NORMAL` → `SOFT_BRAKE` → `QUARANTINE` → `HARD_STOP`
+
+- **RiskGovernor** — Centralized risk state machine with graduated responses
+- **KillSwitch** — Hard stop on >20% drawdown from initial capital
+- **PositionSizer** — Kelly criterion-based position sizing
+- **DepositProtector** — Capital preservation floor
+- **DynamicRisk** — Volatility-adjusted risk parameters
+- **SmartLeverage** — Adaptive leverage management
+
+## Physics Engine
+
+Market thermodynamics analysis providing edge to strategies:
+
+- **Temperature** — Market energy measurement via tick velocity
+- **Entropy** — Information entropy of price distribution
+- **PhaseDetector** — Market regime classification (accumulation, markup, distribution, markdown)
+- **Szilard Engine** — Information-to-profit conversion (Maxwell's demon for markets)
+- **ParticipantClassifier** — Whale/MM/retail flow identification
+- **AnomalyDetector** — Statistical anomaly detection in real-time
+- **TemporalStack** — Multi-timeframe analysis (5 levels)
+
+## Council (AI Decision Layer)
+
+Multi-agent AI council for trade review and strategic decisions:
+
+- **Council** — Orchestrates multiple AI members for consensus
+- **Members** — Specialized AI agents (risk reviewer, strategy advisor, etc.)
+- **Introspector** — Self-analysis of system performance
+- **Review** — Post-trade analysis and learning
 
 ## Quickstart
 
 ### Installation
 
 ```bash
-# Install dependencies
 make install
-
-# Or manually:
-pip install -e ".[dev]"
+# or: pip install -e ".[dev]"
 ```
 
 ### Configuration
 
-Edit `.env` (template included in repo) and adjust settings.
-
-### Development Mode (Recommended)
-
-Start the full development environment (API + Frontend + Monitoring):
-
 ```bash
-make dev
+# Required in .env:
+BYBIT_API_KEY=your-testnet-key
+BYBIT_API_SECRET=your-testnet-secret
+BYBIT_TESTNET=true
+LIVE_CONFIRM=YES
+
+# Optional:
+INITIAL_CAPITAL=300          # Starting capital (USDT)
+ANTHROPIC_API_KEY=your-key   # Enables Claude Brain analysis
+BRAIN_ENABLED=true           # AI analysis on/off
+MULTI_SYMBOL_ENABLED=false   # Multi-symbol scanning
 ```
 
-This starts:
-- **API**: http://localhost:8000 (FastAPI backend)
-- **Command Center**: http://localhost:3000 (Trading Command Center UI)
-- **Prometheus**: http://localhost:9091 (Metrics)
-- **Grafana**: http://localhost:3001 (Dashboards, admin/admin)
+Get testnet API keys at https://testnet.bybit.com/
 
-### Running on Bybit Testnet (CLI)
+### Run
 
 ```bash
-# Run the system (Bybit testnet only)
+# CLI mode
 make run
+# or: python3 -m hean.main run
 
-# Or directly:
-python -m hean.main run
-```
+# Development (API + monitoring)
+make dev
 
-The system will:
-- Connect to Bybit testnet WebSocket for real market data
-- Execute trades on Bybit testnet with virtual funds
-- Print status every 10 seconds (equity, daily PnL, drawdown)
-- Real fills, fees, and slippage from Bybit testnet
-
-### Order decision telemetry (debugging zero trades)
-
-- WS topic `order_decisions` + Redis key `hean:state:state:order_decisions` carry CREATE/SKIP/REJECT with `reason_code`.
-- Fire a smoke signal: `POST /orders/test` (paper only) to verify orders/positions populate and metrics update.
-- Inspect DecisionMemory blocks: `GET /risk/decision-memory/blocks` (empty = not blocking).
-- Logs include `[ORDER_DECISION] …` for quick grep when diagnosing why a signal was skipped/rejected.
-
-### Trading Command Center
-
-Access the full-featured Trading Command Center at http://localhost:3000 (after running `make dev`).
-
-**Features**:
-- **Dashboard**: Real-time metrics, event feed, health panel
-- **Trading**: Positions and orders management with actions
-- **Strategies**: View, enable/disable, and configure strategies
-- **Analytics**: Performance summary, blocked signals analysis, job queue
-- **Risk**: Risk status, limits, gate inspector
-- **Logs**: Real-time log stream with filtering and search
-- **Settings**: System configuration (secrets masked), live trading checklist
-
-**Real-time Features**:
-- WebSocket topics for live updates
-- Auto-updating metrics and status (polling)
-- Command palette (Ctrl+K) for quick actions
-- Theme toggle (light/dark)
-
-**Security**:
-- All live trading actions require double confirmation
-- Secrets are masked in UI
-- Request IDs for traceability
-
-See [docs/UI.md](docs/UI.md) for detailed documentation.
-
-### API Usage
-
-The FastAPI backend provides REST endpoints for all operations:
-
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# Start engine
-curl -X POST http://localhost:8000/engine/start \
-  -H "Content-Type: application/json" \
-  -d '{"confirm_phrase": null}'
-
-# Get positions
-curl http://localhost:8000/positions
-
-# Get orders
-curl http://localhost:8000/orders
-```
-
-See [docs/API.md](docs/API.md) for complete API documentation.
-
-### New Endpoints (AFO-Director)
-
-- `GET /trading/why`: Comprehensive diagnostics explaining why trading may have stopped. Returns engine state, killswitch, last activity timestamps, top reason codes, profit capture state, execution quality, and multi-symbol status.
-- `GET /system/changelog/today`: Get today's improvements/changelog from git log or changelog_today.json. Returns `available: false` if git/changelog not available (no fiction).
-- `GET /system/v1/dashboard`: Legacy dashboard payload consumed by the UI (`account_state`, `metrics`, `positions`, `orders`, `status`). The UI falls back to it whenever `/portfolio/summary` or `/telemetry/summary` are temporarily unreachable.
-
-### Smoke Test
-
-Run the smoke test to verify all features:
-
-```bash
-./scripts/smoke_test.sh
-```
-
-The smoke test checks:
-- REST endpoints (`/telemetry/ping`, `/telemetry/summary`, `/trading/why`, `/portfolio/summary`)
-- WebSocket connection and subscription
-- Engine control (pause/resume)
-- Multi-symbol support
-
-**Important**: Only rebuild Docker after smoke test PASSES. If smoke fails, fix issues first, then rebuild.
-
-### Running with Docker Compose
-
-```bash
-# Build and start
+# Docker
 docker-compose up -d --build
-
-# View logs
-docker-compose logs -f
-
-# Stop
-docker-compose down
 ```
 
-Ports that are published by the default compose stack:
-- `8000` → FastAPI backend
-- `3000` → Trading Command Center UI (nginx + bundled UI)
-- `6379` → Redis state and pub/sub
+### API
 
-The UI image consumes `VITE_API_BASE` and `VITE_WS_URL` build args/env vars
-(see `apps/ui/Dockerfile` and `ui.env`). Defaults point to `/api` and `/ws`, so
-the nginx proxy correctly forwards REST calls and WebSocket upgrades into
-`hean-api`. Override them when the UI is hosted in another path or on another host,
-for example `VITE_API_BASE=https://api.example.com` and
-`VITE_WS_URL=wss://api.example.com/ws`.
+FastAPI backend on port 8000. Key endpoints:
 
-See [DOCKER_GUIDE.md](DOCKER_GUIDE.md) for detailed Docker instructions.
+| Endpoint | Description |
+|---|---|
+| `GET /health` | Health check |
+| `GET /api/v1/engine/status` | Engine state, equity, PnL |
+| `GET /api/v1/orders/positions` | Open positions |
+| `GET /api/v1/orders` | Active orders |
+| `GET /api/v1/strategies` | Strategy list with status |
+| `GET /api/v1/risk/governor/status` | Risk state + reason codes |
+| `GET /api/v1/risk/killswitch/status` | Killswitch status |
+| `GET /api/v1/trading/why` | Diagnostic: why is/isn't system trading |
+| `GET /api/v1/trading/metrics` | Signal/order/fill counters |
+| `GET /api/v1/physics/state?symbol=X` | Temperature, entropy, phase |
+| `GET /api/v1/physics/participants?symbol=X` | Whale/MM/retail breakdown |
+| `GET /api/v1/physics/anomalies?limit=N` | Active anomalies |
+| `GET /api/v1/temporal/stack` | Multi-timeframe levels |
+| `GET /api/v1/brain/analysis` | Latest AI market analysis |
+| `GET /api/v1/council/status` | Council decision status |
+| `POST /api/v1/engine/start` | Start engine |
+| `POST /api/v1/engine/stop` | Stop engine |
 
-### Health & WebSocket sanity checks
+WebSocket at `ws://localhost:8000/ws` with topics: `system_status`, `order_decisions`, `ai_catalyst`.
 
-Before declaring the stack healthy, execute the following from the host to exercise REST, proxy, and WebSocket paths:
+### iOS App
+
+SwiftUI app in `ios/`. Open `ios/HEAN.xcodeproj` in Xcode.
+
+**Command Center tabs:** Live, Mind, Action, X-Ray, Settings
+
+Connects to FastAPI backend via actor-based `APIClient`. All models use `CodingKeys` for snake_case → camelCase mapping.
+
+## Testing
 
 ```bash
-docker compose down --remove-orphans
-docker compose up -d --build
-docker compose ps
-curl -f http://localhost:8000/health
-curl -f http://localhost:8000/telemetry/summary
-curl -f http://localhost:8000/portfolio/summary
-curl -f http://localhost:3000/api/telemetry/summary
-curl -f http://localhost:3000/api/portfolio/summary
-python3 - <<'PY'
-import asyncio, json, websockets
-
-async def main():
-    uri = "ws://localhost:8000/ws"
-    async with websockets.connect(uri) as ws:
-        await ws.send(json.dumps({"action": "subscribe", "topic": "system_status"}))
-        print(await ws.recv())
-
-asyncio.run(main())
-PY
+make test                    # All tests (671)
+pytest tests/test_api.py -v  # Specific file
+pytest -k "impulse" -v       # Pattern match
 ```
-
-The last script mimics the UI's WebSocket handshake (subscribe to `system_status`) so you can confirm the heartbeat payload arrives.
-
-### Backtesting
-
-```bash
-# Run backtest for 30 days
-python -m hean.main backtest --days 30
-
-# Custom days
-python -m hean.main backtest --days 7
-```
-
-### Agent Generation
-
-Generate trading agents using LLM prompts:
-
-```bash
-# Install LLM dependencies (optional)
-pip install -e ".[llm]"
-
-# Set API key
-export OPENAI_API_KEY="your-key"  # or ANTHROPIC_API_KEY
-
-# Generate initial agent
-python generate_agent.py initial -o my_agent.py
-
-# Generate multiple agents
-python generate_agent.py initial --count 10 -o generated_agents/
-
-# Evolve agent based on best/worst performers
-python generate_agent.py evolution \
-  --best-agents "Agent1: PF=2.5" \
-  --worst-agents "Agent2: PF=0.8" \
-  --market-conditions "High volatility" \
-  --performance-metrics "Avg PF: 1.5" \
-  -o evolved_agent.py
-```
-
-See [AGENT_GENERATION.md](AGENT_GENERATION.md) for full documentation.
-
-### Auto-Improvement System
-
-The system includes an autonomous improvement catalyst that:
-- Monitors performance every 30 minutes
-- Identifies problems and generates improvements via LLM
-- Optimizes strategy parameters automatically
-- Redistributes capital between strategies intelligently
-- Generates daily performance reports
-
-The catalyst starts automatically when running the system. See [AUTO_IMPROVEMENT_SYSTEM.md](AUTO_IMPROVEMENT_SYSTEM.md) for details.
-
-### Process Factory (Experimental)
-
-The Process Factory is an extension layer that provides process-based capital allocation and automation beyond traditional trading strategies. It enables:
-
-- **Process-based workflows**: Define processes (not just strategies) that can include trading, earning, campaigns, data collection, and more
-- **Capital routing**: Automatic allocation across reserve/active/experimental buckets
-- **Process lifecycle management**: Automatic kill/keep/scale decisions based on measured performance
-- **Leverage-of-Process Engine**: Self-amplifying loops (automation leverage, data leverage, access leverage)
-- **Environment scanning**: Read-only scanning of Bybit environment for opportunities
-- **AI-powered process generation**: Generate new process definitions using LLMs (OpenAI/Anthropic)
-
-**Status**: Experimental, disabled by default. Enable with `process_factory_enabled=true` in config.
-
-#### Quick Start
-
-```bash
-# Enable Process Factory in config
-export PROCESS_FACTORY_ENABLED=true
-
-# Scan environment
-python -m hean.main process scan
-
-# Plan daily capital allocation
-python -m hean.main process plan --capital 1000
-
-# Run a process (sandbox mode)
-python -m hean.main process run --process-id p1_capital_parking --mode sandbox
-
-# Generate daily report
-python -m hean.main process report
-
-# Evaluate portfolio (replay last 30 days)
-python -m hean.main process evaluate --days 30
-```
-
-#### Production Checklist
-
-Before enabling Process Factory in production:
-
-1. **Enable Safely**:
-   ```bash
-   # Start with Process Factory disabled (default)
-   # Only enable after thorough testing
-   export PROCESS_FACTORY_ENABLED=true
-   ```
-
-2. **Run Sandbox First**:
-   ```bash
-   # Always test in sandbox mode first
-   python -m hean.main process run --process-id <process_id> --mode sandbox
-   
-   # Verify results before enabling live mode
-   python -m hean.main process report
-   ```
-
-3. **Interpret Reports**:
-   - **Top Contributors (Net)**: Processes with highest net contribution (after fees/costs)
-   - **Profit Illusion List**: Processes that appear profitable (gross) but lose money (net)
-   - **Portfolio Health Score**: Stability, concentration risk, churn rate
-   - **Kill/Scale Suggestions**: Recommendations from evaluation
-
-4. **Add New Processes Correctly**:
-   - Use `process scan` to get environment snapshot
-   - Use OpenAI factory to generate process (with quality scoring)
-   - Test in sandbox mode first
-   - Monitor for profit illusion (gross positive, net negative)
-   - Use `process evaluate` to get recommendations
-
-5. **Safety Settings**:
-   - `process_factory_allow_actions=false` (default): Bybit actions disabled
-   - `dry_run=true` (default): Dry run mode enabled
-
-#### Troubleshooting: If You See No Orders
-
-If Process Factory is enabled but you're not seeing any orders, follow these steps:
-
-1. **Check Configuration Flags**:
-   ```bash
-   # Verify flags are printed at startup
-   python -m hean.main run
-   # Look for:
-   # - PROCESS_FACTORY_ENABLED: true
-   # - PROCESS_FACTORY_ALLOW_ACTIONS: true
-   # - DRY_RUN: false
-   ```
-
-2. **Run Execution Smoke Test**:
-   ```bash
-   # Enable required flags first
-   export PROCESS_FACTORY_ENABLED=true
-   export PROCESS_FACTORY_ALLOW_ACTIONS=true
-   export DRY_RUN=false
-   
-   # Run smoke test
-   python -m hean.main process exec-smoke-test
-   ```
-
-3. **Interpret Common Failures**:
-   - **"not_enabled" error**: Set `PROCESS_FACTORY_ALLOW_ACTIONS=true` and `DRY_RUN=false`
-   - **"min_notional" error**: Increase `EXECUTION_SMOKE_TEST_NOTIONAL_USD` (default 5, minimum usually 5-10 USD)
-   - **"validation_error"**: Check that all required flags are set
-   - **Network/API errors**: Check `BYBIT_API_KEY` and `BYBIT_API_SECRET` are set correctly
-
-4. **Check "Why Not Trading" Diagnostics**:
-   When running `python -m hean.main run`, look for log messages like:
-   ```
-   ⚠ Trade blocked: BTCUSDT (strategy_id)
-     Reasons: dry_run, process_factory_allow_actions_false
-     Suggested fixes:
-       - Set DRY_RUN=false to allow real orders
-       - Set PROCESS_FACTORY_ALLOW_ACTIONS=true
-   ```
-
-5. **Minimum Order Sizing**:
-   - Bybit typically requires minimum 5 USD notional value
-   - For BTCUSDT at $50,000, minimum quantity is ~0.0001 BTC
-   - Ensure your capital allocation meets minimum requirements
-
-6. **Enable Process Factory Actions** (if using Process Factory execution):
-   ```bash
-   export PROCESS_FACTORY_ALLOW_ACTIONS=true
-   export DRY_RUN=false  # Required for real orders
-   ```
-   
-   **Note**: `DRY_RUN=false` requires explicit configuration - it defaults to `true` for safety.
-   - Only enable `process_factory_allow_actions=true` if you have existing execution interfaces
-   - Never enable UI automation or credential handling
-
-6. **Monitoring**:
-   - Check `process report` daily
-   - Review profit illusion list weekly
-   - Use `process evaluate` monthly for portfolio health
-
-See [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) for detailed implementation notes.
-
-#### Built-in Processes
-
-The system includes 6 starter processes:
-- **P1: Capital Parking** - Earn-like placeholder for capital allocation
-- **P2: Funding Monitor** - Monitor funding rates and suggest allocations (read-only)
-- **P3: Fee/Slippage Monitor** - Track execution quality metrics
-- **P4: Campaign Checklist** - Generate checklists for campaign/airdrop participation
-- **P5: Execution Optimizer** - Analyze and suggest execution improvements
-- **P6: Opportunity Scanner** - Scan for new opportunities across trading, earn, campaigns
-
-#### Extending with New Processes
-
-Create a new process file in `src/hean/process_factory/processes/`:
-
-```python
-# my_process.py
-from hean.process_factory.schemas import ProcessDefinition, ProcessType, ...
-
-def get_process_definition() -> ProcessDefinition:
-    return ProcessDefinition(
-        id="my_process",
-        name="My Process",
-        type=ProcessType.DATA,
-        description="...",
-        actions=[...],
-        ...
-    )
-```
-
-Then register it in the registry. Processes are automatically discovered and validated.
-
-#### Key Concepts
-
-- **Process vs Strategy**: Processes are broader workflows that can include trading, manual tasks, data collection, and more
-- **Measurement**: Every process must be measurable (capital_delta, time_hours, ROI, etc.)
-- **Safety**: Processes include safety policies (max capital, risk factors, manual approval requirements)
-- **Sandboxing**: All processes can run in sandbox mode for testing
-- **Human Tasks**: Processes can include HUMAN_TASK steps for things requiring manual intervention
-
-See the Process Factory source code in `src/hean/process_factory/` for more details.
-
-### Testing
-
-```bash
-# Run all tests
-make test
-
-# Or directly:
-pytest
-
-# With coverage
-pytest --cov=src/hean --cov-report=html
-```
-
-### Linting
-
-```bash
-# Run linters
-make lint
-
-# Or directly:
-ruff check src/
-mypy src/
-```
-
-## Safety Notes
-
-1. **Bybit Testnet ONLY** - All trades execute on testnet with virtual funds (100% safe)
-2. **No real money at risk** - Testnet uses virtual USDT for safe learning
-3. **Killswitch protection** - System automatically stops trading on:
-   - Max daily drawdown exceeded
-   - Repeated errors
-   - Extreme volatility/spread
-4. **Risk limits** - Configurable per-trade risk, position limits, leverage caps
-5. **Live trading requires mainnet keys** - System defaults to testnet for safety
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Frontend (Web UI)                        │
-│  Dashboard | Strategies | Risk | Orders | Positions | Logs      │
-└──────────────────────────────┬──────────────────────────────────┘
-                                │ HTTP/REST
-┌──────────────────────────────▼──────────────────────────────────┐
-│                      FastAPI Backend (API)                        │
-│  /health | /engine/* | /positions | /orders | /metrics           │
-└──────────────────────────────┬──────────────────────────────────┘
-                                │
-┌──────────────────────────────▼──────────────────────────────────┐
-│                    Engine Facade (Orchestration)                 │
-│  Unified interface for TradingSystem + ProcessFactory            │
-└──────────────────────────────┬──────────────────────────────────┘
-                                │
-        ┌───────────────────────┴───────────────────────┐
-        │                                               │
-┌───────▼────────┐                            ┌─────────▼────────┐
-│ TradingSystem  │                            │ ProcessFactory   │
-│ (Main Engine)  │                            │ (Extension)      │
-└───────┬────────┘                            └─────────┬───────┘
-        │                                               │
-        └───────────────────────┬───────────────────────┘
-                                │
-                    ┌───────────▼───────────┐
-                    │     Event Bus          │
-                    │  (Async Event System)  │
-                    └───────────┬───────────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        │                       │                         │
-┌───────▼────────┐    ┌─────────▼────────┐    ┌─────────▼────────┐
-│  Strategies    │    │   Risk Mgmt      │    │   Execution      │
-│  - Funding     │    │   - Limits        │    │   - Router       │
-│  - Basis       │    │   - Killswitch   │    │   - Paper/Live   │
-│  - Impulse     │    │   - PositionSize │    │   - Reconcile    │
-└───────┬────────┘    └─────────┬────────┘    └─────────┬───────┘
-        │                       │                         │
-        └───────────────────────┼─────────────────────────┘
-                                │
-                    ┌───────────▼───────────┐
-                    │   Portfolio           │
-                    │   - Accounting        │
-                    │   - Allocation        │
-                    └───────────┬───────────┘
-                                │
-                    ┌───────────▼───────────┐
-                    │   Exchange (Bybit)    │
-                    │   - HTTP API          │
-                    │   - WebSocket         │
-                    └───────────────────────┘
-```
-
-All components communicate via an async event bus. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.
 
 ## Project Structure
 
 ```
 src/hean/
-├── main.py              # CLI entrypoint
-├── config.py            # Configuration (Pydantic v2)
-├── logging.py           # Structured logging
-├── core/                # Event bus, clock, types
-├── exchange/            # Exchange client protocol + Bybit implementation
-├── execution/           # Order routing, paper broker
-├── risk/                # Risk limits, position sizing, killswitch
-├── portfolio/           # Accounting, allocation, rebalancing
-├── strategies/          # Trading strategies
-├── agent_generation/    # LLM-powered agent generation
-├── backtest/            # Backtesting engine
-└── observability/       # Metrics, health checks
+├── main.py                 # CLI + TradingSystem orchestrator
+├── config.py               # Pydantic v2 settings
+├── core/
+│   ├── bus.py              # Async EventBus (priority queues, circuit breaker)
+│   └── types.py            # Event types, Tick, Signal, Order, Position
+├── strategies/             # 11 trading strategies + filters
+├── risk/                   # RiskGovernor, KillSwitch, PositionSizer, Kelly
+├── execution/              # Order routing (router_bybit_only.py = production)
+├── exchange/bybit/         # HTTP + WebSocket clients
+├── portfolio/              # Accounting, allocation, profit capture
+├── physics/                # Market thermodynamics engine
+├── brain/                  # Claude AI analysis
+├── council/                # Multi-agent AI decision layer
+├── storage/                # DuckDB persistence
+├── agent_generation/       # LLM-powered agent generation
+├── backtest/               # Backtesting engine
+├── symbiont_x/             # Genetic algorithm strategy evolution
+└── api/                    # FastAPI server + routers
+
+ios/HEAN/
+├── App/                    # App entry point
+├── Core/                   # DI, Networking (APIClient, Endpoints)
+├── Models/                 # Codable models
+├── Features/               # Live, Mind, Action, XRay, Settings, Dashboard...
+├── DesignSystem/           # Colors, typography, formatters
+└── Services/               # Consolidated service layer
 ```
-
-## Environment Variables
-
-See `.env.example` for all available options. Key variables:
-
-- `LIVE_CONFIRM`: Must be `YES` to enable live trading (default: not set)
-- `INITIAL_CAPITAL`: Starting capital in USDT (default: 10000)
-- `MAX_DAILY_DRAWDOWN_PCT`: Maximum daily drawdown percentage (default: 5.0)
-- `MAX_TRADE_RISK_PCT`: Maximum risk per trade (default: 1.0)
-
-### AFO-Director Features
-
-**Profit Capture** (disabled by default):
-- `PROFIT_CAPTURE_ENABLED=false`: Enable profit capture (default: false)
-- `PROFIT_CAPTURE_TARGET_PCT=20`: Target percentage growth to trigger (default: 20%)
-- `PROFIT_CAPTURE_TRAIL_PCT=10`: Trail percentage drawdown to trigger (default: 10%)
-- `PROFIT_CAPTURE_MODE=full|partial`: Capture mode - full closes all, partial reduces exposure (default: full)
-- `PROFIT_CAPTURE_AFTER_ACTION=pause|continue`: Action after capture - pause stops trading, continue with reduced risk (default: pause)
-- `PROFIT_CAPTURE_CONTINUE_RISK_MULT=0.25`: Risk multiplier when continuing after capture (default: 0.25 = 25%)
-
-**Multi-Symbol Support**:
-- `MULTI_SYMBOL_ENABLED=false`: Enable multi-symbol scanning (default: false)
-- `SYMBOLS="BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,ADAUSDT,DOGEUSDT,AVAXUSDT,LINKUSDT,TONUSDT"`: List of symbols to scan (default: 10 symbols)
-
-**WebSocket Topics**:
-- `order_decisions`: Real-time ORDER_DECISION events with reason_codes, gating_flags, market_regime, advisory
-- `ai_catalyst`: AI Catalyst events (AGENT_STATUS, AGENT_STEP) - see `/system/changelog/today` for today's improvements
 
 ## Docker
 
 ```bash
-# Build and run
-docker-compose up
+docker-compose up -d --build    # Build and start
+docker-compose logs -f          # View logs
+docker-compose down             # Stop
 
-# Or build manually
-docker build -t hean .
-docker run --env-file .env hean
+# Production with monitoring
+make prod-with-monitoring       # + Prometheus + Grafana
 ```
 
-## Development
+Services: `hean-api` (8000), `hean-redis` (6379)
 
-```bash
-# Install in development mode
-make install
+## Safety
 
-# Run tests
-make test
-
-# Lint and type check
-make lint
-
-# Run the system (CLI mode)
-make run
-
-# Start development environment (API + Frontend + Monitoring)
-make dev
-```
-
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md) - System architecture and data flows
-- [API Documentation](docs/API.md) - Complete API reference with examples
-- [Assumptions](docs/ASSUMPTIONS.md) - Design decisions and assumptions
-
-## Bybit Integration ✅
-
-**Полная интеграция с Bybit завершена!**
-
-### Что работает:
-- ✅ HTTP API клиент (размещение ордеров, получение данных)
-- ✅ Public WebSocket (реальные тики, order book)
-- ✅ Private WebSocket (обновления ордеров, позиций, executions)
-- ✅ Real-time price feed с Bybit
-- ✅ Автоматическое исполнение ордеров
-- ✅ Поддержка testnet и mainnet
-- ✅ Автоматическое переподключение
-
-### Быстрый старт:
-
-1. Получите API ключи на https://testnet.bybit.com/ (для теста)
-2. Добавьте в `.env`:
-   ```bash
-   BYBIT_API_KEY=your-key
-   BYBIT_API_SECRET=your-secret
-   BYBIT_TESTNET=true
-   LIVE_CONFIRM=YES
-   TRADING_MODE=live
-   ```
-3. Протестируйте: `python test_bybit_connection.py`
-4. Запустите: `python -m hean.main run`
-
-См. [BYBIT_INTEGRATION_COMPLETE.md](BYBIT_INTEGRATION_COMPLETE.md) и [BYBIT_SETUP_GUIDE.md](BYBIT_SETUP_GUIDE.md) для деталей.
-
-## Acknowledgments
-
-This project was developed with the assistance of **Claude AI** (Anthropic). Claude helped with architecture design, code implementation, testing, and documentation throughout the development process.
-
-See [CONTRIBUTORS.md](CONTRIBUTORS.md) for more details.
+- **Testnet only** — All trades use virtual funds, zero real money at risk
+- **KillSwitch** — Auto-stops on >20% drawdown
+- **Graduated risk** — NORMAL → SOFT_BRAKE → QUARANTINE → HARD_STOP
+- **Deterministic filters** — 12-layer cascade, no bypasses in any mode
+- **DRY_RUN=true** default — Must explicitly enable real order execution
 
 ## License
 

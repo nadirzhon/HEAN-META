@@ -15,31 +15,31 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             LiveView()
                 .tabItem {
-                    Label("Live", systemImage: "bolt.fill")
+                    Label(L.live, systemImage: "bolt.fill")
                 }
                 .tag(0)
 
             MindView()
                 .tabItem {
-                    Label("Mind", systemImage: "brain.head.profile")
+                    Label(L.mind, systemImage: "brain.head.profile")
                 }
                 .tag(1)
 
             ActionView()
                 .tabItem {
-                    Label("Action", systemImage: "target")
+                    Label(L.action, systemImage: "target")
                 }
                 .tag(2)
 
             XRayView()
                 .tabItem {
-                    Label("X-Ray", systemImage: "eye.fill")
+                    Label(L.xray, systemImage: "eye.fill")
                 }
                 .tag(3)
 
             SettingsView()
                 .tabItem {
-                    Label("Settings", systemImage: "gearshape.fill")
+                    Label(L.settings, systemImage: "gearshape.fill")
                 }
                 .tag(4)
         }

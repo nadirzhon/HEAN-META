@@ -43,6 +43,9 @@ class EngineFacade:
         # DuckDB store
         self._duckdb_store = None
 
+        # AI Council
+        self._council = None
+
     async def start(self) -> dict[str, Any]:
         """Start the trading engine.
 
@@ -85,6 +88,10 @@ class EngineFacade:
                 # Expose DuckDB store
                 if hasattr(self._trading_system, '_duckdb_store'):
                     self._duckdb_store = self._trading_system._duckdb_store
+
+                # Expose AI Council
+                if hasattr(self._trading_system, '_council'):
+                    self._council = self._trading_system._council
 
                 self._running = True
                 self._state = "RUNNING"

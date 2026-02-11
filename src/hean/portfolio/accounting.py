@@ -142,9 +142,13 @@ class PortfolioAccounting:
     def record_realized_pnl(
         self, amount: float, strategy_id: str | None = None, regime: str | None = None
     ) -> None:
-        """Record realized PnL from a closed position (synchronous)."""
+        """Record realized PnL from a closed position (synchronous).
+
+        NOTE: This method only tracks the PnL metric. It does NOT modify cash.
+        Cash is adjusted by record_fill() when the close order fills on the exchange.
+        For paper-mode closes, the caller must explicitly adjust cash.
+        """
         self._realized_pnl += amount
-        self._cash += amount
 
         if strategy_id:
             self._strategy_pnl[strategy_id] += amount
@@ -165,10 +169,13 @@ class PortfolioAccounting:
     async def record_realized_pnl_async(
         self, amount: float, strategy_id: str | None = None, regime: str | None = None
     ) -> None:
-        """Record realized PnL with thread safety (CRITICAL: prevents race conditions)."""
+        """Record realized PnL with thread safety (CRITICAL: prevents race conditions).
+
+        NOTE: This method only tracks the PnL metric. It does NOT modify cash.
+        Cash is adjusted by record_fill() when the close order fills on the exchange.
+        """
         async with self._lock:
             self._realized_pnl += amount
-            self._cash += amount
 
             if strategy_id:
                 self._strategy_pnl[strategy_id] += amount

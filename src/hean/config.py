@@ -175,7 +175,13 @@ class HEANSettings(BaseSettings):
         description="Maximum concurrent risk percentage across all positions",
     )
     max_leverage: float = Field(
-        default=5.0, gt=0, le=100, description="Maximum leverage (used intelligently)"
+        default=3.0, gt=0, le=100, description="Maximum leverage (capped at 3x for safety)"
+    )
+    max_exposure_multiplier: float = Field(
+        default=3.0,
+        gt=0,
+        le=20,
+        description="Maximum total notional exposure as multiple of equity",
     )
 
     # Multi-Level Protection
@@ -326,7 +332,7 @@ class HEANSettings(BaseSettings):
     # Paper mode data source
     paper_use_live_feed: bool = Field(
         default=False,
-        description="Use Bybit public market data in paper mode (instead of synthetic feed). Default False to guarantee ticks in PAPER.",
+        description="Use Bybit public market data in paper mode. Required for ticks in paper mode.",
     )
 
     # Triangular arbitrage (Phase 2 Profit Doubling: Optimized for Bybit)
@@ -436,15 +442,16 @@ class HEANSettings(BaseSettings):
     # LLM API Keys (for agent generation, catalyst, and process factory)
     gemini_api_key: str = Field(default="", description="Google Gemini API key for agent generation and catalyst")
     openai_api_key: str = Field(default="", description="OpenAI API key for process factory and agent generation")
+    openrouter_api_key: str = Field(default="", description="OpenRouter API key (Qwen3-Max-Thinking for brain + agent gen)")
 
     # Claude Brain
     anthropic_api_key: str = Field(default="", description="Anthropic API key for Claude Brain analysis")
-    brain_analysis_interval: int = Field(default=30, gt=5, description="Brain analysis interval in seconds")
+    brain_analysis_interval: int = Field(default=60, gt=5, description="Brain analysis interval in seconds")
     brain_enabled: bool = Field(default=True, description="Enable Claude Brain analysis module")
 
     # AI Factory (Shadow → Canary → Production pipeline)
     ai_factory_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable AI Factory for automated strategy testing and promotion",
     )
     canary_percent: int = Field(
@@ -452,6 +459,21 @@ class HEANSettings(BaseSettings):
         ge=1,
         le=50,
         description="Percentage of traffic for canary testing (default 10%)",
+    )
+
+    # AI Council (multi-model periodic system review)
+    council_enabled: bool = Field(
+        default=True,
+        description="Enable AI Council for periodic multi-model system review",
+    )
+    council_review_interval: int = Field(
+        default=21600,
+        gt=300,
+        description="Seconds between council review sessions (default: 6 hours)",
+    )
+    council_auto_apply_safe: bool = Field(
+        default=True,
+        description="Auto-apply safe parameter/strategy recommendations",
     )
 
     # API Authentication (CRITICAL: Enable in production!)
@@ -693,8 +715,13 @@ class HEANSettings(BaseSettings):
 
     # Profit Capture (AFO-Director feature)
     profit_capture_enabled: bool = Field(
-        default=False,
-        description="Enable profit capture feature (default OFF). Automatically locks profits when target is reached.",
+        default=True,
+        description="Enable profit capture feature. Automatically locks profits when target is reached.",
+    )
+    profit_capture_target_usd: float = Field(
+        default=1000.0,
+        gt=0,
+        description="Dollar profit threshold to trigger capture (default $1000). Closes profitable positions when unrealized profit >= this amount.",
     )
     profit_capture_target_pct: float = Field(
         default=20.0,
@@ -711,14 +738,14 @@ class HEANSettings(BaseSettings):
         description="Profit capture mode: 'full' closes all positions and cancels orders, 'partial' reduces exposure.",
     )
     profit_capture_after_action: Literal["pause", "continue"] = Field(
-        default="pause",
-        description="Action after profit capture: 'pause' stops trading, 'continue' continues with reduced risk.",
+        default="continue",
+        description="Action after profit capture: 'pause' stops trading, 'continue' continues trading with new capital base.",
     )
     profit_capture_continue_risk_mult: float = Field(
-        default=0.25,
+        default=0.5,
         ge=0,
         le=1,
-        description="Risk multiplier when continuing after profit capture (default 0.25 = 25% of normal risk).",
+        description="Risk multiplier when continuing after profit capture (default 0.5 = 50% of normal risk).",
     )
     paper_trade_assist_micro_trade_interval_sec: int = Field(
         default=60,

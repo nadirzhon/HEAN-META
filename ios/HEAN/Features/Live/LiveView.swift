@@ -2,7 +2,7 @@
 //  LiveView.swift
 //  HEAN
 //
-//  Tab 1: Live market overview — price, physics, AI, balance of forces
+//  Tab 1: Live trading overview — account balance, P&L, risk, physics, AI
 //
 
 import SwiftUI
@@ -15,7 +15,7 @@ struct LiveView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
                     // Error banner
                     if let error = viewModel.error {
                         let engineDown = viewModel.engineState == "ERROR" || viewModel.engineState == "STOPPED"
@@ -30,13 +30,16 @@ struct LiveView: View {
                         ProgressView(L.loadingLiveData)
                             .padding(.top, 40)
                     } else {
-                        // Equity hero (main focus)
-                        equityHeroCard
+                        // 1. Account balance — THE main card
+                        accountHeroCard
 
-                        // P&L breakdown
-                        pnlBreakdown
+                        // 2. P&L breakdown row
+                        pnlRow
 
-                        // AI Explanation
+                        // 3. Risk state
+                        riskIndicator
+
+                        // 4. AI Explanation
                         if let analysis = viewModel.brainAnalysis {
                             AIExplanationCard(
                                 summary: analysis.summary,
@@ -44,30 +47,27 @@ struct LiveView: View {
                             )
                         }
 
-                        // Physics gauges
+                        // 5. Physics (compact single card)
                         if let physics = viewModel.physics {
-                            PhysicsInlineSection(physics: physics)
+                            PhysicsCompactCard(physics: physics)
 
-                            // Szilard profit
                             SzilardProfitCard(profit: physics.szilardProfit)
                         }
 
-                        // Balance of forces
+                        // 6. Balance of forces
                         if let participants = viewModel.participants {
                             BalanceOfForcesCard(participants: participants)
                         }
 
-                        // Risk indicator
-                        riskIndicator
-
-                        // Anomaly sections
+                        // 7. Anomalies
                         if !viewModel.anomalies.isEmpty {
                             WhaleTradesSection(anomalies: viewModel.anomalies)
                             LiquidationsSection(anomalies: viewModel.anomalies)
                         }
                     }
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
             .background(Theme.Colors.background.ignoresSafeArea())
             .navigationTitle(L.live)
@@ -113,145 +113,130 @@ struct LiveView: View {
         }
     }
 
-    // MARK: - Equity Hero Card
+    // MARK: - Account Hero Card
 
-    private var equityHeroCard: some View {
-        GlassCard(padding: 16) {
-            VStack(spacing: 12) {
-                // Equity — the main number
-                VStack(spacing: 4) {
+    private var accountHeroCard: some View {
+        GlassCard(padding: 0) {
+            VStack(spacing: 0) {
+                // Main equity section
+                VStack(spacing: 8) {
                     Text(L.equity)
-                        .font(.caption)
-                        .fontWeight(.medium)
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundColor(Theme.Colors.textSecondary)
                         .textCase(.uppercase)
-                        .tracking(1.2)
+                        .tracking(1.5)
 
                     Text(viewModel.equity.asCurrency)
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .font(.system(size: 44, weight: .bold, design: .rounded))
                         .foregroundColor(Theme.Colors.textPrimary)
                         .contentTransition(.numericText())
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.equity)
-                }
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
 
-                // Total P&L
-                HStack(spacing: 6) {
-                    Image(systemName: viewModel.pnl.total >= 0 ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 14, weight: .bold))
-                    Text(viewModel.pnl.total.asPnL)
-                        .font(.system(size: 18, weight: .bold, design: .monospaced))
-                    Text("(\(viewModel.pnl.percent.asPercent))")
-                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    // P&L badge
+                    HStack(spacing: 6) {
+                        Image(systemName: viewModel.pnl.total >= 0 ? "arrow.up.right" : "arrow.down.right")
+                            .font(.system(size: 14, weight: .bold))
+                        Text(viewModel.pnl.total.asPnL)
+                            .font(.system(size: 20, weight: .bold, design: .monospaced))
+                        Text(viewModel.pnl.percent.asPercent)
+                            .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                (viewModel.pnl.total >= 0 ? Theme.Colors.success : Theme.Colors.error)
+                                    .opacity(0.15)
+                            )
+                            .cornerRadius(4)
+                    }
+                    .foregroundColor(viewModel.pnl.total >= 0 ? Theme.Colors.success : Theme.Colors.error)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 }
-                .foregroundColor(viewModel.pnl.total >= 0 ? Theme.Colors.success : Theme.Colors.error)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
 
                 // Divider
                 Rectangle()
-                    .fill(Theme.Colors.divider)
+                    .fill(Color.white.opacity(0.08))
                     .frame(height: 1)
 
-                // Bottom row: Initial Capital | Positions | Market Price
+                // Stats row
                 HStack(spacing: 0) {
-                    // Initial Capital
-                    VStack(spacing: 2) {
-                        Text(L.totalCapital)
-                            .font(.caption2)
-                            .foregroundColor(Theme.Colors.textTertiary)
-                        Text(viewModel.initialCapital.asCurrency)
-                            .font(.system(.caption, design: .monospaced))
-                            .fontWeight(.semibold)
-                            .foregroundColor(Theme.Colors.textSecondary)
-                    }
-                    .frame(maxWidth: .infinity)
+                    compactStat(label: L.totalCapital, value: viewModel.initialCapital.asCurrency)
 
-                    // Vertical divider
-                    Rectangle()
-                        .fill(Theme.Colors.divider)
-                        .frame(width: 1, height: 28)
+                    Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1, height: 32)
 
-                    // Positions
-                    VStack(spacing: 2) {
-                        Text(L.positions)
-                            .font(.caption2)
-                            .foregroundColor(Theme.Colors.textTertiary)
-                        Text("\(viewModel.positionCount)")
-                            .font(.system(.caption, design: .monospaced))
-                            .fontWeight(.semibold)
-                            .foregroundColor(Theme.Colors.textSecondary)
-                    }
-                    .frame(maxWidth: .infinity)
+                    compactStat(label: L.positions, value: "\(viewModel.positionCount)")
 
-                    // Vertical divider
-                    Rectangle()
-                        .fill(Theme.Colors.divider)
-                        .frame(width: 1, height: 28)
+                    Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1, height: 32)
 
-                    // Market price (compact)
-                    VStack(spacing: 2) {
-                        Text(viewModel.symbol)
-                            .font(.caption2)
-                            .foregroundColor(Theme.Colors.textTertiary)
-                        HStack(spacing: 3) {
-                            Text(viewModel.marketPrice.asCompactCurrency)
-                                .font(.system(.caption, design: .monospaced))
-                                .fontWeight(.semibold)
-                                .foregroundColor(Theme.Colors.textSecondary)
-                            Text(viewModel.priceChange24h >= 0 ? "▲" : "▼")
-                                .font(.system(size: 8))
-                                .foregroundColor(viewModel.priceChange24h >= 0 ? Theme.Colors.success : Theme.Colors.error)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
+                    compactStat(
+                        label: viewModel.symbol,
+                        value: viewModel.marketPrice.asCompactCurrency,
+                        valueColor: viewModel.priceChange24h >= 0 ? Theme.Colors.success : Theme.Colors.error
+                    )
                 }
+                .padding(.vertical, 12)
             }
         }
     }
 
-    // MARK: - P&L Breakdown
+    private func compactStat(
+        label: String,
+        value: String,
+        valueColor: Color = Theme.Colors.textPrimary
+    ) -> some View {
+        VStack(spacing: 3) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(Theme.Colors.textTertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(value)
+                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundColor(valueColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .frame(maxWidth: .infinity)
+    }
 
-    private var pnlBreakdown: some View {
-        HStack(spacing: 12) {
-            // Unrealized P&L
-            GlassCard(padding: 12) {
-                VStack(spacing: 4) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Theme.Colors.warning)
-                            .frame(width: 6, height: 6)
-                        Text(L.unrealizedPnL)
-                            .font(.caption2)
-                            .foregroundColor(Theme.Colors.textTertiary)
-                    }
-                    Text(viewModel.pnl.unrealized.asPnL)
-                        .font(.system(.subheadline, design: .monospaced))
-                        .fontWeight(.bold)
-                        .foregroundColor(viewModel.pnl.unrealized >= 0 ? Theme.Colors.success : Theme.Colors.error)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-                .frame(maxWidth: .infinity)
-            }
+    // MARK: - P&L Row
 
-            // Realized P&L
-            GlassCard(padding: 12) {
-                VStack(spacing: 4) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Theme.Colors.accent)
-                            .frame(width: 6, height: 6)
-                        Text(L.realizedPnL)
-                            .font(.caption2)
-                            .foregroundColor(Theme.Colors.textTertiary)
-                    }
-                    Text(viewModel.pnl.realized.asPnL)
-                        .font(.system(.subheadline, design: .monospaced))
-                        .fontWeight(.bold)
-                        .foregroundColor(viewModel.pnl.realized >= 0 ? Theme.Colors.success : Theme.Colors.error)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+    private var pnlRow: some View {
+        HStack(spacing: 10) {
+            pnlCard(
+                label: L.unrealizedPnL,
+                value: viewModel.pnl.unrealized,
+                dotColor: Theme.Colors.warning
+            )
+            pnlCard(
+                label: L.realizedPnL,
+                value: viewModel.pnl.realized,
+                dotColor: Theme.Colors.accent
+            )
+        }
+    }
+
+    private func pnlCard(label: String, value: Double, dotColor: Color) -> some View {
+        GlassCard(padding: 12) {
+            VStack(spacing: 6) {
+                HStack(spacing: 4) {
+                    Circle().fill(dotColor).frame(width: 5, height: 5)
+                    Text(label)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Theme.Colors.textTertiary)
                 }
-                .frame(maxWidth: .infinity)
+                Text(value.asPnL)
+                    .font(.system(size: 17, weight: .bold, design: .monospaced))
+                    .foregroundColor(value >= 0 ? Theme.Colors.success : Theme.Colors.error)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
             }
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -261,25 +246,25 @@ struct LiveView: View {
         GlassCard(padding: 14) {
             HStack(spacing: 12) {
                 Image(systemName: viewModel.riskState.icon)
-                    .font(.title2)
+                    .font(.title3)
                     .foregroundColor(Color(hex: viewModel.riskState.colorHex))
                     .symbolEffect(.pulse, isActive: viewModel.riskState != .normal)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(viewModel.riskState.displayName)
-                        .font(.subheadline)
-                        .fontWeight(.bold)
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundColor(Color(hex: viewModel.riskState.colorHex))
                     Text(viewModel.riskState.description)
-                        .font(.caption)
+                        .font(.system(size: 12))
                         .foregroundColor(Theme.Colors.textSecondary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
 
                 Circle()
                     .fill(Color(hex: viewModel.riskState.colorHex))
-                    .frame(width: 10, height: 10)
+                    .frame(width: 8, height: 8)
             }
         }
         .explainable(.riskState, value: viewModel.riskState == .normal ? 0.2 : 0.8)
@@ -328,5 +313,4 @@ struct LiveView: View {
                 .strokeBorder(color.opacity(0.3), lineWidth: 1)
         )
     }
-
 }

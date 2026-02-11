@@ -39,7 +39,7 @@ from hean.core.types import (
     Tick,
 )
 from hean.evaluation.truth_layer import analyze_truth, print_truth
-from hean.exchange.synthetic_feed import SyntheticPriceFeed
+from hean.exchange.models import PriceFeed
 from hean.execution.order_manager import OrderManager
 from hean.execution.position_monitor import PositionMonitor
 from hean.execution.position_reconciliation import PositionReconciler
@@ -134,15 +134,22 @@ class TradingSystem:
         # Position Reconciler - ensures local state matches exchange (initialized in run())
         self._position_reconciler: PositionReconciler | None = None
         self._multi_symbol_scanner = MultiSymbolScanner(self._bus)
-        self._price_feed: SyntheticPriceFeed | None = None
+        self._price_feed: PriceFeed | None = None
         self._strategies: list = []
         self._income_streams: list = []
         self._candle_aggregator: CandleAggregator | None = None
 
+        # Context aggregator (fuses Brain+Physics+TCN+OFI+Causal → CONTEXT_READY)
+        self._context_aggregator = None
+
         # Auto-improvement systems
         self._improvement_catalyst: ImprovementCatalyst | None = None
+        self._ai_factory = None
         self._capital_optimizer = CapitalOptimizer()
         self._report_generator = ReportGenerator()
+
+        # AI Council (multi-model periodic system review)
+        self._council = None
 
         # Phase 5: Statistical Arbitrage & Anti-Fragile Architecture
         self._correlation_engine: CorrelationEngine | None = None
@@ -380,7 +387,7 @@ class TradingSystem:
 
         Args:
             price_feed: Optional PriceFeed instance to inject. If provided, uses this
-                       instead of creating SyntheticPriceFeed. Used for evaluation mode
+                       instead of creating BybitPriceFeed. Used for evaluation mode
                        with EventSimulator.
         """
         logger.info("Starting HEAN trading system...")
@@ -498,54 +505,20 @@ class TradingSystem:
 
         # Absolute+: Initialize Post-Singularity Systems
         if self._mode == "run" and getattr(settings, 'absolute_plus_enabled', True):
+            # DISABLED: Dead code - MetaLearningEngine publishes META_LEARNING_PATCH but no handler exists
             # 1. Meta-Learning Engine (Recursive Intelligence Core)
-            try:
-                cpp_source_dir = Path(__file__).parent.parent.parent / "src" / "hean" / "core" / "cpp"
-                self._meta_learning_engine = MetaLearningEngine(
-                    bus=self._bus,
-                    cpp_source_dir=cpp_source_dir,
-                    simulation_rate=getattr(settings, 'meta_learning_rate', 1_000_000),
-                    auto_patch_enabled=getattr(settings, 'meta_learning_auto_patch', True),
-                    max_concurrent_simulations=getattr(settings, 'meta_learning_max_workers', 100)
-                )
-                await self._meta_learning_engine.start()
-                logger.info("⚡ ABSOLUTE+: Meta-Learning Engine started (Recursive Intelligence Core)")
-            except Exception as e:
-                logger.warning(f"Failed to start Meta-Learning Engine: {e}")
+            self._meta_learning_engine = None
+            logger.info("MetaLearningEngine DISABLED — not connected to trading flow")
 
+            # DISABLED: Dead code - CausalInferenceEngine output stored in ctx.causal but never used by strategies
             # 2. Causal Inference Engine
-            try:
-                # Source symbols for cross-asset pre-echo detection
-                source_symbols = getattr(settings, 'causal_source_symbols', [
-                    "BTCUSDT", "ETHUSDT", "BNBUSDT",  # Other exchanges could be added
-                    "SPX", "NDX",  # Stock indices (if available)
-                    "DXY"  # Dollar index
-                ])
-                self._causal_inference_engine = CausalInferenceEngine(
-                    bus=self._bus,
-                    target_symbols=settings.trading_symbols,
-                    source_symbols=source_symbols,
-                    window_size=getattr(settings, 'causal_window_size', 500),
-                    min_causality_threshold=getattr(settings, 'causal_min_threshold', 0.3),
-                    min_transfer_entropy=getattr(settings, 'causal_min_te', 0.1)
-                )
-                await self._causal_inference_engine.start()
-                logger.info("🔮 ABSOLUTE+: Causal Inference Engine started (Granger Causality + Transfer Entropy)")
-            except Exception as e:
-                logger.warning(f"Failed to start Causal Inference Engine: {e}")
+            self._causal_inference_engine = None
+            logger.info("CausalInferenceEngine DISABLED — output not consumed by any strategy")
 
+            # DISABLED: Dead code - MultimodalSwarm output not consumed by any strategy
             # 3. Multimodal Swarm (Unified Tensor Processing)
-            try:
-                self._multimodal_swarm = MultimodalSwarm(
-                    bus=self._bus,
-                    symbols=settings.trading_symbols,
-                    window_size=getattr(settings, 'multimodal_window_size', 100),
-                    num_agents=getattr(settings, 'multimodal_num_agents', 50)
-                )
-                await self._multimodal_swarm.start()
-                logger.info("🌐 ABSOLUTE+: Multimodal Swarm started (Price + Sentiment + On-Chain + Macro)")
-            except Exception as e:
-                logger.warning(f"Failed to start Multimodal Swarm: {e}")
+            self._multimodal_swarm = None
+            logger.info("MultimodalSwarm DISABLED — no strategy consumes tensor output")
 
         # Physics Engine: Market thermodynamics
         if self._mode == "run":
@@ -586,12 +559,35 @@ class TradingSystem:
                 self._brain_client = ClaudeBrainClient(
                     bus=self._bus,
                     api_key=getattr(settings, 'anthropic_api_key', ''),
-                    analysis_interval=getattr(settings, 'brain_analysis_interval', 30),
+                    analysis_interval=getattr(settings, 'brain_analysis_interval', 60),
+                    openrouter_api_key=getattr(settings, 'openrouter_api_key', ''),
                 )
                 await self._brain_client.start()
                 logger.info("Brain Client started")
             except Exception as e:
                 logger.warning(f"Brain Client failed to start: {e}")
+
+        # ContextAggregator: fuses Brain+Physics+TCN+OFI+Causal → CONTEXT_READY
+        if self._mode == "run":
+            try:
+                from hean.core.context_aggregator import ContextAggregator
+
+                symbols_for_context = settings.symbols if settings.multi_symbol_enabled else settings.trading_symbols
+                self._context_aggregator = ContextAggregator(self._bus, symbols_for_context)
+                await self._context_aggregator.start()
+                logger.info("ContextAggregator started")
+            except Exception as e:
+                logger.warning(f"ContextAggregator failed to start: {e}")
+
+        # AI Factory: Shadow → Canary → Production pipeline
+        if self._mode == "run":
+            try:
+                from hean.ai.factory import AIFactory
+
+                self._ai_factory = AIFactory(self._bus)
+                logger.info("AI Factory initialized")
+            except Exception as e:
+                logger.warning(f"AI Factory failed to initialize: {e}")
 
         # DuckDB Storage (optional)
         self._duckdb_store = None
@@ -643,17 +639,15 @@ class TradingSystem:
                     await http_client.disconnect()
 
                     # Parse balance from Bybit API response
-                    # Bybit returns: {"result": {"list": [{"coin": [{"walletBalance": "...", "coin": "USDT"}]}]}}
+                    # _request() returns result.get("result", {}) — already unwrapped
                     balance = 0.0
-                    if account_info.get("retCode") == 0:
-                        result = account_info.get("result", {})
-                        account_list = result.get("list", [])
-                        if account_list:
-                            coins = account_list[0].get("coin", [])
-                            for coin in coins:
-                                if coin.get("coin") == "USDT":
-                                    balance = float(coin.get("walletBalance", 0))
-                                    break
+                    account_list = account_info.get("list", [])
+                    if account_list:
+                        coins = account_list[0].get("coin", [])
+                        for coin in coins:
+                            if coin.get("coin") == "USDT":
+                                balance = float(coin.get("walletBalance", 0))
+                                break
 
                     if balance > 0:
                         # Update accounting with real exchange balance
@@ -673,7 +667,7 @@ class TradingSystem:
                     logger.warning(f"⚠️ Could not sync with exchange balance: {e}")
                     logger.info(f"Using configured initial capital: ${initial_capital:,.2f}")
             except Exception as e:
-                logger.critical(f"MARKET_STREAM_FALLBACK: Bybit price feed failed, switching to synthetic. Error: {e}", exc_info=True)
+                logger.critical(f"FATAL: Bybit price feed failed. Cannot start without real market data. Error: {e}", exc_info=True)
                 self._stop_trading = True
                 await self._bus.publish(
                     Event(
@@ -684,14 +678,17 @@ class TradingSystem:
                         },
                     )
                 )
-                self._price_feed = SyntheticPriceFeed(self._bus, symbols)
-                await self._price_feed.start()
-                logger.info(f"MARKET_STREAM_STARTED: Synthetic price feed for monitoring only (trading disabled)")
+                raise RuntimeError(
+                    f"Cannot start trading system: Bybit price feed failed. "
+                    f"No synthetic/simulated data fallback allowed. Error: {e}"
+                ) from e
         else:
-            # Create default synthetic price feed for paper trading
-            self._price_feed = SyntheticPriceFeed(self._bus, symbols)
-            await self._price_feed.start()
-            logger.info(f"MARKET_STREAM_STARTED: Synthetic price feed for symbols {symbols}")
+            # No live feed configured — require Bybit connection
+            raise RuntimeError(
+                "Cannot start trading system without Bybit price feed. "
+                "Set BYBIT_API_KEY/BYBIT_API_SECRET and ensure BYBIT_TESTNET=true. "
+                "No synthetic/simulated data allowed in production."
+            )
 
         # Start triangular arbitrage scanner (paper + live)
         if self._mode == "run" and settings.triangular_arb_enabled:
@@ -845,8 +842,8 @@ class TradingSystem:
         self._bus.subscribe(EventType.TICK, self._handle_tick_forced_exit)
         # Subscribe to POSITION_CLOSE_REQUEST from Oracle/other modules
         self._bus.subscribe(EventType.POSITION_CLOSE_REQUEST, self._handle_position_close_request)
-        # Subscribe to META_LEARNING_PATCH for strategy parameter updates
-        self._bus.subscribe(EventType.META_LEARNING_PATCH, self._handle_meta_learning_patch)
+        # DISABLED: META_LEARNING_PATCH subscription removed — engine disabled, handler never existed
+        # self._bus.subscribe(EventType.META_LEARNING_PATCH, self._handle_meta_learning_patch)
 
         # Schedule periodic status updates (skip in evaluate mode)
         if self._mode == "run":
@@ -859,21 +856,44 @@ class TradingSystem:
                 self._micro_trade_task = asyncio.create_task(self._micro_trade_fallback_loop())
                 logger.info("Paper Trade Assist: Fallback micro-trade loop started")
 
-        # Start improvement catalyst (only in run mode, with LLM enabled)
+        # Start improvement catalyst (only in run mode)
         if self._mode == "run":
             try:
                 # Create strategy dict for catalyst
                 strategy_dict = {strategy.strategy_id: strategy for strategy in self._strategies}
                 self._improvement_catalyst = ImprovementCatalyst(
+                    bus=self._bus,
                     accounting=self._accounting,
                     strategies=strategy_dict,
-                    check_interval_minutes=30,  # Check every 30 minutes
+                    ai_factory=self._ai_factory,
+                    check_interval_minutes=30,
                     min_trades_for_analysis=10,
                 )
                 await self._improvement_catalyst.start()
                 logger.info("Improvement Catalyst started")
             except Exception as e:
                 logger.warning(f"Could not start Improvement Catalyst: {e}")
+
+        # Start AI Council (multi-model periodic system review)
+        if self._mode == "run" and settings.council_enabled:
+            try:
+                from hean.council.council import AICouncil
+
+                strategy_dict = {s.strategy_id: s for s in self._strategies}
+                self._council = AICouncil(
+                    bus=self._bus,
+                    accounting=self._accounting,
+                    strategies=strategy_dict,
+                    killswitch=self._killswitch,
+                    ai_factory=self._ai_factory,
+                    improvement_catalyst=self._improvement_catalyst,
+                    review_interval=settings.council_review_interval,
+                    auto_apply_safe=settings.council_auto_apply_safe,
+                )
+                await self._council.start()
+                logger.info("AI Council started")
+            except Exception as e:
+                logger.warning(f"Could not start AI Council: {e}")
 
         self._running = True
         logger.info("Trading system started")
@@ -882,6 +902,10 @@ class TradingSystem:
         """Stop the trading system."""
         logger.info("Stopping trading system...")
         self._running = False
+
+        # Stop AI Council
+        if self._council:
+            await self._council.stop()
 
         # Stop improvement catalyst
         if self._improvement_catalyst:
@@ -915,6 +939,10 @@ class TradingSystem:
         # Stop Position Reconciler
         if self._position_reconciler:
             await self._position_reconciler.stop()
+
+        # Stop ContextAggregator
+        if self._context_aggregator:
+            await self._context_aggregator.stop()
 
         # Stop Brain Client
         if hasattr(self, '_brain_client') and self._brain_client:
@@ -1031,6 +1059,35 @@ class TradingSystem:
             )
             return
 
+        # Total exposure guard: block if total notional > max_exposure_multiplier * equity
+        equity = self._accounting.get_equity()
+        if equity > 0:
+            total_notional = 0.0
+            for pos in self._accounting.get_positions():
+                pos_price = pos.current_price or pos.entry_price
+                if pos_price:
+                    total_notional += abs(pos.size) * pos_price
+            max_notional = equity * settings.max_exposure_multiplier
+            if total_notional >= max_notional:
+                logger.warning(
+                    f"Signal BLOCKED by exposure guard: total_notional=${total_notional:.2f} >= "
+                    f"max=${max_notional:.2f} ({settings.max_exposure_multiplier}x equity=${equity:.2f})"
+                )
+                no_trade_report.increment("exposure_guard_block", signal.symbol, signal.strategy_id)
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="REJECT",
+                    reason_code="EXPOSURE_LIMIT",
+                    computed_qty=None,
+                    context={
+                        "total_notional": total_notional,
+                        "max_notional": max_notional,
+                        "equity": equity,
+                        "exposure_ratio": total_notional / equity,
+                    },
+                )
+                return
+
         # WHY NOT TRADING: Check basic execution gates first
         if settings.process_factory_enabled:
             from hean.process_factory.integrations.trade_diagnostics import (
@@ -1106,67 +1163,58 @@ class TradingSystem:
         self._signals_generated += 1
         metrics.increment("signals_generated_total")
 
-        # МНОЖЕСТВЕННАЯ ЗАЩИТА
+        # МНОЖЕСТВЕННАЯ ЗАЩИТА (always active — never bypass risk controls)
         protection_size_multiplier = 1.0
-        if not settings.debug_mode:
-            equity = self._accounting.get_equity()
-            initial_capital = self._accounting.initial_capital
-            protection = MultiLevelProtection(initial_capital=initial_capital)
+        equity = self._accounting.get_equity()
+        initial_capital = self._accounting.initial_capital
+        protection = MultiLevelProtection(initial_capital=initial_capital)
 
-            allowed, reason = protection.check_all_protections(
-                strategy_id=signal.strategy_id, equity=equity, initial_capital=initial_capital
+        allowed, reason = protection.check_all_protections(
+            strategy_id=signal.strategy_id, equity=equity, initial_capital=initial_capital
+        )
+
+        if not allowed:
+            logger.warning(f"Signal blocked by protection: {reason}")
+            metrics.increment("signals_blocked_protection")
+            no_trade_report.increment("protection_block", signal.symbol, signal.strategy_id)
+            no_trade_report.increment_pipeline("signals_blocked_protection", signal.strategy_id)
+            await self._emit_order_decision(
+                signal=signal,
+                decision="REJECT",
+                reason_code="PROTECTION_BLOCK",
+                computed_qty=None,
+                context={
+                    "reason": reason,
+                    "equity": equity,
+                    "initial_capital": initial_capital,
+                    "open_orders": len(self._order_manager.get_open_orders()),
+                    "open_positions": len(self._accounting.get_positions()),
+                },
             )
-
-            if not allowed:
-                logger.warning(f"Signal blocked by protection: {reason}")
-                metrics.increment("signals_blocked_protection")
-                no_trade_report.increment("protection_block", signal.symbol, signal.strategy_id)
-                no_trade_report.increment_pipeline("signals_blocked_protection", signal.strategy_id)
-                await self._emit_order_decision(
-                    signal=signal,
-                    decision="REJECT",
-                    reason_code="PROTECTION_BLOCK",
-                    computed_qty=None,
-                    context={
-                        "reason": reason,
-                        "equity": equity,
-                        "initial_capital": initial_capital,
-                        "open_orders": len(self._order_manager.get_open_orders()),
-                        "open_positions": len(self._accounting.get_positions()),
-                    },
-                )
-                return
-        else:
-            logger.debug(f"[DEBUG] Protection bypassed for {signal.symbol} {signal.strategy_id}")
+            return
 
         # Get equity for later use
         equity = self._accounting.get_equity()
 
-        # Capital Preservation Mode
-        if not settings.debug_mode:
-            preservation_mode = CapitalPreservationMode()
-            drawdown_pct = self._accounting.get_drawdown(equity)[1]
-            strategy_metrics = self._accounting.get_strategy_metrics()
-            rolling_pf = (
-                strategy_metrics.get(signal.strategy_id, {}).get("profit_factor", 1.0)
-                if strategy_metrics
-                else 1.0
-            )
-            consecutive_losses = self._risk_limits.get_consecutive_losses(signal.strategy_id)
+        # Capital Preservation Mode (always active)
+        preservation_mode = CapitalPreservationMode()
+        drawdown_pct = self._accounting.get_drawdown(equity)[1]
+        strategy_metrics = self._accounting.get_strategy_metrics()
+        rolling_pf = (
+            strategy_metrics.get(signal.strategy_id, {}).get("profit_factor", 1.0)
+            if strategy_metrics
+            else 1.0
+        )
+        consecutive_losses = self._risk_limits.get_consecutive_losses(signal.strategy_id)
 
-            if preservation_mode.should_activate(drawdown_pct, rolling_pf, consecutive_losses):
-                # Применить консервативные параметры
-                if signal.metadata is None:
-                    signal.metadata = {}
-                signal.metadata["preservation_mode"] = True
-                signal.metadata["risk_multiplier"] = preservation_mode.get_risk_pct(1.0)
-                logger.warning(
-                    f"Capital Preservation Mode active: drawdown={drawdown_pct:.1f}%, "
-                    f"PF={rolling_pf:.2f}, consecutive_losses={consecutive_losses}"
-                )
-        else:
-            logger.debug(
-                f"[DEBUG] Capital Preservation Mode bypassed for {signal.symbol} {signal.strategy_id}"
+        if preservation_mode.should_activate(drawdown_pct, rolling_pf, consecutive_losses):
+            if signal.metadata is None:
+                signal.metadata = {}
+            signal.metadata["preservation_mode"] = True
+            signal.metadata["risk_multiplier"] = preservation_mode.get_risk_pct(1.0)
+            logger.warning(
+                f"Capital Preservation Mode active: drawdown={drawdown_pct:.1f}%, "
+                f"PF={rolling_pf:.2f}, consecutive_losses={consecutive_losses}"
             )
 
         # Calculate position size BEFORE creating OrderRequest
@@ -1264,122 +1312,114 @@ class TradingSystem:
                 absolute_min = 0.001
                 base_size = max(min_size_value, absolute_min)
 
-        # Check risk limits with calculated size
-        if not settings.debug_mode:
-            allowed, reason = self._risk_limits.check_order_request(
-                OrderRequest(
-                    signal_id=str(uuid.uuid4()),
-                    strategy_id=signal.strategy_id,
-                    symbol=signal.symbol,
-                    side=signal.side,
-                    size=base_size,  # Use calculated size
-                    price=signal.entry_price,
-                ),
-                equity,
-            )
+        # Check risk limits with calculated size (always active)
+        allowed, reason = self._risk_limits.check_order_request(
+            OrderRequest(
+                signal_id=str(uuid.uuid4()),
+                strategy_id=signal.strategy_id,
+                symbol=signal.symbol,
+                side=signal.side,
+                size=base_size,
+                price=signal.entry_price,
+            ),
+            equity,
+        )
 
-            if not allowed:
-                logger.debug(f"Signal rejected by risk limits: {reason}")
+        if not allowed:
+            logger.debug(f"Signal rejected by risk limits: {reason}")
+            reason_code = "RISK_BLOCKED"
+            if "Position already exists" in reason:
+                reason_code = "POSITION_EXISTS"
+            elif "Max open positions" in reason:
                 reason_code = "RISK_BLOCKED"
-                if "Position already exists" in reason:
-                    reason_code = "POSITION_EXISTS"
-                elif "Max open positions" in reason:
-                    reason_code = "RISK_BLOCKED"
-                metrics.increment("signals_rejected")
-                no_trade_report.increment("risk_limits_reject", signal.symbol, signal.strategy_id)
-                no_trade_report.increment_pipeline("signals_rejected_risk", signal.strategy_id)
-                log_block_reason(
-                    "risk_limits_reject",
-                    symbol=signal.symbol,
-                    strategy_id=signal.strategy_id,
-                    agent_name=signal.strategy_id,
-                    threshold=None,
-                    measured_value=None,
-                )
-                log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"risk_limits: {reason}")
-                await self._emit_order_decision(
-                    signal=signal,
-                    decision="REJECT",
-                    reason_code=reason_code,
-                    computed_qty=base_size,
-                    context={
-                        "equity": equity,
-                        "price": current_price,
-                        "reason": reason,
-                        "open_orders": len(self._order_manager.get_open_orders()),
-                        "open_positions": len(self._accounting.get_positions()),
-                    },
-                )
-                return
-        else:
-            logger.debug(f"[DEBUG] Risk limits bypassed for {signal.symbol} {signal.strategy_id}")
-
-        # Check daily attempts and cooldown
-        if not settings.debug_mode:
-            regime = self._current_regime.get(signal.symbol, Regime.NORMAL)
-            allowed, reason = self._risk_limits.check_daily_attempts(signal.strategy_id, regime)
-            if not allowed:
-                logger.debug(f"Signal rejected: {reason}")
-                metrics.increment("signals_rejected")
-                no_trade_report.increment(
-                    "daily_attempts_reject", signal.symbol, signal.strategy_id
-                )
-                no_trade_report.increment_pipeline(
-                    "signals_rejected_daily_attempts", signal.strategy_id
-                )
-                log_block_reason(
-                    "daily_attempts_reject",
-                    symbol=signal.symbol,
-                    strategy_id=signal.strategy_id,
-                    agent_name=signal.strategy_id,
-                )
-                log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"daily_attempts: {reason}")
-                await self._emit_order_decision(
-                    signal=signal,
-                    decision="SKIP",
-                    reason_code="DAILY_LIMIT",
-                    computed_qty=base_size,
-                    context={
-                        "reason": reason,
-                        "attempts": self._risk_limits._daily_attempts.get(signal.strategy_id, 0),
-                        "regime": regime.value if hasattr(regime, "value") else str(regime),
-                        "open_orders": len(self._order_manager.get_open_orders()),
-                        "open_positions": len(self._accounting.get_positions()),
-                    },
-                )
-                return
-
-            # Check cooldown (bypassed in DEBUG_MODE / Aggressive Mode)
-            allowed, reason = self._risk_limits.check_cooldown(signal.strategy_id)
-            if not allowed:
-                logger.debug(f"Signal rejected: {reason}")
-                metrics.increment("signals_rejected")
-                no_trade_report.increment("cooldown_reject", signal.symbol, signal.strategy_id)
-                no_trade_report.increment_pipeline("signals_rejected_cooldown", signal.strategy_id)
-                log_block_reason(
-                    "cooldown_reject",
-                    symbol=signal.symbol,
-                    strategy_id=signal.strategy_id,
-                    agent_name=signal.strategy_id,
-                )
-                log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"cooldown: {reason}")
-                await self._emit_order_decision(
-                    signal=signal,
-                    decision="SKIP",
-                    reason_code="COOLDOWN",
-                    computed_qty=base_size,
-                    context={
-                        "reason": reason,
-                        "consecutive_losses": self._risk_limits.get_consecutive_losses(signal.strategy_id),
-                        "open_orders": len(self._order_manager.get_open_orders()),
-                        "open_positions": len(self._accounting.get_positions()),
-                    },
-                )
-                return
-        else:
-            logger.debug(
-                f"[DEBUG] Daily attempts and cooldown bypassed for {signal.symbol} {signal.strategy_id}"
+            metrics.increment("signals_rejected")
+            no_trade_report.increment("risk_limits_reject", signal.symbol, signal.strategy_id)
+            no_trade_report.increment_pipeline("signals_rejected_risk", signal.strategy_id)
+            log_block_reason(
+                "risk_limits_reject",
+                symbol=signal.symbol,
+                strategy_id=signal.strategy_id,
+                agent_name=signal.strategy_id,
+                threshold=None,
+                measured_value=None,
             )
+            log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"risk_limits: {reason}")
+            await self._emit_order_decision(
+                signal=signal,
+                decision="REJECT",
+                reason_code=reason_code,
+                computed_qty=base_size,
+                context={
+                    "equity": equity,
+                    "price": current_price,
+                    "reason": reason,
+                    "open_orders": len(self._order_manager.get_open_orders()),
+                    "open_positions": len(self._accounting.get_positions()),
+                },
+            )
+            return
+
+        # Check daily attempts and cooldown (always active)
+        regime = self._current_regime.get(signal.symbol, Regime.NORMAL)
+        allowed, reason = self._risk_limits.check_daily_attempts(signal.strategy_id, regime)
+        if not allowed:
+            logger.debug(f"Signal rejected: {reason}")
+            metrics.increment("signals_rejected")
+            no_trade_report.increment(
+                "daily_attempts_reject", signal.symbol, signal.strategy_id
+            )
+            no_trade_report.increment_pipeline(
+                "signals_rejected_daily_attempts", signal.strategy_id
+            )
+            log_block_reason(
+                "daily_attempts_reject",
+                symbol=signal.symbol,
+                strategy_id=signal.strategy_id,
+                agent_name=signal.strategy_id,
+            )
+            log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"daily_attempts: {reason}")
+            await self._emit_order_decision(
+                signal=signal,
+                decision="SKIP",
+                reason_code="DAILY_LIMIT",
+                computed_qty=base_size,
+                context={
+                    "reason": reason,
+                    "attempts": self._risk_limits._daily_attempts.get(signal.strategy_id, 0),
+                    "regime": regime.value if hasattr(regime, "value") else str(regime),
+                    "open_orders": len(self._order_manager.get_open_orders()),
+                    "open_positions": len(self._accounting.get_positions()),
+                },
+            )
+            return
+
+        # Check cooldown (always active)
+        allowed, reason = self._risk_limits.check_cooldown(signal.strategy_id)
+        if not allowed:
+            logger.debug(f"Signal rejected: {reason}")
+            metrics.increment("signals_rejected")
+            no_trade_report.increment("cooldown_reject", signal.symbol, signal.strategy_id)
+            no_trade_report.increment_pipeline("signals_rejected_cooldown", signal.strategy_id)
+            log_block_reason(
+                "cooldown_reject",
+                symbol=signal.symbol,
+                strategy_id=signal.strategy_id,
+                agent_name=signal.strategy_id,
+            )
+            log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"cooldown: {reason}")
+            await self._emit_order_decision(
+                signal=signal,
+                decision="SKIP",
+                reason_code="COOLDOWN",
+                computed_qty=base_size,
+                context={
+                    "reason": reason,
+                    "consecutive_losses": self._risk_limits.get_consecutive_losses(signal.strategy_id),
+                    "open_orders": len(self._order_manager.get_open_orders()),
+                    "open_positions": len(self._accounting.get_positions()),
+                },
+            )
+            return
 
         # ------------------------------------------------------------------
         # Decision Memory: context-aware gating and penalty
@@ -1400,52 +1440,47 @@ class TradingSystem:
             timestamp=event.timestamp,
         )
 
-        # Check if context is blocked
+        # Check if context is blocked (always active)
         has_dm_history = self._decision_memory.has_history(signal.strategy_id, context)
-        if not settings.debug_mode and has_dm_history:
-            if self._decision_memory.blocked(signal.strategy_id, context):
-                logger.debug(
-                    "Signal rejected by decision memory: strategy=%s context=%s",
-                    signal.strategy_id,
-                    context,
-                )
-                metrics.increment("signals_rejected")
-                no_trade_report.increment(
-                    "decision_memory_block", signal.symbol, signal.strategy_id
-                )
-                no_trade_report.increment_pipeline(
-                    "signals_blocked_decision_memory", signal.strategy_id
-                )
-                log_block_reason(
-                    "decision_memory_block",
-                    symbol=signal.symbol,
-                    strategy_id=signal.strategy_id,
-                    agent_name=signal.strategy_id,
-                )
-                log_allow_reason(
-                    "BLOCK",
-                    symbol=signal.symbol,
-                    strategy_id=signal.strategy_id,
-                    note="decision_memory",
-                )
-                await self._emit_order_decision(
-                    signal=signal,
-                    decision="SKIP",
-                    reason_code="DECISION_MEMORY",
-                    computed_qty=base_size,
-                    context={
-                        "reason": "decision_memory_block",
-                        "context": context,
-                        "has_history": has_dm_history,
-                        "open_orders": len(self._order_manager.get_open_orders()),
-                        "open_positions": len(self._accounting.get_positions()),
-                    },
-                )
-                return
-        else:
+        if has_dm_history and self._decision_memory.blocked(signal.strategy_id, context):
             logger.debug(
-                f"[DEBUG] Decision memory bypassed for {signal.symbol} {signal.strategy_id}"
+                "Signal rejected by decision memory: strategy=%s context=%s",
+                signal.strategy_id,
+                context,
             )
+            metrics.increment("signals_rejected")
+            no_trade_report.increment(
+                "decision_memory_block", signal.symbol, signal.strategy_id
+            )
+            no_trade_report.increment_pipeline(
+                "signals_blocked_decision_memory", signal.strategy_id
+            )
+            log_block_reason(
+                "decision_memory_block",
+                symbol=signal.symbol,
+                strategy_id=signal.strategy_id,
+                agent_name=signal.strategy_id,
+            )
+            log_allow_reason(
+                "BLOCK",
+                symbol=signal.symbol,
+                strategy_id=signal.strategy_id,
+                note="decision_memory",
+            )
+            await self._emit_order_decision(
+                signal=signal,
+                decision="SKIP",
+                reason_code="DECISION_MEMORY",
+                computed_qty=base_size,
+                context={
+                    "reason": "decision_memory_block",
+                    "context": context,
+                    "has_history": has_dm_history,
+                    "open_orders": len(self._order_manager.get_open_orders()),
+                    "open_positions": len(self._accounting.get_positions()),
+                },
+            )
+            return
 
         # Position size already calculated above, reuse it
         # (variables regime, rolling_pf, recent_drawdown, volatility_percentile, edge_bps already defined)
@@ -1476,11 +1511,8 @@ class TradingSystem:
                 )
 
         # Decision memory penalty
-        if not settings.debug_mode:
-            penalty_multiplier = self._decision_memory.penalty(signal.strategy_id, context)
-        else:
-            penalty_multiplier = 1.0  # DEBUG: No penalty
-            logger.debug("[DEBUG] Penalty multiplier bypassed, using 1.0")
+        # Decision memory penalty (always active)
+        penalty_multiplier = self._decision_memory.penalty(signal.strategy_id, context)
 
         size_multiplier = penalty_multiplier
         if getattr(signal, "metadata", None) and "size_multiplier" in signal.metadata:
@@ -1705,17 +1737,78 @@ class TradingSystem:
         # Record trade for density tracking
         trade_density.record_trade(order.strategy_id, event.timestamp)
 
-        # Update accounting
+        # Update accounting (cash adjustment for the fill)
         self._accounting.record_fill(order, fill_price, fee)
         logger.info(f"[ORDER_FILLED_HANDLER] Accounting updated for order {order.order_id}")
 
-        # Create position if fully filled
+        # Detect close fills: check if this fill reduces an existing position
+        # A close fill occurs when we have a position and the fill is on the opposite side
+        is_close_fill = False
+        closing_position = None
+
+        # Check metadata first (our own close orders)
+        if order.metadata and order.metadata.get("is_close"):
+            is_close_fill = True
+
+        # Check Bybit closedSize indicator
+        if event.data.get("closedSize") or event.data.get("reduce_only"):
+            is_close_fill = True
+
+        # Heuristic: if we have an existing position for this symbol on the opposite side
+        if not is_close_fill:
+            fill_side = "long" if order.side == "buy" else "short"
+            for pos in self._accounting.get_positions():
+                if pos.symbol == order.symbol and pos.side != fill_side:
+                    is_close_fill = True
+                    break
+
+        if is_close_fill:
+            # Find the position being closed
+            for pos in self._accounting.get_positions():
+                if pos.symbol == order.symbol:
+                    closing_position = pos
+                    break
+
+            if closing_position:
+                # Calculate realized PnL
+                if closing_position.side == "long":
+                    realized_pnl = (fill_price - closing_position.entry_price) * closing_position.size
+                else:
+                    realized_pnl = (closing_position.entry_price - fill_price) * closing_position.size
+
+                closing_position.current_price = fill_price
+                closing_position.realized_pnl = realized_pnl
+
+                logger.info(
+                    f"[ORDER_FILLED_HANDLER] Close fill detected: closing {closing_position.position_id} "
+                    f"({closing_position.symbol} {closing_position.side}) PnL={realized_pnl:.4f}"
+                )
+
+                await self._bus.publish(
+                    Event(
+                        event_type=EventType.POSITION_CLOSED,
+                        data={
+                            "position": closing_position,
+                            "close_reason": "exchange_fill",
+                            "exchange_close": True,
+                        },
+                    )
+                )
+                metrics.increment("positions_closed")
+            else:
+                logger.warning(
+                    f"[ORDER_FILLED_HANDLER] Close fill for {order.symbol} but no matching position found"
+                )
+
+            await self._emit_account_state()
+            return
+
+        # Open fill: Create position if fully filled
         if order.status == OrderStatus.FILLED and order.avg_fill_price:
             logger.info(
                 f"[ORDER_FILLED_HANDLER] Order {order.order_id} is fully filled, "
                 f"creating position: avg_fill_price={order.avg_fill_price:.2f}"
             )
-            # Get take_profit_1 from signal metadata if available
             take_profit_1 = None
             if "take_profit_1" in order.metadata:
                 take_profit_1 = order.metadata["take_profit_1"]
@@ -1753,12 +1846,29 @@ class TradingSystem:
                     data={"position": position},
                 )
             )
-            logger.info(
-                f"[ORDER_FILLED_HANDLER] POSITION_OPENED event published for {position.position_id}"
-            )
 
             metrics.increment("positions_opened")
             no_trade_report.increment_pipeline("positions_opened", order.strategy_id)
+
+            # Exchange-side SL/TP
+            if order.stop_loss or order.take_profit:
+                try:
+                    bybit_http = getattr(self._execution_router, "_bybit_http", None)
+                    if bybit_http:
+                        await bybit_http.set_trading_stop(
+                            symbol=order.symbol,
+                            stop_loss=order.stop_loss,
+                            take_profit=order.take_profit,
+                        )
+                        logger.info(
+                            f"[EXCHANGE PROTECTION] SL/TP set on Bybit for {order.symbol}: "
+                            f"SL={order.stop_loss}, TP={order.take_profit}"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"[EXCHANGE PROTECTION] Failed to set SL/TP on Bybit for "
+                        f"{order.symbol}: {e}. PositionMonitor still active as fallback."
+                    )
         else:
             logger.warning(
                 f"[ORDER_FILLED_HANDLER] Order {order.order_id} not fully filled or missing avg_fill_price: "
@@ -2387,37 +2497,39 @@ class TradingSystem:
         reason: str = "forced_exit",
     ) -> None:
         """Close a position at a specific price."""
-        # FIX-006: Send close order to Bybit BEFORE updating internal accounting
+        close_side = "sell" if position.side == "long" else "buy"
+        exchange_close = False
+
+        # Send close order to Bybit BEFORE updating internal accounting
         if not settings.dry_run and settings.is_live:
             if hasattr(self._execution_router, "_bybit_http") and self._execution_router._bybit_http:
-                # Determine close side (opposite of position side)
-                close_side = "sell" if position.side == "long" else "buy"
-
                 try:
-                    # Create market close order
                     close_request = OrderRequest(
+                        signal_id=f"close_{position.position_id}_{int(datetime.utcnow().timestamp())}",
                         symbol=position.symbol,
                         side=close_side,
                         size=position.size,
                         order_type="market",
                         strategy_id=position.strategy_id,
                         reduce_only=True,
+                        metadata={"is_close": True, "position_id": position.position_id},
                     )
 
-                    # Place close order on Bybit
                     logger.info(f"Closing position on Bybit: {position.position_id} ({position.symbol} {position.side} {position.size}) - {reason}")
                     await self._execution_router._bybit_http.place_order(close_request)
                     logger.info(f"Successfully closed position on Bybit: {position.position_id}")
+                    exchange_close = True
+                    # On live: ORDER_FILLED will fire from WS → record_fill adjusts cash
+                    # We still proceed to update internal state below
 
                 except Exception as e:
                     logger.critical(
                         f"FAILED TO CLOSE POSITION ON BYBIT: {position.position_id} ({position.symbol}) - {e}. "
                         f"Position remains open on exchange! Manual intervention required."
                     )
-                    # Do NOT proceed with internal accounting update - position is still open on exchange
                     return
 
-        # Update position price first
+        # Update position price
         self._accounting.update_position_price(position.position_id, close_price)
 
         # Calculate realized PnL
@@ -2426,17 +2538,26 @@ class TradingSystem:
         else:  # short
             realized_pnl = (position.entry_price - close_price) * position.size
 
-        # Update position
+        # Paper mode: simulate sell proceeds in cash (record_fill won't run)
+        if not exchange_close:
+            notional = close_price * position.size
+            est_fee = notional * 0.00055  # Bybit taker fee
+            if close_side == "sell":
+                self._accounting.update_cash(notional - est_fee)
+            else:
+                self._accounting.update_cash(-(notional + est_fee))
+
         position.current_price = close_price
         position.realized_pnl = realized_pnl
 
-        # Publish position closed event
+        # Publish position closed event with exchange_close flag
         await self._bus.publish(
             Event(
                 event_type=EventType.POSITION_CLOSED,
                 data={
                     "position": position,
                     "close_reason": reason,
+                    "exchange_close": exchange_close,
                 },
             )
         )

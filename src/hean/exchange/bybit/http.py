@@ -51,6 +51,18 @@ class BybitHTTPClient:
         self._last_order_time = 0.0
         self._min_order_interval = 0.1  # 100ms between orders = 10 orders/sec
 
+        # Global rate limiter for ALL API calls (max 20 requests/sec)
+        self._last_request_time = 0.0
+        self._min_request_interval = 0.05  # 50ms between any requests = 20 req/sec
+        self._request_lock = asyncio.Lock()
+
+        # LATENCY OPTIMIZATION: Instrument info cache (saves ~150ms per order)
+        self._instrument_cache: dict[str, tuple[dict, float]] = {}  # symbol -> (info, timestamp)
+        self._instrument_cache_ttl: float = 3600.0  # 1 hour TTL
+
+        # LATENCY OPTIMIZATION: Leverage cache — set once per symbol per session, not per order
+        self._leverage_set: dict[str, int] = {}  # symbol -> leverage value already set
+
     def _sign_request(
         self,
         method: str,
@@ -130,6 +142,14 @@ class BybitHTTPClient:
         """
         if not self._api_key or not self._api_secret:
             raise ValueError("Bybit API credentials not configured")
+
+        # Global rate limiting: enforce minimum interval between requests
+        async with self._request_lock:
+            now = time.time()
+            elapsed = now - self._last_request_time
+            if elapsed < self._min_request_interval:
+                await asyncio.sleep(self._min_request_interval - elapsed)
+            self._last_request_time = time.time()
 
         if not self._client:
             self._client = httpx.AsyncClient(timeout=10.0)
@@ -324,6 +344,30 @@ class BybitHTTPClient:
             await asyncio.sleep(sleep_time)
         self._last_order_time = time.time()
 
+        # LATENCY OPTIMIZATION: Only set leverage if not already cached for this symbol
+        symbol = order_request.symbol
+        applied_leverage = (
+            order_request.metadata.get("applied_leverage", 1.0)
+            if order_request.metadata
+            else 1.0
+        )
+        safe_leverage = max(1, min(int(applied_leverage), int(settings.max_leverage)))
+        if symbol not in self._leverage_set or self._leverage_set[symbol] != safe_leverage:
+            try:
+                await self.set_leverage(
+                    symbol=symbol,
+                    buy_leverage=str(safe_leverage),
+                    sell_leverage=str(safe_leverage),
+                )
+                self._leverage_set[symbol] = safe_leverage
+                logger.debug(f"Leverage set and cached for {symbol}: {safe_leverage}x")
+            except Exception as lev_err:
+                # Error 110043 = leverage not modified (already set) — cache it anyway
+                if "110043" in str(lev_err) or "Not modified" in str(lev_err):
+                    self._leverage_set[symbol] = safe_leverage
+                else:
+                    logger.warning(f"Failed to set leverage for {symbol}: {lev_err}")
+
         # CRITICAL: Generate unique orderLinkId for idempotency
         # Format: {timestamp_ms}_{random} (max 45 chars)
         # Bybit requires orderLinkId <= 45 characters
@@ -332,9 +376,16 @@ class BybitHTTPClient:
         random_id = uuid.uuid4().hex[:8]
         order_link_id = f"{timestamp_ms}_{random_id}"
 
-        # Get instrument info for qty rounding (cached in production)
+        # LATENCY OPTIMIZATION: Get instrument info with caching (saves ~150ms per order)
         try:
-            instrument_info = await self.get_instrument_info(order_request.symbol)
+            cached = self._instrument_cache.get(order_request.symbol)
+            if cached and (time.time() - cached[1]) < self._instrument_cache_ttl:
+                instrument_info = cached[0]
+                logger.debug(f"Using cached instrument info for {order_request.symbol}")
+            else:
+                instrument_info = await self.get_instrument_info(order_request.symbol)
+                self._instrument_cache[order_request.symbol] = (instrument_info, time.time())
+                logger.debug(f"Fetched and cached instrument info for {order_request.symbol}")
             qty_step = instrument_info["qtyStep"]
             min_qty = instrument_info["minQty"]
             min_notional = instrument_info["minNotional"]
@@ -352,9 +403,22 @@ class BybitHTTPClient:
                 rounded_qty = min_qty
                 logger.warning(f"Order size {order_request.size} below minQty {min_qty}, using minimum")
 
-            # Check min notional (rough estimate with market price)
-            est_price = order_request.price or 87000.0  # Default estimate if no price
-            est_notional = rounded_qty * est_price
+            # Check min notional using real market price
+            est_price = order_request.price
+            if not est_price:
+                try:
+                    ticker = await self.get_ticker(order_request.symbol)
+                    est_price = float(ticker.get("lastPrice", 0))
+                except Exception as ticker_err:
+                    logger.warning(f"Could not fetch ticker for notional check: {ticker_err}")
+                    est_price = 0
+            if est_price <= 0:
+                logger.warning(f"No price available for notional check on {order_request.symbol}, skipping notional validation")
+                est_price = None
+            if est_price:
+                est_notional = rounded_qty * est_price
+            else:
+                est_notional = min_notional  # Skip notional check if no price available
             if est_notional < min_notional:
                 rounded_qty = (min_notional / est_price) + qty_step  # Add one step for safety
                 rounded_qty = round(rounded_qty, qty_decimals)
@@ -374,10 +438,16 @@ class BybitHTTPClient:
             "orderLinkId": order_link_id,  # CRITICAL: Idempotency key
         }
 
+        # Pass reduce_only to Bybit to prevent opening opposite positions
+        if order_request.reduce_only:
+            bybit_params["reduceOnly"] = True
+
         # Debug log order params
+        qty_float = float(bybit_params['qty'])
+        usd_value = f" ({qty_float * order_request.price:.2f} USD)" if order_request.price else ""
         logger.info(
             f"Placing order on Bybit: {bybit_params['symbol']} {bybit_params['side']} "
-            f"qty={bybit_params['qty']} ({float(bybit_params['qty']) * (order_request.price or 100000):.2f} USD) "
+            f"qty={bybit_params['qty']}{usd_value} "
             f"type={bybit_params['orderType']}"
         )
 
@@ -422,6 +492,79 @@ class BybitHTTPClient:
             f"Order placed on Bybit: {order.order_id} {order.symbol} {order.side} {order.size}"
         )
         return order
+
+    async def set_trading_stop(
+        self,
+        symbol: str,
+        stop_loss: float | None = None,
+        take_profit: float | None = None,
+    ) -> dict[str, Any]:
+        """Set SL/TP on an existing position via Bybit trading-stop endpoint.
+
+        Called after position opens to place exchange-side protection.
+        Safer than attaching SL/TP to the order itself because Bybit
+        validates against LastPrice at order time, causing rejections
+        for limit orders.
+
+        Args:
+            symbol: Trading symbol (e.g., "BTCUSDT")
+            stop_loss: Stop loss price (None to skip)
+            take_profit: Take profit price (None to skip)
+
+        Returns:
+            API response dict
+        """
+        if not stop_loss and not take_profit:
+            return {}
+
+        data: dict[str, Any] = {
+            "category": "linear",
+            "symbol": symbol,
+            "positionIdx": 0,  # One-way mode
+        }
+
+        if stop_loss:
+            data["stopLoss"] = str(stop_loss)
+            data["slTriggerBy"] = "MarkPrice"
+
+        if take_profit:
+            data["takeProfit"] = str(take_profit)
+            data["tpTriggerBy"] = "LastPrice"
+
+        logger.info(
+            f"Setting trading stop for {symbol}: SL={stop_loss}, TP={take_profit}"
+        )
+
+        return await self._request("POST", "/v5/position/trading-stop", data=data)
+
+    async def set_leverage(
+        self,
+        symbol: str,
+        buy_leverage: str,
+        sell_leverage: str,
+    ) -> dict[str, Any]:
+        """Set leverage for a symbol on Bybit.
+
+        Must be called before placing orders to ensure exchange-side leverage
+        matches the position sizer's calculations.
+
+        Args:
+            symbol: Trading symbol (e.g., "BTCUSDT")
+            buy_leverage: Buy leverage as string (e.g., "3")
+            sell_leverage: Sell leverage as string (e.g., "3")
+
+        Returns:
+            API response dict
+        """
+        data = {
+            "category": "linear",
+            "symbol": symbol,
+            "buyLeverage": buy_leverage,
+            "sellLeverage": sell_leverage,
+        }
+
+        logger.info(f"Setting leverage for {symbol}: buy={buy_leverage}x, sell={sell_leverage}x")
+        return await self._request("POST", "/v5/position/set-leverage", data=data)
 
     async def cancel_order(self, order_id: str, symbol: str) -> None:
         """Cancel an order on Bybit.

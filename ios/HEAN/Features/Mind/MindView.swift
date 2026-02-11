@@ -17,7 +17,7 @@ struct MindView: View {
             ScrollView {
                 LazyVStack(spacing: 16) {
                     if viewModel.isLoading && viewModel.analysis == nil {
-                        ProgressView("Thinking...")
+                        ProgressView(L.thinking)
                             .padding(.top, 40)
                     } else {
                         // Latest analysis summary
@@ -35,9 +35,9 @@ struct MindView: View {
                                 Image(systemName: "brain")
                                     .font(.system(size: 48))
                                     .foregroundColor(.gray)
-                                Text("No thoughts yet")
+                                Text(L.noThoughtsYet)
                                     .foregroundColor(.secondary)
-                                Text("AI will start analyzing when market data arrives")
+                                Text(L.aiWillStart)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -48,7 +48,7 @@ struct MindView: View {
                 .padding()
             }
             .background(Theme.Colors.background.ignoresSafeArea())
-            .navigationTitle("Mind")
+            .navigationTitle(L.mind)
             .onAppear { injectServices(); startRefresh() }
             .onDisappear { refreshTimer?.invalidate() }
             .refreshable { await viewModel.refresh() }
@@ -78,7 +78,7 @@ struct MindView: View {
                 HStack {
                     Image(systemName: "brain.head.profile")
                         .foregroundColor(Theme.Colors.accent)
-                    Text("AI Analysis")
+                    Text(L.aiAnalysis)
                         .font(.headline)
                         .foregroundColor(Theme.Colors.textPrimary)
                     Spacer()
@@ -97,7 +97,7 @@ struct MindView: View {
                 if !analysis.forces.isEmpty {
                     VStack(spacing: 6) {
                         HStack {
-                            Text("FORCES")
+                            Text(L.forces)
                                 .font(.caption2)
                                 .fontWeight(.bold)
                                 .foregroundColor(Theme.Colors.textSecondary)
@@ -148,7 +148,7 @@ struct MindView: View {
                 // Confidence
                 if let confidence = thought.confidence {
                     HStack {
-                        Text("Confidence")
+                        Text(L.confidence)
                             .font(.caption2)
                             .foregroundColor(Theme.Colors.textSecondary)
                         ProgressView(value: confidence)

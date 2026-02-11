@@ -230,7 +230,8 @@ class ExecutionRouter:
 
         try:
             ofi_result = self._ofi.calculate_ofi(symbol)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"OFI calculation failed for {symbol}: {e}")
             return None
 
         # Use buy_pressure and sell_pressure to calculate imbalance ratio
@@ -874,7 +875,7 @@ class ExecutionRouter:
             order_request: Order request to place
         """
         try:
-            # Place order on Bybit
+            # Place order on Bybit (leverage is enforced inside place_order)
             order = await self._bybit_http.place_order(order_request)
 
             # Register order with order manager

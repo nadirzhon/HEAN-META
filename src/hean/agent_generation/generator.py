@@ -54,7 +54,22 @@ class AgentGenerator:
                 except Exception:
                     pass
 
-        # Try to import OpenAI first
+        # Try OpenRouter FIRST (Qwen3-Max-Thinking — cheapest + best quality)
+        try:
+            import openai as _openai  # type: ignore
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            if api_key:
+                self.llm_client = _openai.OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=api_key,
+                )
+                self._is_openrouter = True
+                logger.info("Using OpenRouter client (Qwen3-Max-Thinking)")
+                return
+        except ImportError:
+            pass
+
+        # Try OpenAI
         try:
             import openai  # type: ignore
             api_key = os.getenv("OPENAI_API_KEY")
@@ -95,7 +110,7 @@ class AgentGenerator:
         except Exception as e:
             logger.warning(f"Failed to configure Gemini: {e}")
 
-        logger.warning("No LLM client configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY")
+        logger.warning("No LLM client configured. Set OPENROUTER_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY")
 
     def generate_agent(
         self, prompt_type: str, output_path: Path | str | None = None, **prompt_kwargs: Any
@@ -135,7 +150,10 @@ class AgentGenerator:
         return code
 
     def _call_llm(self, user_prompt: str) -> str:
-        """Call LLM with prompt.
+        """Call LLM with prompt, with automatic fallback across providers.
+
+        Tries the primary client first. On quota/auth errors, falls back
+        to other available providers (OpenAI → Anthropic → Gemini).
 
         Args:
             user_prompt: User prompt text
@@ -143,31 +161,107 @@ class AgentGenerator:
         Returns:
             LLM response
         """
-        # Determine client type
-        # Check if Gemini was set
-        if hasattr(self, "_is_gemini") and self._is_gemini:
-            return self._call_gemini(user_prompt)
+        import os
 
-        client_type = type(self.llm_client).__name__
-        client_module = type(self.llm_client).__module__
+        # Build ordered list of (call_fn, available) based on primary client
+        providers: list[tuple[str, callable]] = []
 
-        if "OpenAI" in client_type:
-            return self._call_openai(user_prompt)
+        client_type = type(self.llm_client).__name__ if self.llm_client else ""
+        is_gemini = hasattr(self, "_is_gemini") and self._is_gemini
+        is_openrouter = hasattr(self, "_is_openrouter") and self._is_openrouter
+
+        # Primary provider first
+        if is_openrouter:
+            providers.append(("openrouter", self._call_openrouter))
+        elif is_gemini:
+            providers.append(("gemini", self._call_gemini))
+        elif "OpenAI" in client_type:
+            providers.append(("openai", self._call_openai))
         elif "Anthropic" in client_type:
-            return self._call_anthropic(user_prompt)
-        elif "generativeai" in client_module or "genai" in str(client_module):
-            return self._call_gemini(user_prompt)
-        else:
-            raise RuntimeError(f"Unsupported LLM client: {client_type}")
+            providers.append(("anthropic", self._call_anthropic))
+
+        # Add remaining providers as fallbacks (cheapest first)
+        if os.getenv("OPENROUTER_API_KEY") and not any(p[0] == "openrouter" for p in providers):
+            providers.append(("openrouter", self._call_openrouter))
+        if os.getenv("GEMINI_API_KEY") and not any(p[0] == "gemini" for p in providers):
+            providers.append(("gemini", self._call_gemini))
+        if os.getenv("OPENAI_API_KEY") and not any(p[0] == "openai" for p in providers):
+            providers.append(("openai", self._call_openai))
+        if os.getenv("ANTHROPIC_API_KEY") and not any(p[0] == "anthropic" for p in providers):
+            providers.append(("anthropic", self._call_anthropic))
+
+        last_error = None
+        for provider_name, call_fn in providers:
+            try:
+                result = call_fn(user_prompt)
+                return result
+            except Exception as e:
+                error_str = str(e).lower()
+                # Retryable errors: quota, rate limit, auth, leaked key
+                if any(kw in error_str for kw in ["quota", "429", "402", "rate_limit", "401", "403", "leaked", "insufficient", "credits"]):
+                    logger.warning(f"AgentGenerator: {provider_name} failed ({e}), trying next provider...")
+                    last_error = e
+                    continue
+                # Non-retryable error — re-raise
+                raise
+
+        raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
+
+    def _call_openrouter(self, user_prompt: str) -> str:
+        """Call OpenRouter API (Qwen3-Max-Thinking — best price/quality)."""
+        import os
+
+        client = self.llm_client
+        is_openrouter = hasattr(self, "_is_openrouter") and self._is_openrouter
+        if not is_openrouter:
+            import openai as _openai  # type: ignore
+            client = _openai.OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=os.getenv("OPENROUTER_API_KEY"),
+            )
+
+        response = client.chat.completions.create(
+            model="qwen/qwen3-max",
+            max_tokens=4096,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.7,
+            extra_headers={
+                "HTTP-Referer": "https://hean.trading",
+                "X-Title": "HEAN Agent Generator",
+            },
+        )
+        content = response.choices[0].message.content
+        if not content:
+            raise RuntimeError("OpenRouter returned empty response")
+
+        # Strip thinking tags if present (Qwen3 thinking model)
+        if "<think>" in content:
+            import re
+            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+
+        logger.info("Successfully used OpenRouter: qwen/qwen3-max")
+        return content
 
     def _call_openai(self, user_prompt: str) -> str:
         """Call OpenAI API."""
+        import os
+
+        # Use existing client or create one for fallback
+        client = self.llm_client
+        client_type = type(client).__name__ if client else ""
+        if "OpenAI" not in client_type:
+            import openai  # type: ignore
+            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
         # Try different models in order of preference
         models = ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
 
         for model in models:
             try:
-                response = self.llm_client.chat.completions.create(  # type: ignore
+                response = client.chat.completions.create(  # type: ignore
                     model=model,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
@@ -190,8 +284,17 @@ class AgentGenerator:
 
     def _call_anthropic(self, user_prompt: str) -> str:
         """Call Anthropic API."""
-        response = self.llm_client.messages.create(  # type: ignore
-            model="claude-3-opus-20240229",
+        import os
+
+        # Use existing client or create one for fallback
+        client = self.llm_client
+        client_type = type(client).__name__ if client else ""
+        if "Anthropic" not in client_type:
+            import anthropic  # type: ignore
+            client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+        response = client.messages.create(  # type: ignore
+            model="claude-sonnet-4-5-20250929",
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             messages=[
@@ -213,7 +316,7 @@ class AgentGenerator:
         full_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
 
         # Try different models in order of preference
-        models = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"]
+        models = ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]
 
         for model_name in models:
             try:

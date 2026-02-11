@@ -136,21 +136,10 @@ class ExecutionRouter:
         self._recent_expired_count = deque(maxlen=10)  # Track last 10 expired orders
         self._volatility_history: dict[str, deque[float]] = {}  # Track volatility per symbol
 
-        # Volatility gating thresholds
-        if settings.debug_mode:
-            # DEBUG: Relaxed thresholds for testing
-            self._volatility_soft_block_percentile = 100.0  # Disabled - never soft block
-            self._volatility_medium_penalty_percentile = (
-                50.0  # Apply size penalty starting at 50th percentile
-            )
-            self._volatility_hard_block_percentile = 95.0  # Hard block at P95+
-        else:
-            # PRODUCTION: Strict thresholds
-            self._volatility_soft_block_percentile = 90.0  # Soft block at P90+
-            self._volatility_medium_penalty_percentile = (
-                75.0  # Apply size penalty starting at 75th percentile
-            )
-            self._volatility_hard_block_percentile = 99.0  # Hard block at P99+
+        # Volatility gating thresholds (always production values)
+        self._volatility_soft_block_percentile = 90.0
+        self._volatility_medium_penalty_percentile = 75.0
+        self._volatility_hard_block_percentile = 99.0
 
         # Original order requests for retry queue
         self._order_requests: dict[str, OrderRequest] = {}
@@ -352,7 +341,7 @@ class ExecutionRouter:
 
         # Finalize record
         self._diagnostics.finalize_record(order_id)
-        self._order_requests.pop(order.order_id, None)
+        self._order_requests.pop(order_id, None)
 
     def _check_idempotency(self, order_request: OrderRequest) -> IdempotencyEntry | None:
         """Check if this order request was already processed.
@@ -630,39 +619,35 @@ class ExecutionRouter:
                     return
             logger.debug(f"Using fallback prices: bid={best_bid:.2f}, ask={best_ask:.2f}")
 
-        # Volatility-aware execution gating
-        if not settings.debug_mode:
-            # Check volatility and apply gating
-            current_volatility = (
-                self._regime_detector.get_volatility(symbol) if self._regime_detector else None
+        # Volatility-aware execution gating (always active)
+        current_volatility = (
+            self._regime_detector.get_volatility(symbol) if self._regime_detector else None
+        )
+        if current_volatility and current_volatility > 0:
+            volatility_percentile = self._calculate_volatility_percentile(
+                symbol, current_volatility
             )
-            if current_volatility and current_volatility > 0:
-                volatility_percentile = self._calculate_volatility_percentile(
-                    symbol, current_volatility
+
+            # Hard block at high volatility
+            if volatility_percentile >= self._volatility_hard_block_percentile:
+                logger.warning(
+                    f"Order blocked: volatility percentile {volatility_percentile:.1f} >= {self._volatility_hard_block_percentile}"
                 )
+                await self._publish_order_rejected(
+                    order_request,
+                    f"Volatility too high: {volatility_percentile:.1f}th percentile",
+                )
+                return
 
-                # Hard block at high volatility
-                if volatility_percentile >= self._volatility_hard_block_percentile:
-                    logger.warning(
-                        f"Order blocked: volatility percentile {volatility_percentile:.1f} >= {self._volatility_hard_block_percentile}"
-                    )
-                    await self._publish_order_rejected(
-                        order_request,
-                        f"Volatility too high: {volatility_percentile:.1f}th percentile",
-                    )
-                    return
-
-                # Soft block (size penalty) at medium-high volatility
-                if volatility_percentile >= self._volatility_soft_block_percentile:
-                    logger.debug(
-                        f"Size penalty applied: volatility percentile {volatility_percentile:.1f}"
-                    )
-                elif volatility_percentile >= self._volatility_medium_penalty_percentile:
-                    logger.debug(
-                        f"Size penalty applied: volatility percentile {volatility_percentile:.1f}"
-                    )
-        else:
-            logger.debug(f"[DEBUG] Volatility checks bypassed for {symbol}")
+            # Soft block (size penalty) at medium-high volatility
+            if volatility_percentile >= self._volatility_soft_block_percentile:
+                logger.debug(
+                    f"Size penalty applied: volatility percentile {volatility_percentile:.1f}"
+                )
+            elif volatility_percentile >= self._volatility_medium_penalty_percentile:
+                logger.debug(
+                    f"Size penalty applied: volatility percentile {volatility_percentile:.1f}"
+                )
 
         # Update adaptive parameters based on recent performance
         self._update_adaptive_parameters(symbol)
@@ -1027,7 +1012,7 @@ class ExecutionRouter:
             return
 
         try:
-            # Place order on Bybit
+            # Place order on Bybit (leverage is enforced inside place_order)
             order = await self._bybit_http.place_order(order_request)
 
             # Register order with order manager

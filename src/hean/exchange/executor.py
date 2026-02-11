@@ -2,13 +2,9 @@
 Smart Limit Executor with Geometric Slippage Prediction using Riemannian Curvature
 Uses TDA to predict real slippage BEFORE sending the order.
 If predicted slippage > threshold, switches to 'Smart-Limit' mode.
-
-Phase 16: Nano-Batching Execution with Order Jittering
-Splits large orders into multiple smaller orders with randomized delays to avoid anti-HFT filters.
 """
 
 import asyncio
-import random
 from datetime import datetime
 from typing import Any
 
@@ -59,13 +55,6 @@ class SmartLimitExecutor:
 
         # Active orders tracking
         self._active_orders: dict[str, Order] = {}
-
-        # Phase 16: Nano-batching parameters
-        self._jitter_enabled = True
-        self._jitter_order_count = 10  # Number of child orders
-        self._jitter_delay_min_ms = 5  # Minimum delay between orders (ms)
-        self._jitter_delay_max_ms = 15  # Maximum delay between orders (ms)
-        self._jitter_min_size_threshold = 0.5  # Only jitter orders >= this size (BTC)
 
     async def start(self) -> None:
         """Start the Smart Limit Executor."""
@@ -370,132 +359,3 @@ class SmartLimitExecutor:
             if o.status in {OrderStatus.PLACED, OrderStatus.PARTIALLY_FILLED}
         ]
 
-    async def place_post_only_order_with_jitter(
-        self,
-        order_request: OrderRequest,
-        ofi_aggression: float = 0.0
-    ) -> list[Order]:
-        """
-        Phase 16: Place Post-Only order with Order Jittering (Nano-Batching Execution).
-
-        Instead of sending 1.0 BTC as a single order, splits into multiple smaller orders
-        (e.g., 10 orders of 0.1 BTC) with randomized 5-15ms delays between them to hide
-        from anti-HFT filters.
-
-        Args:
-            order_request: Original order request
-            ofi_aggression: Order Flow Imbalance aggression factor (0-1)
-
-        Returns:
-            List of child Order instances
-        """
-        # Check if jittering should be applied
-        if not self._jitter_enabled or order_request.size < self._jitter_min_size_threshold:
-            # Too small to jitter, send as single order
-            single_order = await self.place_post_only_order(order_request, ofi_aggression)
-            return [single_order]
-
-        # Split order into multiple child orders
-        child_order_size = order_request.size / self._jitter_order_count
-        child_orders: list[Order] = []
-
-        logger.info(
-            f"Phase 16: Order Jittering enabled for {order_request.symbol} {order_request.side} "
-            f"{order_request.size}: splitting into {self._jitter_order_count} orders of {child_order_size:.6f}"
-        )
-
-        # Create child order requests
-        for i in range(self._jitter_order_count):
-            # Create child order request (slightly modify size to account for rounding)
-            if i == self._jitter_order_count - 1:
-                # Last order gets remainder to ensure total size matches
-                remaining_size = order_request.size - sum(o.size for o in child_orders)
-                child_size = remaining_size if remaining_size > 0 else child_order_size
-            else:
-                child_size = child_order_size
-
-            child_request = OrderRequest(
-                strategy_id=order_request.strategy_id,
-                symbol=order_request.symbol,
-                side=order_request.side,
-                size=child_size,
-                price=order_request.price,
-                order_type=order_request.order_type,
-                stop_loss=order_request.stop_loss,
-                take_profit=order_request.take_profit,
-                signal_id=f"{order_request.signal_id}_jitter_{i}" if order_request.signal_id else None,
-                metadata={
-                    **(order_request.metadata or {}),
-                    "jittered": True,
-                    "jitter_index": i,
-                    "jitter_total": self._jitter_order_count,
-                    "parent_size": order_request.size,
-                },
-            )
-
-            # Place child order (reuse existing logic)
-            child_order = await self.place_post_only_order(child_request, ofi_aggression)
-
-            # Add jitter metadata
-            child_order.metadata = {
-                **child_order.metadata,
-                "jittered": True,
-                "jitter_index": i,
-                "jitter_total": self._jitter_order_count,
-                "parent_size": order_request.size,
-            }
-
-            child_orders.append(child_order)
-
-            # Jitter delay: random 5-15ms delay between orders (except last)
-            if i < self._jitter_order_count - 1:
-                delay_ms = random.uniform(
-                    self._jitter_delay_min_ms,
-                    self._jitter_delay_max_ms
-                )
-                delay_seconds = delay_ms / 1000.0
-
-                logger.debug(
-                    f"Jitter delay {i+1}/{self._jitter_order_count}: {delay_ms:.2f}ms "
-                    f"(order: {child_order.order_id})"
-                )
-
-                await asyncio.sleep(delay_seconds)
-
-        total_size = sum(o.size for o in child_orders)
-        logger.info(
-            f"Phase 16: Order Jittering complete: {len(child_orders)} orders placed, "
-            f"total size={total_size:.6f} (requested={order_request.size:.6f})"
-        )
-
-        return child_orders
-
-    def set_jitter_parameters(
-        self,
-        enabled: bool = True,
-        order_count: int = 10,
-        delay_min_ms: int = 5,
-        delay_max_ms: int = 15,
-        min_size_threshold: float = 0.5
-    ) -> None:
-        """Configure order jittering parameters.
-
-        Args:
-            enabled: Enable/disable order jittering
-            order_count: Number of child orders to split into
-            delay_min_ms: Minimum delay between orders (milliseconds)
-            delay_max_ms: Maximum delay between orders (milliseconds)
-            min_size_threshold: Minimum order size (BTC) to apply jittering
-        """
-        self._jitter_enabled = enabled
-        self._jitter_order_count = max(1, order_count)
-        self._jitter_delay_min_ms = max(0, delay_min_ms)
-        self._jitter_delay_max_ms = max(self._jitter_delay_min_ms, delay_max_ms)
-        self._jitter_min_size_threshold = max(0.0, min_size_threshold)
-
-        logger.info(
-            f"Order jittering parameters updated: enabled={enabled}, "
-            f"order_count={self._jitter_order_count}, "
-            f"delay={self._jitter_delay_min_ms}-{self._jitter_delay_max_ms}ms, "
-            f"min_size={self._jitter_min_size_threshold}"
-        )

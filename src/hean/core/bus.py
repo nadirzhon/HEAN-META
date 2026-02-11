@@ -52,6 +52,8 @@ EVENT_PRIORITY_MAP: dict[EventType, EventPriority] = {
     # Low - high volume, can drop
     EventType.TICK: EventPriority.LOW,
     EventType.HEARTBEAT: EventPriority.LOW,
+    EventType.COUNCIL_REVIEW: EventPriority.LOW,
+    EventType.COUNCIL_RECOMMENDATION: EventPriority.LOW,
 }
 
 

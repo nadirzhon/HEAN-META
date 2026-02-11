@@ -42,21 +42,11 @@ class DepositProtector:
             - is_safe=False means trading must stop immediately
             - is_safe=True means trading can continue
         """
-        # CRITICAL: Never allow equity below initial capital
-        if equity < self._initial_capital:
-            if not self._triggered:
-                self._triggered = True
-                reason = (
-                    f"CRITICAL: Equity ${equity:.2f} below initial ${self._initial_capital:.2f}. "
-                    "Trading stopped to protect deposit."
-                )
-                logger.critical(reason)
-                # Trigger killswitch asynchronously
-                asyncio.create_task(self._trigger_killswitch(reason))
-            return False, "Equity below initial capital"
+        # Check drawdown from initial capital
+        # Allow a 10% buffer before triggering (spreads and unrealized PnL fluctuations)
+        drop_pct = ((self._initial_capital - equity) / self._initial_capital) * 100 if equity < self._initial_capital else 0.0
 
-        # Check killswitch threshold (default 20% drop from initial)
-        drop_pct = ((self._initial_capital - equity) / self._initial_capital) * 100
+        # Killswitch threshold (default 30% drop from initial)
         if drop_pct >= settings.killswitch_drawdown_pct:
             if not self._triggered:
                 self._triggered = True

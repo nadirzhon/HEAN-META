@@ -2,7 +2,7 @@
 //  LiveComponents.swift
 //  HEAN
 //
-//  Sub-views for the Live tab: AI explanation, physics gauges, balance of forces, anomalies
+//  Sub-views for the Live tab: AI explanation, physics, balance of forces, anomalies
 //
 
 import SwiftUI
@@ -19,13 +19,12 @@ struct AIExplanationCard: View {
                 HStack {
                     Image(systemName: "brain.head.profile")
                         .foregroundColor(Theme.Colors.accent)
-                    Text("AI Explanation")
-                        .font(.headline)
+                    Text(L.aiExplanation)
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundColor(Theme.Colors.textPrimary)
                     Spacer()
                     Text(regime.uppercased())
-                        .font(.caption2)
-                        .fontWeight(.bold)
+                        .font(.system(size: 10, weight: .bold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(regimeColor.opacity(0.2))
@@ -34,11 +33,12 @@ struct AIExplanationCard: View {
                 }
 
                 Text(summary)
-                    .font(.subheadline)
+                    .font(.system(size: 13))
                     .foregroundColor(Theme.Colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(4)
             }
-            .padding()
+            .padding(14)
         }
     }
 
@@ -52,49 +52,91 @@ struct AIExplanationCard: View {
     }
 }
 
-// MARK: - Physics Inline Section
+// MARK: - Physics Compact Card (replaces PhysicsInlineSection)
 
-struct PhysicsInlineSection: View {
+struct PhysicsCompactCard: View {
     let physics: PhysicsState
 
     var body: some View {
-        HStack(spacing: 12) {
-            InfoTile(
-                icon: "thermometer.medium",
-                title: "Temperature",
-                value: String(format: "%.0f°", physics.temperature),
-                subtitle: temperatureLabel,
-                color: temperatureColor,
-                term: .temperature,
-                numericValue: physics.temperaturePercent
-            )
+        GlassCard(padding: 14) {
+            VStack(spacing: 10) {
+                // Header
+                HStack {
+                    Image(systemName: "atom")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.Colors.accent)
+                    Text("Market Physics")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(Theme.Colors.textSecondary)
+                    Spacer()
+                }
 
-            InfoTile(
-                icon: "waveform.path.ecg",
-                title: "Entropy",
-                value: String(format: "%.2f", physics.entropy),
-                subtitle: entropyLabel,
-                color: entropyColor,
-                term: .entropy,
-                numericValue: physics.entropyPercent
-            )
+                // Three metrics in a row
+                HStack(spacing: 0) {
+                    // Temperature
+                    VStack(spacing: 4) {
+                        Image(systemName: "thermometer.medium")
+                            .font(.system(size: 16))
+                            .foregroundColor(temperatureColor)
+                        Text(String(format: "%.0f°", physics.temperature))
+                            .font(.system(size: 20, weight: .bold, design: .monospaced))
+                            .foregroundColor(temperatureColor)
+                            .lineLimit(1)
+                        Text(temperatureLabel)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Theme.Colors.textTertiary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
 
-            InfoTile(
-                icon: "drop.fill",
-                title: "Phase",
-                value: phaseEmoji,
-                subtitle: physics.phaseDisplayName,
-                color: phaseColor,
-                term: .phase,
-                numericValue: nil
-            )
+                    Rectangle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(width: 1, height: 44)
+
+                    // Entropy
+                    VStack(spacing: 4) {
+                        Image(systemName: "waveform.path.ecg")
+                            .font(.system(size: 16))
+                            .foregroundColor(entropyColor)
+                        Text(String(format: "%.2f", physics.entropy))
+                            .font(.system(size: 20, weight: .bold, design: .monospaced))
+                            .foregroundColor(entropyColor)
+                            .lineLimit(1)
+                        Text(entropyLabel)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Theme.Colors.textTertiary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    Rectangle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(width: 1, height: 44)
+
+                    // Phase
+                    VStack(spacing: 4) {
+                        Text(phaseEmoji)
+                            .font(.system(size: 18))
+                        Text(physics.phase.capitalized)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(phaseColor)
+                            .lineLimit(1)
+                        Text(physics.phaseDisplayName)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Theme.Colors.textTertiary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
         }
     }
 
     private var temperatureLabel: String {
-        if physics.temperature < 30 { return "Cold" }
-        if physics.temperature < 70 { return "Warm" }
-        return "Hot"
+        if physics.temperature < 30 { return L.cold }
+        if physics.temperature < 70 { return L.warm }
+        return L.hot
     }
 
     private var temperatureColor: Color {
@@ -104,9 +146,9 @@ struct PhysicsInlineSection: View {
     }
 
     private var entropyLabel: String {
-        if physics.entropy < 0.3 { return "Ordered" }
-        if physics.entropy < 0.7 { return "Mixed" }
-        return "Chaotic"
+        if physics.entropy < 0.3 { return L.ordered }
+        if physics.entropy < 0.7 { return L.mixed }
+        return L.chaotic
     }
 
     private var entropyColor: Color {
@@ -140,69 +182,61 @@ struct BalanceOfForcesCard: View {
     let participants: ParticipantBreakdown
 
     var body: some View {
-        GlassCard(padding: 16) {
+        GlassCard(padding: 14) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Image(systemName: "scale.3d")
                         .foregroundColor(Theme.Colors.accent)
-                    Text("Balance of Forces")
-                        .font(.headline)
+                    Text(L.balanceOfForces)
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundColor(Theme.Colors.textPrimary)
                     Spacer()
                     Text(participants.dominantPlayer.replacingOccurrences(of: "_", with: " ").uppercased())
-                        .font(.caption2)
-                        .fontWeight(.bold)
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundColor(Theme.Colors.warning)
                 }
 
-                // Buy vs Sell pressure visualization
+                // Buy vs Sell pressure
                 let buyPressure = (participants.retailSentimentPercent + participants.whaleActivityPercent) / 2
                 let sellPressure = 1.0 - buyPressure
 
                 HStack(spacing: 0) {
-                    // Buy side
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("BUY")
-                            .font(.caption2)
-                            .fontWeight(.bold)
+                        Text(L.buy)
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundColor(Theme.Colors.success)
                         Text("\(Int(buyPressure * 100))%")
-                            .font(.system(.title3, design: .monospaced))
-                            .fontWeight(.bold)
+                            .font(.system(size: 18, weight: .bold, design: .monospaced))
                             .foregroundColor(Theme.Colors.success)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    // Pressure bar
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(Theme.Colors.error.opacity(0.3))
-                                .frame(height: 8)
+                                .frame(height: 6)
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(Theme.Colors.success)
-                                .frame(width: geo.size.width * buyPressure, height: 8)
+                                .frame(width: geo.size.width * buyPressure, height: 6)
                         }
                     }
-                    .frame(height: 8)
+                    .frame(height: 6)
                     .padding(.horizontal, 12)
 
-                    // Sell side
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("SELL")
-                            .font(.caption2)
-                            .fontWeight(.bold)
+                        Text(L.sell)
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundColor(Theme.Colors.error)
                         Text("\(Int(sellPressure * 100))%")
-                            .font(.system(.title3, design: .monospaced))
-                            .fontWeight(.bold)
+                            .font(.system(size: 18, weight: .bold, design: .monospaced))
                             .foregroundColor(Theme.Colors.error)
                     }
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
 
                 // Participant mini-bars
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     participantMini("MM", value: participants.mmActivityPercent, color: .blue)
                     participantMini("Inst", value: participants.institutionalFlowPercent, color: .purple)
                     participantMini("Ret", value: participants.retailSentimentPercent, color: .green)
@@ -215,12 +249,12 @@ struct BalanceOfForcesCard: View {
     }
 
     private func participantMini(_ label: String, value: Double, color: Color) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 3) {
             RoundedRectangle(cornerRadius: 2)
                 .fill(color)
                 .frame(height: max(4, CGFloat(value) * 30))
             Text(label)
-                .font(.system(size: 8))
+                .font(.system(size: 9))
                 .foregroundColor(Theme.Colors.textSecondary)
         }
         .frame(maxWidth: .infinity)
@@ -242,9 +276,8 @@ struct WhaleTradesSection: View {
                 HStack {
                     Image(systemName: "fish.fill")
                         .foregroundColor(.orange)
-                    Text("Whale Trades")
-                        .font(.subheadline)
-                        .fontWeight(.bold)
+                    Text(L.whaleTrades)
+                        .font(.system(size: 14, weight: .bold))
                         .foregroundColor(Theme.Colors.textPrimary)
                     Spacer()
                     Text("\(whaleAnomalies.count)")
@@ -276,9 +309,8 @@ struct LiquidationsSection: View {
                 HStack {
                     Image(systemName: "bolt.fill")
                         .foregroundColor(.red)
-                    Text("Liquidations")
-                        .font(.subheadline)
-                        .fontWeight(.bold)
+                    Text(L.liquidations)
+                        .font(.system(size: 14, weight: .bold))
                         .foregroundColor(Theme.Colors.textPrimary)
                     Spacer()
                     Text("\(liquidationAnomalies.count)")
@@ -329,18 +361,16 @@ struct SzilardProfitCard: View {
                 Image(systemName: "atom")
                     .foregroundColor(profit >= 0 ? Theme.Colors.success : Theme.Colors.error)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Szilard Profit")
-                        .font(.caption)
+                    Text(L.szilardProfit)
+                        .font(.system(size: 11))
                         .foregroundColor(Theme.Colors.textSecondary)
                     Text(String(format: "%.4f", profit))
-                        .font(.system(.subheadline, design: .monospaced))
-                        .fontWeight(.bold)
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
                         .foregroundColor(profit >= 0 ? Theme.Colors.success : Theme.Colors.error)
                 }
                 Spacer()
-                Text(profit >= 0 ? "Edge Present" : "No Edge")
-                    .font(.caption2)
-                    .fontWeight(.bold)
+                Text(profit >= 0 ? L.edgePresent : L.noEdge)
+                    .font(.system(size: 10, weight: .bold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background((profit >= 0 ? Theme.Colors.success : Theme.Colors.error).opacity(0.15))

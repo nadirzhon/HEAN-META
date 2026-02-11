@@ -127,7 +127,7 @@ class ModelTrainer:
                 "Training on sample data produces unreliable models."
             )
 
-        # Load funding rates (real or sample)
+        # Load funding rates (real data only)
         if self.config.use_funding_rates:
             if self.use_real_data and self.data_loader:
                 self.funding_data = await self.data_loader.load_funding_rates(
@@ -140,7 +140,10 @@ class ModelTrainer:
                         "No real funding rate data available. Cannot train on sample data."
                     )
             else:
-                self.funding_data = self._generate_sample_funding(start_date, end_date)
+                raise ValueError(
+                    "use_real_data=False is not allowed. "
+                    "Funding rate training requires real exchange data."
+                )
 
         # Sentiment and trends: skip instead of using fake data
         if self.config.use_sentiment:
@@ -152,73 +155,6 @@ class ModelTrainer:
             self.trends_data = None
 
         logger.info(f"Data loaded: {len(self.ohlcv_data)} OHLCV records")
-
-    def _generate_sample_ohlcv(
-        self,
-        symbol: str,
-        start_date: datetime,
-        end_date: datetime
-    ) -> pd.DataFrame:
-        """Generate sample OHLCV data (TODO: Replace with real data)"""
-        periods = int((end_date - start_date).total_seconds() / 3600)  # Hourly
-        timestamps = pd.date_range(start=start_date, end=end_date, periods=periods)
-
-        # Random walk for prices
-        np.random.seed(42)
-        price_base = 50000 if "BTC" in symbol else 3000
-        returns = np.random.randn(periods) * 0.02  # 2% std
-        prices = price_base * (1 + returns).cumprod()
-
-        return pd.DataFrame({
-            'timestamp': timestamps,
-            'open': prices * (1 + np.random.randn(periods) * 0.001),
-            'high': prices * (1 + abs(np.random.randn(periods)) * 0.005),
-            'low': prices * (1 - abs(np.random.randn(periods)) * 0.005),
-            'close': prices,
-            'volume': np.random.randint(100, 10000, periods)
-        })
-
-    def _generate_sample_sentiment(
-        self,
-        start_date: datetime,
-        end_date: datetime
-    ) -> pd.DataFrame:
-        """Generate sample sentiment data"""
-        periods = int((end_date - start_date).total_seconds() / 3600)
-        timestamps = pd.date_range(start=start_date, end=end_date, periods=periods)
-
-        return pd.DataFrame({
-            'timestamp': timestamps,
-            'sentiment_score': np.random.randn(periods) * 0.3  # -1 to +1
-        })
-
-    def _generate_sample_trends(
-        self,
-        start_date: datetime,
-        end_date: datetime
-    ) -> pd.DataFrame:
-        """Generate sample Google Trends data"""
-        periods = int((end_date - start_date).total_seconds() / 3600)
-        timestamps = pd.date_range(start=start_date, end=end_date, periods=periods)
-
-        return pd.DataFrame({
-            'timestamp': timestamps,
-            'interest_score': np.random.randint(30, 100, periods)  # 0-100
-        })
-
-    def _generate_sample_funding(
-        self,
-        start_date: datetime,
-        end_date: datetime
-    ) -> pd.DataFrame:
-        """Generate sample funding rate data"""
-        periods = int((end_date - start_date).total_seconds() / 3600)
-        timestamps = pd.date_range(start=start_date, end=end_date, periods=periods)
-
-        return pd.DataFrame({
-            'timestamp': timestamps,
-            'funding_rate': np.random.randn(periods) * 0.0001  # ~0.01%
-        })
 
     async def prepare_data(self):
         """Prepare data for training"""

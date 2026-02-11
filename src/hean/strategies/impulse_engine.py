@@ -8,6 +8,7 @@ from hean.core.bus import EventBus
 from hean.core.density import DensityController
 from hean.core.regime import Regime
 from hean.core.trade_density import trade_density
+from hean.core.market_context import UnifiedMarketContext
 from hean.core.types import Event, EventType, Position, Signal, Tick
 from hean.execution.edge_estimator import ExecutionEdgeEstimator
 from hean.logging import get_logger
@@ -99,6 +100,9 @@ class ImpulseEngine(BaseStrategy):
         self._win_rate_history: dict[str, float] = {}  # symbol -> current win rate
         self._position_entry_prices: dict[str, float] = {}  # position_id -> entry_price
 
+        # Unified context from ContextAggregator
+        self._unified_context: dict[str, UnifiedMarketContext] = {}
+
         # Brain sentiment tracking for conflict detection
         self._brain_sentiment: dict[str, str] = {}  # symbol -> sentiment (bullish/bearish/neutral)
         self._brain_confidence: dict[str, float] = {}  # symbol -> confidence
@@ -172,23 +176,9 @@ class ImpulseEngine(BaseStrategy):
         # Check open positions for break-even and time limits
         await self._check_open_positions(tick)
 
-        # Fallback forced signal (only enabled with PAPER_TRADE_ASSIST in paper/dry_run mode)
-        if settings.paper_trade_assist:
-            symbol = tick.symbol
-            if symbol not in self._tick_count:
-                self._tick_count[symbol] = 0
-            self._tick_count[symbol] += 1
-
-            # Force signal every N ticks if no open position (anti-starvation in paper mode only)
-            if (
-                symbol not in self._open_positions
-                and self._tick_count[symbol] % self._force_signal_interval == 0
-            ):
-                logger.debug(
-                    f"[PAPER_TRADE_ASSIST] Forcing fallback signal for {symbol} (tick {self._tick_count[symbol]})"
-                )
-                await self._force_signal(tick)
-                return
+        # REMOVED: Forced signal every 300K ticks — deterministic filtering must always be active
+        # Paper trade assist should NOT bypass the filter cascade
+        # Original: forced signal via _force_signal() when tick_count % 300000 == 0
 
         # Check no-trade zone
         if await self._check_no_trade_zone(tick):
@@ -463,6 +453,27 @@ class ImpulseEngine(BaseStrategy):
                 f"[BRAIN] Updated sentiment for {symbol}: {sentiment} "
                 f"(confidence={confidence:.2f})"
             )
+
+    async def on_context_ready(self, event: Event) -> None:
+        """Handle unified context from ContextAggregator.
+
+        Updates brain sentiment/confidence from the fused context and stores
+        the full UnifiedMarketContext for use in signal generation.
+        """
+        ctx: UnifiedMarketContext | None = event.data.get("context")
+        if ctx is None:
+            return
+
+        symbol = ctx.symbol
+        if symbol not in self._symbols:
+            return
+
+        self._unified_context[symbol] = ctx
+
+        # Update brain sentiment from unified context (replaces direct BRAIN_ANALYSIS subscription)
+        if ctx.brain.confidence > 0.3:
+            self._brain_sentiment[symbol] = ctx.brain.sentiment
+            self._brain_confidence[symbol] = ctx.brain.confidence
 
     def _check_brain_conflict(self, symbol: str, signal_side: str) -> tuple[bool, float]:
         """Check if brain sentiment conflicts with signal direction.
@@ -850,6 +861,18 @@ class ImpulseEngine(BaseStrategy):
             mtf_cascade_active = True
             metrics.increment("impulse_mtf_cascade_signals")
 
+        # Apply unified context multiplier from ContextAggregator
+        if symbol in self._unified_context:
+            ctx = self._unified_context[symbol]
+            size_multiplier *= ctx.size_multiplier
+            # Check consensus direction conflict: if context strongly disagrees, reduce
+            if ctx.consensus_direction != "neutral" and ctx.should_reduce_size:
+                size_multiplier *= 0.5
+                logger.debug(
+                    f"[CONTEXT] {symbol} size reduced: should_reduce_size=True, "
+                    f"consensus={ctx.consensus_direction}"
+                )
+
         # Generate signal if impulse detected with adaptive threshold
         threshold = self._calculate_adaptive_threshold(symbol)
         # RELAXED: Don't require volume spike - may not be available
@@ -1168,8 +1191,8 @@ class ImpulseEngine(BaseStrategy):
                         if ofi_result:
                             mf_context["ofi_value"] = ofi_result.ofi_value
                             mf_context["ofi_signal"] = ofi_result.signal
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"OFI monitor error for {symbol}: {e}")
 
                 # Run multi-factor confirmation
                 mf_result = self._multi_factor.confirm(signal, mf_context)

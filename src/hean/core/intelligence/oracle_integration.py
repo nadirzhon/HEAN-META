@@ -137,6 +137,7 @@ class OracleIntegration:
 
         # Track large limit orders (only first few levels)
         for i, (price, size) in enumerate(bids[:5]):
+            price, size = float(price), float(size)
             if size * price > 10000:  # $10k minimum
                 order_id = f"{symbol}_bid_{i}_{timestamp_ns}"
                 self._oracle.update_order_book(
@@ -149,6 +150,7 @@ class OracleIntegration:
                 )
 
         for i, (price, size) in enumerate(asks[:5]):
+            price, size = float(price), float(size)
             if size * price > 10000:  # $10k minimum
                 order_id = f"{symbol}_ask_{i}_{timestamp_ns}"
                 self._oracle.update_order_book(

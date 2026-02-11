@@ -139,6 +139,7 @@ class ProfitCapture:
         """
         self._bus = bus
         self._enabled = settings.profit_capture_enabled
+        self._target_usd = settings.profit_capture_target_usd
         self._target_pct = settings.profit_capture_target_pct
         self._trail_pct = settings.profit_capture_trail_pct
         self._mode: Literal["partial", "full"] = settings.profit_capture_mode
@@ -154,15 +155,19 @@ class ProfitCapture:
         self._last_reason: str | None = None
         self._last_action_ts: datetime | None = None
 
+        # Capture history (how many times we've locked profit this session)
+        self._capture_count = 0
+        self._total_captured_usd = 0.0
+
         # Intra-session compounding for accelerated profit growth
         self._intra_session_compounding = IntraSessionCompounding(start_equity)
         self._compounding_enabled = True  # Enable by default
 
         logger.info(
             f"Profit capture initialized: enabled={self._enabled}, "
-            f"target={self._target_pct}%, trail={self._trail_pct}%, "
-            f"mode={self._mode}, after_action={self._after_action}, "
-            f"intra_session_compounding={self._compounding_enabled}"
+            f"target_usd=${self._target_usd:.0f}, target_pct={self._target_pct}%, "
+            f"trail={self._trail_pct}%, mode={self._mode}, "
+            f"after_action={self._after_action}"
         )
 
     def get_state(self) -> dict[str, Any]:
@@ -175,12 +180,15 @@ class ProfitCapture:
             "mode": self._mode,
             "start_equity": self._start_equity,
             "peak_equity": self._peak_equity,
+            "target_usd": self._target_usd,
             "target_pct": self._target_pct,
             "trail_pct": self._trail_pct,
             "after_action": self._after_action,
             "continue_risk_mult": self._continue_risk_mult,
             "last_action": self._last_action,
             "last_reason": self._last_reason,
+            "capture_count": self._capture_count,
+            "total_captured_usd": self._total_captured_usd,
         }
 
         # Include intra-session compounding state
@@ -209,6 +217,14 @@ class ProfitCapture:
     async def check_and_trigger(self, current_equity: float, trading_system: Any) -> bool:
         """Check if profit capture should trigger and execute if needed.
 
+        Checks three conditions (in order):
+        1. Dollar-based: unrealized profit >= target_usd (e.g. $1000)
+        2. Percent-based: equity growth >= target_pct from start
+        3. Trail protection: drawdown from peak >= trail_pct
+
+        After capture with after_action="continue", resets baseline
+        so the cycle repeats automatically.
+
         Args:
             current_equity: Current portfolio equity
             trading_system: TradingSystem instance for closing positions/orders
@@ -223,31 +239,47 @@ class ProfitCapture:
         if current_equity > self._peak_equity:
             self._peak_equity = current_equity
 
-        # Check target trigger
-        growth_pct = ((current_equity - self._start_equity) / self._start_equity) * 100 if self._start_equity > 0 else 0.0
-        if growth_pct >= self._target_pct and not self._triggered:
+        # 1. Dollar-based trigger: unrealized profit >= target_usd
+        unrealized_profit = current_equity - self._start_equity
+        if unrealized_profit >= self._target_usd and not self._triggered:
             logger.info(
-                f"Profit capture TARGET triggered: equity=${current_equity:.2f}, "
-                f"growth={growth_pct:.2f}% >= {self._target_pct}%"
+                f"[PROFIT LOCK] ${unrealized_profit:,.2f} profit reached "
+                f"(target: ${self._target_usd:,.0f}). Locking profits! "
+                f"(capture #{self._capture_count + 1})"
             )
             await self._execute_profit_capture(
                 trading_system,
-                reason="PROFIT_CAPTURE_REACHED",
+                reason="PROFIT_TARGET_USD_REACHED",
+                growth_pct=None,
+                captured_usd=unrealized_profit,
+            )
+            return True
+
+        # 2. Percent-based trigger
+        growth_pct = ((current_equity - self._start_equity) / self._start_equity) * 100 if self._start_equity > 0 else 0.0
+        if growth_pct >= self._target_pct and not self._triggered:
+            logger.info(
+                f"[PROFIT LOCK] {growth_pct:.1f}% growth reached "
+                f"(target: {self._target_pct}%). Locking profits!"
+            )
+            await self._execute_profit_capture(
+                trading_system,
+                reason="PROFIT_TARGET_PCT_REACHED",
                 growth_pct=growth_pct,
             )
             return True
 
-        # Check trail trigger
+        # 3. Trail protection
         if self._peak_equity > self._start_equity:
             drawdown_from_peak = ((self._peak_equity - current_equity) / self._peak_equity) * 100
             if drawdown_from_peak >= self._trail_pct and not self._triggered:
                 logger.info(
-                    f"Profit capture TRAIL triggered: equity=${current_equity:.2f}, "
-                    f"drawdown from peak={drawdown_from_peak:.2f}% >= {self._trail_pct}%"
+                    f"[PROFIT LOCK] Trail triggered: {drawdown_from_peak:.1f}% "
+                    f"drawdown from peak ${self._peak_equity:,.2f}"
                 )
                 await self._execute_profit_capture(
                     trading_system,
-                    reason="PROFIT_CAPTURE_TRAIL_TRIGGERED",
+                    reason="PROFIT_TRAIL_TRIGGERED",
                     drawdown_pct=drawdown_from_peak,
                 )
                 return True
@@ -260,21 +292,28 @@ class ProfitCapture:
         reason: str,
         growth_pct: float | None = None,
         drawdown_pct: float | None = None,
+        captured_usd: float | None = None,
     ) -> None:
-        """Execute profit capture action.
+        """Execute profit capture: close positions, lock profit, optionally continue.
 
         Args:
             trading_system: TradingSystem instance
-            reason: Reason for trigger (PROFIT_CAPTURE_REACHED or PROFIT_CAPTURE_TRAIL_TRIGGERED)
-            growth_pct: Growth percentage (for target trigger)
+            reason: Reason for trigger
+            growth_pct: Growth percentage (for pct trigger)
             drawdown_pct: Drawdown percentage (for trail trigger)
+            captured_usd: Dollar amount captured (for USD trigger)
         """
         self._triggered = True
+        self._capture_count += 1
         self._last_action = "EXECUTED"
         self._last_reason = reason
         self._last_action_ts = datetime.utcnow()
 
-        # Publish event — only STOP_TRADING if we actually want to pause/stop
+        current_equity = trading_system._accounting.get_equity()
+        profit_amount = captured_usd or (current_equity - self._start_equity)
+        self._total_captured_usd += max(0, profit_amount)
+
+        # Publish event
         event_data = {
             "type": "PROFIT_CAPTURE_EXECUTED",
             "reason": reason,
@@ -282,76 +321,94 @@ class ProfitCapture:
             "after_action": self._after_action,
             "growth_pct": growth_pct,
             "drawdown_pct": drawdown_pct,
+            "captured_usd": profit_amount,
+            "capture_count": self._capture_count,
+            "total_captured_usd": self._total_captured_usd,
             "start_equity": self._start_equity,
             "peak_equity": self._peak_equity,
-            "current_equity": trading_system._accounting.get_equity(),
+            "current_equity": current_equity,
         }
         if self._after_action != "continue":
             await self._bus.publish(
                 Event(event_type=EventType.STOP_TRADING, data=event_data)
             )
 
-        if self._mode == "full":
-            # Close all positions and cancel all orders
-            try:
-                # Close all positions
-                positions = list(trading_system._accounting.get_positions().values())
+        # Close positions to realize profit
+        closed_count = 0
+        try:
+            positions = trading_system._accounting.get_positions()
+
+            if self._mode == "full":
+                # Close ALL positions
                 for position in positions:
-                    await trading_system.close_position(position.position_id, reason=reason)
-
-                # Cancel all orders
-                from hean.core.types import OrderStatus
-                open_orders = trading_system._order_manager.get_open_orders()
-                for order in open_orders:
-                    order.status = OrderStatus.CANCELLED
-                    await trading_system._bus.publish(
-                        Event(
-                            event_type=EventType.ORDER_CANCELLED,
-                            data={"order": order, "reason": reason},
-                        )
+                    price = position.current_price or position.entry_price
+                    await trading_system._close_position_at_price(
+                        position, price, reason=reason
                     )
+                    closed_count += 1
+            else:
+                # Partial: close only profitable positions first
+                profitable = [p for p in positions if p.unrealized_pnl > 0]
+                losing = [p for p in positions if p.unrealized_pnl <= 0]
 
-                logger.info(f"Profit capture FULL: closed {len(positions)} positions, cancelled {len(open_orders)} orders")
-            except Exception as e:
-                logger.error(f"Error executing profit capture (full): {e}", exc_info=True)
-        elif self._mode == "partial":
-            # Reduce-only partial close (minimal safe implementation)
-            try:
-                positions = list(trading_system._accounting.get_positions().values())
-                # Close 50% of positions (reduce exposure)
-                close_count = max(1, len(positions) // 2)
-                for position in positions[:close_count]:
-                    await trading_system.close_position(position.position_id, reason=reason)
+                for position in profitable:
+                    price = position.current_price or position.entry_price
+                    await trading_system._close_position_at_price(
+                        position, price, reason=reason
+                    )
+                    closed_count += 1
 
-                # Cancel risky orders (orders with high notional)
-                open_orders = trading_system._order_manager.get_open_orders()
-                cancelled = 0
-                from hean.core.types import OrderStatus
-                for order in open_orders:
-                    notional = order.size * (order.price or 0)
-                    if notional > 100:  # Cancel orders > $100 notional
-                        order.status = OrderStatus.CANCELLED
-                        await trading_system._bus.publish(
-                            Event(
-                                event_type=EventType.ORDER_CANCELLED,
-                                data={"order": order, "reason": reason},
-                            )
+                # If no profitable positions, close the least losing ones
+                if not profitable and losing:
+                    losing.sort(key=lambda p: p.unrealized_pnl, reverse=True)
+                    for position in losing[:max(1, len(losing) // 2)]:
+                        price = position.current_price or position.entry_price
+                        await trading_system._close_position_at_price(
+                            position, price, reason=reason
                         )
-                        cancelled += 1
+                        closed_count += 1
 
-                logger.info(f"Profit capture PARTIAL: closed {close_count} positions, cancelled {cancelled} risky orders")
-            except Exception as e:
-                logger.error(f"Error executing profit capture (partial): {e}", exc_info=True)
+            # Cancel open orders
+            cancelled = 0
+            from hean.core.types import OrderStatus
+            open_orders = trading_system._order_manager.get_open_orders()
+            for order in open_orders:
+                order.status = OrderStatus.CANCELLED
+                await trading_system._bus.publish(
+                    Event(
+                        event_type=EventType.ORDER_CANCELLED,
+                        data={"order": order, "reason": reason},
+                    )
+                )
+                cancelled += 1
+
+            logger.info(
+                f"[PROFIT LOCK] Capture #{self._capture_count}: "
+                f"closed {closed_count} positions, cancelled {cancelled} orders. "
+                f"Locked ${profit_amount:,.2f} profit. "
+                f"Session total: ${self._total_captured_usd:,.2f}"
+            )
+        except Exception as e:
+            logger.error(f"Error executing profit capture: {e}", exc_info=True)
 
         # Handle after_action
         if self._after_action == "pause":
             trading_system._stop_trading = True
-            logger.info("Profit capture: Trading PAUSED after capture")
+            logger.info("[PROFIT LOCK] Trading PAUSED after capture")
         elif self._after_action == "continue":
-            # Ensure trading is NOT stopped when after_action is continue
+            # Reset baseline for next cycle — reinvest and keep trading
+            new_equity = trading_system._accounting.get_equity()
+            self._start_equity = new_equity
+            self._peak_equity = new_equity
+            self._triggered = False  # Allow next capture cycle
+            self._intra_session_compounding.reset(new_equity)
             trading_system._stop_trading = False
-            logger.info(f"Profit capture: Trading CONTINUES with {self._continue_risk_mult}x risk multiplier")
-            # Store risk multiplier in trading system for position sizer to use
+
+            logger.info(
+                f"[PROFIT LOCK] Reinvesting: new capital base ${new_equity:,.2f}. "
+                f"Trading continues. Next capture at +${self._target_usd:,.0f}"
+            )
+            # Store risk multiplier
             if hasattr(trading_system, "_profit_capture_risk_mult"):
                 trading_system._profit_capture_risk_mult = self._continue_risk_mult
 

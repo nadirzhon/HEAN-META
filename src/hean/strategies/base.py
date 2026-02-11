@@ -22,6 +22,9 @@ class BaseStrategy(ABC):
         self._running = False
         self._allowed_regimes: set = set()  # Override in subclasses
         self._market_context = None  # Unified context from ContextAggregator
+        # SSD: Physics state cache per symbol (fed by PHYSICS_UPDATE events)
+        self._ssd_physics: dict[str, dict] = {}
+        self._ssd_silent_count: dict[str, int] = {}  # Track consecutive silent ticks
 
     async def start(self) -> None:
         """Start the strategy."""
@@ -29,6 +32,7 @@ class BaseStrategy(ABC):
         self._bus.subscribe(EventType.FUNDING, self._handle_funding)
         self._bus.subscribe(EventType.REGIME_UPDATE, self._handle_regime_update)
         self._bus.subscribe(EventType.CONTEXT_READY, self._handle_context_ready)
+        self._bus.subscribe(EventType.PHYSICS_UPDATE, self._handle_physics_update)
         self._running = True
         logger.info(f"Strategy {self.strategy_id} started")
 
@@ -38,11 +42,52 @@ class BaseStrategy(ABC):
         self._bus.unsubscribe(EventType.FUNDING, self._handle_funding)
         self._bus.unsubscribe(EventType.REGIME_UPDATE, self._handle_regime_update)
         self._bus.unsubscribe(EventType.CONTEXT_READY, self._handle_context_ready)
+        self._bus.unsubscribe(EventType.PHYSICS_UPDATE, self._handle_physics_update)
         self._running = False
         logger.info(f"Strategy {self.strategy_id} stopped")
 
+    async def _handle_physics_update(self, event: Event) -> None:
+        """Cache SSD physics state from PhysicsEngine."""
+        if not self._running:
+            return
+        physics = event.data.get("physics")
+        symbol = event.data.get("symbol")
+        if physics and symbol:
+            self._ssd_physics[symbol] = physics
+
+    def _ssd_lens(self, symbol: str) -> str:
+        """SSD Lens — the core signal filter that cuts noise.
+
+        Returns the SSD operating mode for this symbol:
+        - "silent": Do NOT process this tick (entropy diverging, noise regime)
+        - "normal": Standard processing
+        - "laplace": Deterministic mode — high confidence, ignore 95% of variables
+
+        This replaces each strategy's need to independently filter noise.
+        """
+        physics = self._ssd_physics.get(symbol)
+        if not physics:
+            return "normal"
+
+        ssd_mode = physics.get("ssd_mode", "normal")
+
+        if ssd_mode == "silent":
+            count = self._ssd_silent_count.get(symbol, 0) + 1
+            self._ssd_silent_count[symbol] = count
+            # Log every 100th silent tick to avoid spam
+            if count % 100 == 1:
+                logger.debug(
+                    f"[SSD] {self.strategy_id} SILENT for {symbol} "
+                    f"(consecutive={count}, entropy_flow={physics.get('entropy_flow_smooth', 0):.4f})"
+                )
+            return "silent"
+        else:
+            self._ssd_silent_count[symbol] = 0
+
+        return ssd_mode
+
     async def _handle_tick(self, event: Event) -> None:
-        """Handle tick events."""
+        """Handle tick events with SSD lens filtering."""
         if not self._running:
             return
 
@@ -51,6 +96,16 @@ class BaseStrategy(ABC):
         if tick_data and hasattr(tick_data, "symbol") and hasattr(tick_data, "price"):
             symbol = tick_data.symbol
             price = tick_data.price
+
+            # === SSD LENS: Core noise filter ===
+            ssd_mode = self._ssd_lens(symbol)
+            if ssd_mode == "silent":
+                no_trade_report.increment("ssd_silent_filter", symbol, self.strategy_id)
+                return  # Energy-saving: skip tick entirely
+
+            # Inject SSD mode into event data for strategies to consume
+            event.data["ssd_mode"] = ssd_mode
+            event.data["ssd_physics"] = self._ssd_physics.get(symbol, {})
 
             # Check for price anomalies (gaps, spikes, flash crashes)
             anomaly = price_anomaly_detector.check_price(symbol, price)
@@ -172,17 +227,37 @@ class BaseStrategy(ABC):
         price_anomaly_detector.reset_anomaly_count(symbol)
 
     async def _publish_signal(self, signal: Signal) -> None:
-        """Publish a trading signal."""
+        """Publish a trading signal with SSD mode enhancement."""
         # Track signal emission
         no_trade_report.increment_pipeline("signals_emitted", self.strategy_id)
 
         # Record signal for rejection rate calculation
         signal_rejection_telemetry.record_signal()
 
+        # SSD: Apply Laplace mode confidence boost and Data Collapse
+        physics = self._ssd_physics.get(signal.symbol, {})
+        ssd_mode = physics.get("ssd_mode", "normal")
+        resonance = physics.get("resonance_strength", 0.0)
+
+        if ssd_mode == "laplace":
+            # Laplace mode: boost confidence, tag signal as deterministic
+            signal.metadata["ssd_mode"] = "laplace"
+            signal.metadata["ssd_resonance"] = resonance
+            signal.metadata["ssd_causal_weight"] = physics.get("causal_weight", 0.05)
+            # Boost size multiplier proportional to resonance strength
+            current_mult = signal.metadata.get("size_multiplier", 1.0)
+            laplace_boost = 1.0 + resonance * 0.5  # Up to 1.5x in full resonance
+            signal.metadata["size_multiplier"] = current_mult * laplace_boost
+            logger.info(
+                f"[SSD-LAPLACE] {self.strategy_id} {signal.symbol}: "
+                f"resonance={resonance:.3f}, boost={laplace_boost:.2f}x"
+            )
+        else:
+            signal.metadata["ssd_mode"] = ssd_mode
+
         # Apply anomaly-based size reduction
         anomaly_multiplier = self.get_anomaly_size_multiplier(signal.symbol)
         if anomaly_multiplier < 1.0:
-            # Store original multiplier if present
             current_mult = signal.metadata.get("size_multiplier", 1.0)
             signal.metadata["size_multiplier"] = current_mult * anomaly_multiplier
             signal.metadata["anomaly_size_reduction"] = anomaly_multiplier
@@ -192,14 +267,12 @@ class BaseStrategy(ABC):
             )
 
         logger.info(
-            f"[FORCED_PUBLISH] Publishing signal: {self.strategy_id} {signal.symbol} {signal.side}"
+            f"[SIGNAL] Publishing: {self.strategy_id} {signal.symbol} {signal.side} "
+            f"(ssd={ssd_mode})"
         )
         await self._bus.publish(
             Event(
                 event_type=EventType.SIGNAL,
                 data={"signal": signal},
             )
-        )
-        logger.info(
-            f"[FORCED_PUBLISH] Signal published: {self.strategy_id} {signal.symbol} {signal.side}"
         )

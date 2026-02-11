@@ -1560,6 +1560,7 @@ from hean.api.routers import (  # noqa: E402
     analytics,
     causal_inference,
     changelog,
+    council,
     engine,
     graph_engine,
     market,
@@ -1600,6 +1601,7 @@ app.include_router(physics.router, prefix=API_PREFIX)
 app.include_router(temporal.router, prefix=API_PREFIX)
 app.include_router(brain.router, prefix=API_PREFIX)
 app.include_router(storage.router, prefix=API_PREFIX)
+app.include_router(council.router, prefix=API_PREFIX)
 
 # WebSocket endpoint for Pub/Sub
 @app.websocket("/ws")

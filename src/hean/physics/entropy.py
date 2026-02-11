@@ -30,6 +30,10 @@ class EntropyReading:
     timestamp: float
     symbol: str
     is_compression: bool = False  # True when entropy drops significantly
+    # SSD: Entropy flow rate dH/dt (negative = converging, positive = diverging)
+    entropy_flow: float = 0.0
+    # SSD: Smoothed entropy flow (EMA-filtered)
+    entropy_flow_smooth: float = 0.0
 
 
 class MarketEntropy:
@@ -47,6 +51,11 @@ class MarketEntropy:
         self._history: dict[str, deque[EntropyReading]] = {}
         self._history_size = history_size
         self._rolling_avg: dict[str, float] = {}
+        # SSD: Entropy flow tracking
+        self._prev_entropy: dict[str, float] = {}
+        self._prev_timestamp: dict[str, float] = {}
+        self._entropy_flow_ema: dict[str, float] = {}
+        self._flow_ema_alpha = 0.15  # Smoothing for entropy flow
 
     def calculate(self, volumes: list[float], symbol: str = "UNKNOWN") -> EntropyReading:
         """Calculate market entropy from volume distribution.
@@ -112,6 +121,23 @@ class MarketEntropy:
         alpha = 0.1
         self._rolling_avg[symbol] = alpha * entropy + (1 - alpha) * rolling_avg
 
+        # SSD: Calculate entropy flow rate dH/dt
+        now = time.time()
+        entropy_flow = 0.0
+        prev_e = self._prev_entropy.get(symbol)
+        prev_t = self._prev_timestamp.get(symbol)
+        if prev_e is not None and prev_t is not None:
+            dt = now - prev_t
+            if dt > 0:
+                entropy_flow = (entropy - prev_e) / dt
+        self._prev_entropy[symbol] = entropy
+        self._prev_timestamp[symbol] = now
+
+        # SSD: Smooth entropy flow with EMA
+        prev_flow_ema = self._entropy_flow_ema.get(symbol, 0.0)
+        flow_smooth = self._flow_ema_alpha * entropy_flow + (1 - self._flow_ema_alpha) * prev_flow_ema
+        self._entropy_flow_ema[symbol] = flow_smooth
+
         reading = EntropyReading(
             value=entropy,
             state=state,
@@ -119,6 +145,8 @@ class MarketEntropy:
             timestamp=time.time(),
             symbol=symbol,
             is_compression=is_compression,
+            entropy_flow=entropy_flow,
+            entropy_flow_smooth=flow_smooth,
         )
 
         # Store history

@@ -168,8 +168,9 @@ final class DashboardViewModel: ObservableObject {
             let portfolio = try await portfolioService.fetchPortfolio()
             self.portfolio = portfolio
             self.equity = portfolio.equity
-            let total = portfolio.realizedPnL + portfolio.unrealizedPnL
-            let pct = portfolio.initialCapital > 0 ? (total / portfolio.initialCapital) * 100 : 0
+            // Use equity - initialCapital as the true total PnL
+            let total = portfolio.totalPnL
+            let pct = portfolio.totalPnLPercent
             self.pnl = PnLSnapshot(
                 realized: portfolio.realizedPnL,
                 unrealized: portfolio.unrealizedPnL,

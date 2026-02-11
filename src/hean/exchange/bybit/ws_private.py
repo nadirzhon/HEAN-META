@@ -301,8 +301,8 @@ class BybitPrivateWebSocket:
         if self._websocket:
             try:
                 await self._websocket.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"WebSocket close error during reconnect: {e}")
             self._websocket = None
 
         self._connected = False

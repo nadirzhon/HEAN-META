@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from hean.core.bus import EventBus
+from hean.core.market_context import UnifiedMarketContext
 from hean.core.regime import Regime
 from hean.core.types import Event, FundingRate, Signal, Tick
 from hean.logging import get_logger
@@ -79,6 +80,11 @@ class FundingHarvester(BaseStrategy):
         self._max_concurrent_positions = 2  # Max positions across symbols
         self._active_positions_count = 0
 
+        # Price history for momentum fallback signal
+        self._price_history: dict[str, deque] = {
+            symbol: deque(maxlen=100) for symbol in self._symbols
+        }
+
         # ML-enhanced prediction settings
         self._ml_predictor_enabled = True
         self._funding_leverage_enabled = True
@@ -99,6 +105,9 @@ class FundingHarvester(BaseStrategy):
         self._max_daily_signals: int = 6  # Max 6 signals per day (conservative)
         self._daily_reset_time: datetime | None = None
 
+        # Unified context from ContextAggregator
+        self._unified_context: dict[str, UnifiedMarketContext] = {}
+
         # Enhanced metrics
         self._funding_collected = 0.0
         self._funding_trades = 0
@@ -112,11 +121,20 @@ class FundingHarvester(BaseStrategy):
         tick: Tick = event.data.get("tick")
         if tick and tick.symbol in self._symbols:
             self._last_tick[tick.symbol] = tick
+            self._price_history[tick.symbol].append(tick.price)
 
             # FALLBACK: If no funding data available, generate simple directional signals based on price momentum
             # This allows the strategy to work even without funding API data
             if tick.symbol not in self._last_funding or len(self._historical_funding[tick.symbol]) == 0:
                 await self._generate_momentum_fallback_signal(tick)
+
+    async def on_context_ready(self, event: Event) -> None:
+        """Handle unified context from ContextAggregator."""
+        ctx: UnifiedMarketContext | None = event.data.get("context")
+        if ctx is None:
+            return
+        if ctx.symbol in self._symbols:
+            self._unified_context[ctx.symbol] = ctx
 
     async def on_funding(self, event: Event) -> None:
         """Handle funding rate events."""
@@ -322,6 +340,23 @@ class FundingHarvester(BaseStrategy):
 
         side = symbol_opportunity["side"]
         time_to_funding_hrs = symbol_opportunity["time_to_funding_hrs"]
+
+        # Apply unified context from ContextAggregator
+        if funding.symbol in self._unified_context:
+            ctx = self._unified_context[funding.symbol]
+            # If brain says bearish with high confidence, skip long funding harvests
+            if side == "buy" and ctx.brain.sentiment == "bearish" and ctx.brain.confidence > 0.7:
+                logger.info(
+                    f"[FUNDING CONTEXT] Skipping {funding.symbol} long: "
+                    f"brain bearish (conf={ctx.brain.confidence:.2f})"
+                )
+                return
+            # Apply context size multiplier
+            size_multiplier *= ctx.size_multiplier
+            # If context signals conflict, halve position
+            if ctx.should_reduce_size:
+                size_multiplier *= 0.5
+                logger.debug(f"[FUNDING CONTEXT] {funding.symbol} size halved: context conflict")
 
         # Calculate expected profit for logging (includes leverage)
         assumed_position_size = 100 * leverage_multiplier  # Leveraged size

@@ -81,7 +81,23 @@ class SzilardEngine:
         entropy: float,
         phase: str,
         min_edge_bps: float = 5.0,
+        ssd_mode: str = "normal",
+        resonance_strength: float = 0.0,
     ) -> tuple[bool, str]:
+        # SSD: Laplace mode overrides — deterministic trading
+        if ssd_mode == "laplace":
+            edge = self.calculate_edge_from_physics(
+                temperature, entropy, 0.5 + resonance_strength * 0.45
+            )
+            return True, (
+                f"SSD LAPLACE: deterministic (resonance={resonance_strength:.3f}, "
+                f"edge={edge:.1f} bps)"
+            )
+
+        # SSD: Silent mode — absolute block
+        if ssd_mode == "silent":
+            return False, "SSD SILENT: entropy diverging, noise regime"
+
         if phase == "vapor":
             return False, "VAPOR phase - too chaotic"
 
@@ -101,14 +117,25 @@ class SzilardEngine:
         return False, "Conditions not favorable"
 
     def calculate_optimal_size_multiplier(
-        self, temperature: float, entropy: float, phase: str
+        self, temperature: float, entropy: float, phase: str,
+        ssd_mode: str = "normal", resonance_strength: float = 0.0,
     ) -> float:
+        # SSD: Silent → zero size
+        if ssd_mode == "silent":
+            return 0.0
+
+        base = 0.5
         if phase == "vapor":
-            return 0.1
-        if phase == "ice":
-            return 0.5 if entropy < 2.0 else 0.3
-        if phase == "water":
+            base = 0.1
+        elif phase == "ice":
+            base = 0.5 if entropy < 2.0 else 0.3
+        elif phase == "water":
             entropy_mult = max(0.5, 1.0 - (entropy - 2.0) / 3.0)
             temp_mult = max(0.5, min(1.5, 1.0 - abs(temperature - 600) / 600))
-            return min(2.0, entropy_mult * temp_mult)
-        return 0.5
+            base = min(2.0, entropy_mult * temp_mult)
+
+        # SSD: Laplace mode → boost proportional to resonance
+        if ssd_mode == "laplace":
+            base = min(2.0, base * (1.0 + resonance_strength))
+
+        return base

@@ -17,7 +17,7 @@ struct XRayView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     if viewModel.isLoading && viewModel.participants == nil {
-                        ProgressView("Loading X-Ray...")
+                        ProgressView(L.loadingXRay)
                             .padding(.top, 40)
                     } else if let bd = viewModel.participants {
                         // Meta signal banner
@@ -27,43 +27,43 @@ struct XRayView: View {
                         dominantPlayerCard(bd.dominantPlayer)
 
                         // Section header
-                        sectionHeader("Participants")
+                        sectionHeader(L.participants)
 
                         // Participant cards with info buttons
                         participantCard(
-                            icon: "building.2.fill", title: "Market Makers",
+                            icon: "building.2.fill", title: L.marketMakers,
                             value: bd.mmActivityPercent, color: .blue,
-                            description: "Поддерживают ликвидность, зарабатывают на спреде.",
+                            description: L.mmDesc,
                             term: .mmActivity
                         )
                         participantCard(
-                            icon: "briefcase.fill", title: "Institutional",
+                            icon: "briefcase.fill", title: L.institutional,
                             value: bd.institutionalFlowPercent, color: .purple,
-                            description: "Крупные фонды. Торгуют iceberg-ордерами.",
+                            description: L.instDesc,
                             term: .institutionalFlow
                         )
                         participantCard(
-                            icon: "person.3.fill", title: "Retail",
+                            icon: "person.3.fill", title: L.retail,
                             value: bd.retailSentimentPercent, color: .green,
-                            description: "Обычные трейдеры. Хороший контр-индикатор.",
+                            description: L.retailDesc,
                             term: .retailSentiment
                         )
                         participantCard(
-                            icon: "fish.fill", title: "Whales",
+                            icon: "fish.fill", title: L.whales,
                             value: bd.whaleActivityPercent, color: .orange,
-                            description: "Крупные держатели. Их движения двигают рынок.",
+                            description: L.whaleDesc,
                             term: .whaleActivity
                         )
                         participantCard(
-                            icon: "cpu", title: "Arb Bots",
+                            icon: "cpu", title: L.arbBots,
                             value: bd.arbPressurePercent, color: .cyan,
-                            description: "Выравнивают цены между биржами.",
+                            description: L.arbDesc,
                             term: .arbPressure
                         )
 
                         // Anomalies section
                         if !viewModel.anomalies.isEmpty {
-                            sectionHeader("Anomalies")
+                            sectionHeader(L.anomalies)
                             ForEach(viewModel.anomalies) { anomaly in
                                 anomalyCard(anomaly)
                             }
@@ -73,7 +73,7 @@ struct XRayView: View {
                             Image(systemName: "eye.fill")
                                 .font(.system(size: 48))
                                 .foregroundColor(.gray)
-                            Text("No participant data")
+                            Text(L.noParticipantData)
                                 .foregroundColor(.secondary)
                         }
                         .padding(.top, 40)
@@ -82,7 +82,7 @@ struct XRayView: View {
                 .padding()
             }
             .background(Theme.Colors.background.ignoresSafeArea())
-            .navigationTitle("X-Ray")
+            .navigationTitle(L.xray)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
@@ -137,7 +137,7 @@ struct XRayView: View {
         GlassCard(padding: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("DOMINANT PLAYER")
+                    Text(L.dominantPlayer)
                         .font(.caption)
                         .foregroundColor(Theme.Colors.textSecondary)
                     Text(player.replacingOccurrences(of: "_", with: " ").capitalized)
@@ -225,7 +225,7 @@ struct XRayView: View {
                         .foregroundColor(Theme.Colors.textPrimary)
                         .lineLimit(2)
                     HStack {
-                        Text("Severity")
+                        Text(L.severity)
                             .font(.caption2)
                             .foregroundColor(Theme.Colors.textSecondary)
                         ProgressView(value: anomaly.severity)

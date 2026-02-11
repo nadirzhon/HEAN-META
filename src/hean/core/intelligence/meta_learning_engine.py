@@ -366,7 +366,18 @@ class MetaLearningEngine:
         scenario: FailureScenario,
         result: dict[str, Any]
     ) -> None:
-        """Generate and apply a code patch to prevent the failure."""
+        """Generate and apply a code patch to prevent the failure.
+
+        SAFETY: Auto-patching of source files is disabled.
+        Analysis and diagnostics remain functional, but no files are modified.
+        """
+        logger.warning(
+            f"[META_LEARNING] Auto-patch blocked for scenario {scenario.scenario_id}: "
+            f"file modification disabled for safety. Patch suggestion: {scenario.patch_suggestion}"
+        )
+        return
+
+        # --- Original patching code below (disabled) ---
         if not scenario.patch_suggestion:
             return
 

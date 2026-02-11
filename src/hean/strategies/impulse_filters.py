@@ -43,9 +43,7 @@ class SpreadFilter(BaseFilter):
 
     def allow(self, tick: Tick, context: dict[str, Any] | None = None) -> bool:
         """Check if spread is acceptable."""
-        # FORCED: Always allow for debug mode
-        if settings.debug_mode:
-            return True
+        # debug_mode bypass REMOVED — spread filter always active for deterministic filtering
 
         if not tick.bid or not tick.ask or tick.bid <= 0 or tick.ask <= 0:
             return True  # Can't calculate spread
@@ -88,14 +86,28 @@ class VolatilityExpansionFilter(BaseFilter):
 
     def allow(self, tick: Tick, context: dict[str, Any] | None = None) -> bool:
         """Check if volatility expansion condition is met."""
-        # FORCED: Always allow for debug mode
-        if settings.debug_mode:
-            return True
+        # debug_mode bypass REMOVED — volatility filter always active for deterministic filtering
 
-        # In paper assist mode, relax volatility requirements
+        # paper_assist: relax volatility threshold but do NOT bypass entirely
         if is_paper_assist_enabled():
             min_mult, max_mult = get_volatility_gate_relaxation()
-            # Allow more lenient volatility checks
+            if context:
+                vol_short = context.get("vol_short")
+                vol_long = context.get("vol_long")
+                if vol_short and vol_long and vol_long > 0:
+                    required_ratio = settings.impulse_vol_expansion_ratio * min_mult
+                    actual_ratio = vol_short / vol_long
+                    if actual_ratio < required_ratio:
+                        agent_name = context.get("strategy_id", "impulse_engine") if context else "impulse_engine"
+                        log_block_reason(
+                            "volatility_expansion_reject_relaxed",
+                            measured_value=actual_ratio,
+                            threshold=required_ratio,
+                            symbol=tick.symbol,
+                            strategy_id=agent_name,
+                            agent_name=agent_name,
+                        )
+                        return False
             log_allow_reason("volatility_ok", symbol=tick.symbol, note="paper_assist_relaxed")
             return True
 

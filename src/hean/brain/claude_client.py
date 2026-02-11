@@ -23,25 +23,43 @@ logger = get_logger(__name__)
 
 
 class ClaudeBrainClient:
-    """In-process brain that analyzes market state using Claude API."""
+    """In-process brain that analyzes market state using LLM API.
+
+    Provider priority: OpenRouter (Qwen3-Max-Thinking, cheapest) → Anthropic (fallback).
+    """
 
     def __init__(
         self,
         bus: EventBus,
         api_key: str = "",
-        analysis_interval: int = 30,
+        analysis_interval: int = 60,
+        openrouter_api_key: str = "",
     ) -> None:
         self._bus = bus
         self._api_key = api_key
+        self._openrouter_api_key = openrouter_api_key
         self._analysis_interval = analysis_interval
 
-        # Anthropic client (optional)
+        # OpenRouter client (preferred — Qwen3-Max-Thinking, $1.2/$6 per M tokens)
+        self._openrouter_client = None
+        if self._openrouter_api_key:
+            try:
+                import openai as _openai
+                self._openrouter_client = _openai.AsyncOpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=self._openrouter_api_key,
+                )
+                logger.info("Brain: OpenRouter client initialized (Qwen3-Max-Thinking)")
+            except ImportError:
+                logger.warning("Brain: openai package not installed for OpenRouter")
+
+        # Anthropic client (fallback — more expensive)
         self._anthropic_client = None
-        if self._api_key:
+        if self._api_key and not self._openrouter_client:
             try:
                 import anthropic
                 self._anthropic_client = anthropic.AsyncAnthropic(api_key=self._api_key)
-                logger.info("Brain: Anthropic client initialized")
+                logger.info("Brain: Anthropic client initialized (fallback)")
             except ImportError:
                 logger.warning("Brain: anthropic package not installed, using rule-based fallback")
 
@@ -63,9 +81,11 @@ class ClaudeBrainClient:
         self._running = True
         self._bus.subscribe(EventType.CONTEXT_UPDATE, self._handle_context_update)
         self._analysis_task = asyncio.create_task(self._analysis_loop())
+        provider = "openrouter/qwen3" if self._openrouter_client else (
+            "anthropic/claude" if self._anthropic_client else "rule-based"
+        )
         logger.info(
-            f"Brain started (interval={self._analysis_interval}s, "
-            f"claude={'enabled' if self._anthropic_client else 'rule-based'})"
+            f"Brain started (interval={self._analysis_interval}s, provider={provider})"
         )
 
     async def stop(self) -> None:
@@ -109,7 +129,9 @@ class ClaudeBrainClient:
                 if not physics:
                     continue
 
-                if self._anthropic_client:
+                if self._openrouter_client:
+                    analysis = await self._openrouter_analysis(physics, participants)
+                elif self._anthropic_client:
                     analysis = await self._claude_analysis(physics, participants)
                 else:
                     analysis = self._rule_based_analysis(physics, participants)
@@ -128,12 +150,74 @@ class ClaudeBrainClient:
                 logger.warning(f"Brain analysis error: {e}")
                 await asyncio.sleep(5)
 
+    async def _openrouter_analysis(
+        self,
+        physics: dict[str, Any],
+        participants: dict[str, Any] | None,
+    ) -> BrainAnalysis | None:
+        """Run OpenRouter/Qwen3-Max-Thinking analysis (cheapest provider)."""
+        prompt = MarketSnapshotFormatter.format(
+            physics_state=physics,
+            participants=participants,
+            anomalies=self._latest_anomalies[:5] if self._latest_anomalies else None,
+            temporal=self._latest_temporal or None,
+        )
+
+        try:
+            response = await self._openrouter_client.chat.completions.create(
+                model="qwen/qwen3-max",
+                max_tokens=500,
+                messages=[{"role": "user", "content": prompt}],
+                extra_headers={
+                    "HTTP-Referer": "https://hean.trading",
+                    "X-Title": "HEAN Trading Brain",
+                },
+            )
+
+            response_text = response.choices[0].message.content
+
+            # Strip thinking tags if present (Qwen3 thinking model)
+            if "<think>" in response_text:
+                import re
+                response_text = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL).strip()
+
+            # Try to parse JSON
+            try:
+                start = response_text.find("{")
+                end = response_text.rfind("}") + 1
+                if start >= 0 and end > start:
+                    parsed = json.loads(response_text[start:end])
+                    return self._parse_claude_response(parsed)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+            # Fallback: raw text as thought
+            ts = datetime.utcnow().isoformat()
+            thought = BrainThought(
+                id=str(uuid.uuid4())[:8],
+                timestamp=ts,
+                stage="decision",
+                content=response_text[:200],
+                confidence=0.5,
+            )
+            return BrainAnalysis(
+                timestamp=ts,
+                thoughts=[thought],
+                summary=response_text[:200],
+            )
+
+        except Exception as e:
+            logger.warning(f"OpenRouter API error: {e}, falling back to Anthropic")
+            if self._anthropic_client:
+                return await self._claude_analysis(physics, participants)
+            return self._rule_based_analysis(physics, participants)
+
     async def _claude_analysis(
         self,
         physics: dict[str, Any],
         participants: dict[str, Any] | None,
     ) -> BrainAnalysis | None:
-        """Run Claude API analysis."""
+        """Run Claude API analysis (fallback, more expensive)."""
         prompt = MarketSnapshotFormatter.format(
             physics_state=physics,
             participants=participants,

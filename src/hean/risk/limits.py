@@ -144,10 +144,6 @@ class RiskLimits:
 
     def check_cooldown(self, strategy_id: str) -> tuple[bool, str]:
         """Check if strategy is in cooldown period."""
-        # Aggressive Mode: Bypass cooldowns completely when DEBUG_MODE=True
-        if settings.debug_mode:
-            log_allow_reason("cooldown_bypassed_debug", strategy_id=strategy_id, note="DEBUG_MODE bypass")
-            return True, ""
 
         # Universal cooldown for all strategies
         cooldown_map = {

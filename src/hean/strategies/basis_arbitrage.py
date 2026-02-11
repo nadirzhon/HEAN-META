@@ -4,6 +4,7 @@ from collections import deque
 from datetime import datetime
 
 from hean.core.bus import EventBus
+from hean.core.market_context import UnifiedMarketContext
 from hean.core.regime import Regime
 from hean.core.types import Event, Signal, Tick
 from hean.execution.edge_estimator import ExecutionEdgeEstimator
@@ -39,6 +40,9 @@ class BasisArbitrage(BaseStrategy):
         self._current_regime: dict[str, Regime] = {}
         # Execution edge estimator
         self._edge_estimator = ExecutionEdgeEstimator()
+
+        # Unified context from ContextAggregator
+        self._unified_context: dict[str, UnifiedMarketContext] = {}
 
         # Anti-overtrading: Cooldown and signal limits
         from datetime import timedelta
@@ -118,6 +122,14 @@ class BasisArbitrage(BaseStrategy):
             return
         self._current_regime[symbol] = regime
 
+    async def on_context_ready(self, event: Event) -> None:
+        """Handle unified context from ContextAggregator."""
+        ctx: UnifiedMarketContext | None = event.data.get("context")
+        if ctx is None:
+            return
+        if ctx.symbol in self._symbols:
+            self._unified_context[ctx.symbol] = ctx
+
     async def _evaluate_basis(self, symbol: str, spot_price: float, perp_price: float) -> None:
         """Evaluate basis and generate signals if appropriate."""
         # Check if strategy is allowed in current regime
@@ -191,6 +203,12 @@ class BasisArbitrage(BaseStrategy):
             ask=spot_price * 1.0001,
         )
 
+        # Apply unified context size multiplier
+        ctx_size_mult = 1.0
+        if symbol in self._unified_context:
+            ctx = self._unified_context[symbol]
+            ctx_size_mult = ctx.size_multiplier
+
         # Calculate stop loss: 2% from entry price
         stop_loss_pct = 0.02  # 2% stop loss
         if basis > 0:
@@ -202,7 +220,7 @@ class BasisArbitrage(BaseStrategy):
                 entry_price=spot_price,
                 stop_loss=spot_price * (1 - stop_loss_pct),  # 2% stop loss below entry
                 take_profit=spot_price * 1.001,  # Small TP for edge calculation
-                metadata={"basis": basis, "leg": "spot", "type": "arbitrage"},
+                metadata={"basis": basis, "leg": "spot", "type": "arbitrage", "size_multiplier": ctx_size_mult},
             )
             perp_signal = Signal(
                 strategy_id=self.strategy_id,
@@ -211,7 +229,7 @@ class BasisArbitrage(BaseStrategy):
                 entry_price=perp_price,
                 stop_loss=perp_price * (1 + stop_loss_pct),  # 2% stop loss above entry (for short)
                 take_profit=perp_price * 0.999,  # Small TP for edge calculation
-                metadata={"basis": basis, "leg": "perp", "type": "arbitrage"},
+                metadata={"basis": basis, "leg": "perp", "type": "arbitrage", "size_multiplier": ctx_size_mult},
             )
         else:
             # Negative basis: sell spot, buy perp
@@ -222,7 +240,7 @@ class BasisArbitrage(BaseStrategy):
                 entry_price=spot_price,
                 stop_loss=spot_price * (1 + stop_loss_pct),  # 2% stop loss above entry (for short)
                 take_profit=spot_price * 0.999,  # Small TP for edge calculation
-                metadata={"basis": basis, "leg": "spot", "type": "arbitrage"},
+                metadata={"basis": basis, "leg": "spot", "type": "arbitrage", "size_multiplier": ctx_size_mult},
             )
             perp_signal = Signal(
                 strategy_id=self.strategy_id,
@@ -231,7 +249,7 @@ class BasisArbitrage(BaseStrategy):
                 entry_price=perp_price,
                 stop_loss=perp_price * (1 - stop_loss_pct),  # 2% stop loss below entry
                 take_profit=perp_price * 1.001,  # Small TP for edge calculation
-                metadata={"basis": basis, "leg": "perp", "type": "arbitrage"},
+                metadata={"basis": basis, "leg": "perp", "type": "arbitrage", "size_multiplier": ctx_size_mult},
             )
 
         # Check edge for both signals before emitting

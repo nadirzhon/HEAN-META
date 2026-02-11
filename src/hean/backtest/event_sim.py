@@ -26,7 +26,7 @@ class EventSimulator(PriceFeed):
     """Simulates market events for backtesting.
 
     Implements PriceFeed interface to allow injection into TradingSystem,
-    making it interchangeable with SyntheticPriceFeed for evaluation mode.
+    making it interchangeable with BybitPriceFeed for evaluation mode.
     """
 
     def __init__(

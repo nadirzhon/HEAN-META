@@ -15,9 +15,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from hean.config import settings
 from hean.core.bus import EventBus
-from hean.core.types import Event, EventType, Position
+from hean.core.types import Event, EventType, OrderRequest
 from hean.logging import get_logger
 
 logger = get_logger(__name__)
@@ -66,11 +65,14 @@ class PositionReconciler:
 
         # Configuration
         self._reconciliation_interval = timedelta(seconds=30)  # Check every 30s
-        self._size_tolerance_pct = 0.01  # 1% tolerance for size mismatches
-        self._max_drift_before_halt = 3  # Halt after 3 unresolved drifts
+        self._size_tolerance_pct = 0.02  # 2% relative tolerance for size mismatches
+        self._size_tolerance_abs = 0.001  # Absolute tolerance (handles tiny positions)
+        self._max_drift_before_halt = 10  # Halt after 10 unresolved drifts (was 3)
 
         # State tracking
         self._consecutive_drifts = 0
+        self._start_time = datetime.utcnow()
+        self._startup_grace_seconds = 120  # Don't close orphans in first 2 minutes
         self._last_reconciliation: ReconciliationResult | None = None
         self._reconciliation_history: list[ReconciliationResult] = []
 
@@ -159,15 +161,23 @@ class PositionReconciler:
                     missing_locally.append(symbol)
                 else:
                     local_pos = local_map[symbol]
-                    # Check size match within tolerance
+                    # Check size match within tolerance (use max of absolute and relative)
                     ex_size = float(ex_pos.get("size", 0))
                     local_size = local_pos.size
-                    if abs(ex_size - local_size) / max(ex_size, 0.0001) > self._size_tolerance_pct:
+                    size_diff = abs(ex_size - local_size)
+                    ref_size = max(ex_size, local_size)
+                    # Pass if within absolute tolerance OR within relative tolerance
+                    within_tolerance = (
+                        size_diff <= self._size_tolerance_abs
+                        or (ref_size > 0 and size_diff / ref_size <= self._size_tolerance_pct)
+                    )
+                    if not within_tolerance:
+                        drift_pct = (size_diff / ref_size * 100) if ref_size > 0 else 0.0
                         size_mismatches.append({
                             "symbol": symbol,
                             "exchange_size": ex_size,
                             "local_size": local_size,
-                            "drift_pct": abs(ex_size - local_size) / max(ex_size, 0.0001) * 100,
+                            "drift_pct": drift_pct,
                         })
                     else:
                         matched += 1
@@ -220,11 +230,11 @@ class PositionReconciler:
             )
 
     async def _fetch_exchange_positions(self) -> list[dict[str, Any]]:
-        """Fetch positions from exchange."""
+        """Fetch positions from exchange (filters out zero-size closed positions)."""
         try:
-            # Use Bybit API to get positions
             positions = await self._bybit_http.get_positions()
-            return positions or []
+            # Bybit returns closed positions with size=0; filter them out
+            return [p for p in (positions or []) if float(p.get("size", 0)) > 0]
         except Exception as e:
             logger.error(f"Failed to fetch exchange positions: {e}")
             return []
@@ -242,15 +252,19 @@ class PositionReconciler:
         """
         actions = []
 
-        # Handle positions missing locally (ghost positions on exchange)
-        # These need manual intervention - publish alert
-        if missing_locally:
-            await self._publish_alert(
-                level="warning",
-                message=f"Positions found on exchange but missing locally: {missing_locally}",
-                action="manual_review_required",
+        # Handle positions missing locally (orphaned positions on exchange)
+        # Skip orphan cleanup during startup grace period (system may still be registering fills)
+        elapsed = (datetime.utcnow() - self._start_time).total_seconds()
+        if missing_locally and elapsed > self._startup_grace_seconds:
+            for symbol in missing_locally:
+                await self._close_orphaned_position(symbol)
+            actions.append(f"closed_orphans:{missing_locally}")
+        elif missing_locally:
+            logger.info(
+                f"Startup grace period ({int(self._startup_grace_seconds - elapsed)}s remaining): "
+                f"skipping orphan cleanup for {missing_locally}"
             )
-            actions.append(f"alert_missing_locally:{missing_locally}")
+            actions.append(f"grace_period_skip:{missing_locally}")
 
         # Handle positions missing on exchange (ghost positions locally)
         # These can be auto-cleaned
@@ -275,6 +289,59 @@ class PositionReconciler:
             actions.append(f"alert_size_mismatch:{len(size_mismatches)}")
 
         return ", ".join(actions) if actions else "none"
+
+    async def _close_orphaned_position(self, symbol: str) -> None:
+        """Close an orphaned position on exchange not tracked locally.
+
+        Called when reconciliation finds positions on exchange that don't
+        exist in local accounting (e.g. survived a crash or restart).
+        """
+        try:
+            positions = await self._bybit_http.get_positions(symbol=symbol)
+            if not positions:
+                logger.warning(f"Orphan cleanup: position for {symbol} already closed")
+                return
+
+            for pos in positions:
+                size = float(pos.get("size", 0))
+                if size <= 0:
+                    continue
+
+                side = pos.get("side", "")  # "Buy" or "Sell"
+                close_side = "sell" if side == "Buy" else "buy"
+
+                logger.warning(
+                    f"[ORPHAN CLEANUP] Closing orphaned position: {symbol} "
+                    f"side={side} size={size}"
+                )
+
+                close_request = OrderRequest(
+                    signal_id=f"orphan_cleanup_{symbol}_{int(datetime.utcnow().timestamp())}",
+                    strategy_id="orphan_cleanup",
+                    symbol=symbol,
+                    side=close_side,
+                    size=size,
+                    price=None,
+                    order_type="market",
+                    metadata={"orphan_cleanup": True},
+                )
+
+                await self._bybit_http.place_order(close_request)
+                logger.warning(f"[ORPHAN CLEANUP] Orphaned position closed: {symbol}")
+
+                await self._publish_alert(
+                    level="warning",
+                    message=f"Orphaned position closed: {symbol} {side} size={size}",
+                    action="orphan_closed_automatically",
+                )
+
+        except Exception as e:
+            logger.error(f"[ORPHAN CLEANUP] Failed to close orphan {symbol}: {e}")
+            await self._publish_alert(
+                level="critical",
+                message=f"FAILED to close orphaned {symbol}: {e}. Manual intervention required.",
+                action="manual_close_required",
+            )
 
     async def _publish_alert(
         self,
