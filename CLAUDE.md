@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-HEAN is an event-driven crypto trading system for Bybit Testnet. All trades execute on testnet with virtual funds. The system consists of a Python backend (FastAPI + async event bus), a native iOS SwiftUI app, and optional Docker deployment with Redis.
+HEAN is an event-driven crypto trading system for Bybit Testnet. All trades execute on testnet with virtual funds. The system consists of a Python backend (FastAPI + async event bus), a native iOS SwiftUI app, and Docker deployment with Redis as central message broker and state store.
 
 ## Commands
 
 ```bash
 make install              # pip install -e ".[dev]"
-make test                 # pytest (671 tests, ~10 min full suite)
+make test                 # pytest (679 tests, ~10 min full suite)
 make test-quick           # pytest excluding Bybit connection tests
 make lint                 # ruff check src/ && mypy src/
 make run                  # python -m hean.main run
@@ -26,14 +26,28 @@ pytest -k "impulse" -v                             # Pattern match
 pytest tests/test_truth_layer_invariants.py -v     # Truth layer invariants
 ```
 
+Formatting (separate from lint):
+```bash
+ruff format .             # Auto-format all Python files
+ruff check --fix src/     # Auto-fix lint issues where possible
+```
+
+ML training (requires optional deps):
+```bash
+python3 scripts/train_oracle.py --symbol BTCUSDT --days 30 --model-type tcn
+python3 scripts/train_rl_risk.py --timesteps 50000
+python3 scripts/promote_model.py --experiment oracle-tcn --metric val_accuracy --output models/tcn_production.pt
+```
+
 Use `python3` (not `python`) on macOS. Tests use `asyncio_mode = "auto"` — no `@pytest.mark.asyncio` needed.
 
 Docker:
 ```bash
-docker-compose up -d --build    # Build and start (API + Redis)
-docker-compose logs -f          # View logs
-make docker-clean               # Remove containers and volumes
-make prod-with-monitoring       # Production + Prometheus/Grafana
+docker-compose up -d --build                          # Build and start (API + Redis)
+docker-compose --profile training up -d mlflow        # Start MLflow tracking server
+docker-compose logs -f                                # View logs
+make docker-clean                                     # Remove containers and volumes
+make prod-with-monitoring                             # Production + Prometheus/Grafana
 ```
 
 ## Architecture
@@ -43,14 +57,16 @@ Bybit WebSocket (ticks, orderbook, funding)
          │
          ▼
    ┌─────────────┐
-   │  Event Bus   │ ◄── Priority queues + fast-path dispatch
+   │  Event Bus   │ ◄── Priority queues (Critical/Normal/Low) + fast-path dispatch
    └──────┬──────┘      (SIGNAL, ORDER_REQUEST, ORDER_FILLED bypass normal queue)
           │
-    ┌─────┼──────────────────────────────────┐
-    │     │     │         │         │         │
-    ▼     ▼     ▼         ▼         ▼         ▼
-Strategies Risk Execution Portfolio Physics  Brain
-    │     │     │         │
+          ├──── ServiceEventBridge (bidirectional: EventBus ↔ Redis Streams)
+          │
+    ┌─────┼──────────────────────────────────────────┐
+    │     │     │         │         │         │       │
+    ▼     ▼     ▼         ▼         ▼         ▼       ▼
+Strategies Risk Execution Portfolio Physics  Brain  Oracle
+    │     │     │         │                          (Hybrid)
     │     │     ▼         │
     │     │  Bybit HTTP   │
     └─────┴──────────────┘
@@ -58,12 +74,36 @@ Strategies Risk Execution Portfolio Physics  Brain
 
 **Signal chain:** TICK → Strategy → filter cascade → SIGNAL → RiskGovernor → ORDER_REQUEST → ExecutionRouter → Bybit HTTP → ORDER_FILLED → Position update
 
+### Microservice Decomposition (Docker)
+
+When running via Docker, the system decomposes into independent services communicating via Redis Streams:
+- `api` — FastAPI gateway (REST + WebSocket), port 8000
+- `symbiont-testnet` — Core trading logic container
+- `redis` — Central message broker and state store, port 6379
+- `collector` — Bybit WebSocket market data ingestion
+- `physics` — Market thermodynamics calculations
+- `brain` — AI-based decision making (Claude)
+- `oracle` — Hybrid price+narrative AI signal service
+- `risk-svc` — Dedicated risk management service
+- `rl-risk-manager` (training profile) — PPO-based risk parameter training job (one-shot, not long-running)
+- `mlflow` (training profile) — MLflow tracking server, port 5000
+
+Each microservice lives in `services/<name>/` with its own `Dockerfile` and `main.py`. They communicate exclusively via Redis Streams — no direct service-to-service calls.
+
+`ServiceEventBridge` (`src/hean/core/system/service_event_bridge.py`) bridges between the in-process EventBus and Redis Streams bidirectionally:
+- **Inbound** (Redis → EventBus): `physics:*`, `brain:analysis`, `oracle:signals`, `risk:policy_updates`
+- **Outbound** (EventBus → Redis): `TICK`, `SIGNAL`, `ORDER_FILLED`, `POSITION_OPENED/CLOSED`, `KILLSWITCH_TRIGGERED`, `PNL_UPDATE`
+
+In local dev mode (`make run`), all components run in a single process via `TradingSystem`.
+
 ### Key Entry Points
 
-- `src/hean/main.py` — CLI entrypoint + `TradingSystem` class that instantiates and wires all components
+- `src/hean/main.py` — CLI entrypoint + `TradingSystem` class that instantiates and wires all components (~3000 lines)
 - `src/hean/api/main.py` — FastAPI server with WebSocket; registers 21 routers under `/api/v1/`
 - `src/hean/api/engine_facade.py` — Unified interface to TradingSystem; `get_facade()` used by all routers
 - `src/hean/core/bus.py` — Async `EventBus` with multi-priority queues and circuit breaker
+- `src/hean/core/system/event_wiring.py` — `EventWiring` centralizes all EventBus subscriptions (audit event flow here, not scattered through component init)
+- `src/hean/core/system/component_registry.py` — `ComponentRegistry` manages component lifecycle (init → start → stop) with dependency ordering
 
 ### Event-Driven Design
 
@@ -77,8 +117,15 @@ All components communicate via `EventBus` (`src/hean/core/bus.py`). Types in `sr
 | Execution | `ORDER_PLACED`, `ORDER_FILLED`, `ORDER_CANCELLED`, `ORDER_REJECTED` |
 | Portfolio | `POSITION_OPENED`, `POSITION_CLOSED`, `POSITION_UPDATE`, `POSITION_CLOSE_REQUEST`, `PNL_UPDATE`, `EQUITY_UPDATE`, `ORDER_DECISION`, `ORDER_EXIT_DECISION` |
 | System | `STOP_TRADING`, `KILLSWITCH_TRIGGERED`, `KILLSWITCH_RESET`, `ERROR`, `STATUS`, `HEARTBEAT` |
-| Intelligence | `CONTEXT_READY`, `PHYSICS_UPDATE`, `BRAIN_ANALYSIS`, `META_LEARNING_PATCH`, `ORACLE_PREDICTION`, `OFI_UPDATE`, `CAUSAL_SIGNAL` |
+| Intelligence | `CONTEXT_READY`, `PHYSICS_UPDATE`, `BRAIN_ANALYSIS`, `ORACLE_PREDICTION`, `ORACLE_SIGNAL_V1`, `RISK_POLICY_UPDATE_V1` |
 | Council | `COUNCIL_REVIEW`, `COUNCIL_RECOMMENDATION` |
+
+`CONTEXT_UPDATE` carries a `type` field for sub-routing: `oracle_predictions`, `ollama_sentiment`, `finbert_sentiment`, `rl_risk_adjustment`, `regime_update`, `physics_state`.
+
+**When adding features, follow event-driven principles:**
+- Publish events to `EventBus` to signal state changes or actions
+- Create handlers that subscribe to specific events
+- Avoid direct synchronous calls between major components (e.g., a Strategy should not directly call an Execution module)
 
 ### Core Modules
 
@@ -87,20 +134,34 @@ All components communicate via `EventBus` (`src/hean/core/bus.py`). Types in `sr
   - `FundingHarvester`, `BasisArbitrage` — Funding rate and basis spread arbitrage
   - `MomentumTrader`, `CorrelationArbitrage`, `EnhancedGrid`, `HFScalping`
   - `InventoryNeutralMM`, `RebateFarmer`, `LiquiditySweep`, `SentimentStrategy`
-- **`src/hean/risk/`** — `RiskGovernor` (state machine: NORMAL → SOFT_BRAKE → QUARANTINE → HARD_STOP), `KillSwitch` (>20% drawdown), `PositionSizer`, `KellyCriterion`, `DepositProtector`, `SmartLeverage`
+- **`src/hean/risk/`** — `RiskGovernor` (state machine: NORMAL → SOFT_BRAKE → QUARANTINE → HARD_STOP, wired into signal chain in `main.py`), `KillSwitch` (>20% drawdown), `PositionSizer`, `KellyCriterion`, `DepositProtector`, `SmartLeverage`, `RLRiskManager` (optional PPO-based risk param adjustment), `TradingRiskEnv` (Gymnasium env for RL training)
 - **`src/hean/execution/`** — `router_bybit_only.py` is the production router (with idempotency). `router.py` is the generic router interface
 - **`src/hean/exchange/bybit/`** — `http.py` (REST with instrument/leverage caching), `ws_public.py` (market data), `ws_private.py` (order/position updates)
 - **`src/hean/portfolio/`** — Accounting, capital allocation, profit capture
 - **`src/hean/physics/`** — Market thermodynamics: temperature, entropy, phase detection (accumulation/markup/distribution/markdown), Szilard engine, participant classifier, anomaly detector, temporal stack
 - **`src/hean/brain/`** — Claude AI periodic market analysis (requires `ANTHROPIC_API_KEY`); rule-based fallback when disabled
 - **`src/hean/council/`** — Multi-agent AI council for trade review and consensus decisions
+- **`src/hean/sentiment/`** — `SentimentAnalyzer` (FinBERT), `OllamaSentimentClient` (local LLM via Ollama), news/reddit/twitter clients, `SentimentAggregator`
+- **`src/hean/core/intelligence/`** — `OracleIntegration` (hybrid 4-source signal fusion), `OracleEngine` (TCN + fingerprinting), `TCPriceReversalPredictor` (PyTorch TCN), `CorrelationEngine`, `VolatilityPredictor`
 - **`src/hean/storage/`** — DuckDB persistence for ticks, physics snapshots, brain analyses
 - **`src/hean/symbiont_x/`** — Genetic algorithm strategy evolution (genome lab, immune system, decision ledger). Has its own test suite but is not wired into main trading flow
-- **`src/hean/core/intelligence/`** — MetaLearningEngine, CausalInferenceEngine, MultimodalSwarm exist but are **disabled** in `main.py` (output not consumed by any strategy)
+
+### Hybrid Oracle (Signal Fusion)
+
+`OracleIntegration` (`src/hean/core/intelligence/oracle_integration.py`) fuses 4 signal sources with weighted ensemble:
+
+| Source | Weight | Input |
+|--------|--------|-------|
+| TCN (price reversal) | 40% | `TICK` events → `TCPriceReversalPredictor` |
+| FinBERT (text sentiment) | 20% | `CONTEXT_UPDATE` with `type=finbert_sentiment` |
+| Ollama (local LLM) | 20% | `CONTEXT_UPDATE` with `type=ollama_sentiment` |
+| Claude Brain | 20% | `BRAIN_ANALYSIS` events (keyword extraction) |
+
+Signals are only published when combined confidence exceeds 0.6. Stale sources (>10 min) are excluded from the ensemble. TCN model weights can be loaded from a trained checkpoint via `TCN_MODEL_PATH` config.
 
 ## Configuration
 
-Settings in `src/hean/config.py` via Pydantic `BaseSettings` (loaded from `.env`):
+Settings in `src/hean/config.py` via Pydantic `BaseSettings` (`HEANSettings` class, loaded from `.env`):
 
 ```bash
 # Required
@@ -114,7 +175,22 @@ INITIAL_CAPITAL=300                 # Starting USDT
 # AI (optional)
 ANTHROPIC_API_KEY=...               # Enables Claude Brain
 BRAIN_ENABLED=true
-BRAIN_ANALYSIS_INTERVAL=30          # Seconds between analyses
+BRAIN_ANALYSIS_INTERVAL=60          # Seconds between analyses
+
+# Oracle (trained models)
+TCN_MODEL_PATH=                     # Path to trained TCN weights (.pt)
+LSTM_MODEL_PATH=                    # Path to trained LSTM weights (.h5)
+
+# Ollama (local LLM sentiment, alongside Brain)
+OLLAMA_ENABLED=false                # Requires running Ollama server
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.2:3b
+OLLAMA_SENTIMENT_INTERVAL=300       # Seconds between analyses
+
+# RL Risk Manager (trained PPO agent)
+RL_RISK_ENABLED=false               # Requires trained model
+RL_RISK_MODEL_PATH=                 # Path to PPO model (.zip)
+RL_RISK_ADJUST_INTERVAL=60          # Seconds between adjustments
 
 # Strategies (each has an enable flag)
 IMPULSE_ENGINE_ENABLED=true
@@ -123,9 +199,21 @@ BASIS_ARBITRAGE_ENABLED=true
 # ... HF_SCALPING_ENABLED, MOMENTUM_TRADER_ENABLED, etc.
 ```
 
+All new configurable parameters must be added to `HEANSettings` in `src/hean/config.py` with sensible defaults. Do not hardcode values.
+
+### Environment Files
+
+Two env files are used:
+- **`.env`** — Main config loaded by `HEANSettings` (Bybit keys, strategy flags, AI keys, capital). Copy from `.env.example`
+- **`backend.env`** — Docker-specific overrides for the `api` container (auth, CORS, runtime flags). Copy from `backend.env.example`
+
+In Docker, the `api` service uses `backend.env` via `env_file`, while `brain` and `symbiont-testnet` use `.env`. Both files are needed for Docker deployments.
+
 ## API Endpoints
 
-All under `/api/v1/` prefix. Key endpoints:
+All under `/api/v1/` prefix. New endpoints go in dedicated files within `src/hean/api/routers/` and must be registered in `src/hean/api/main.py`.
+
+Key endpoints:
 
 | Endpoint | Response shape |
 |----------|---------------|
@@ -138,9 +226,6 @@ All under `/api/v1/` prefix. Key endpoints:
 | `GET /trading/why` | Complex diagnostic: engine state, killswitch, last activity, reason codes |
 | `GET /trading/metrics` | `{counters: {last_1m, last_5m, session}}` with signals/orders/fills |
 | `GET /physics/state?symbol=X` | Temperature, entropy, phase, Szilard profit |
-| `GET /physics/participants?symbol=X` | Whale/MM/retail breakdown |
-| `GET /physics/anomalies?limit=N` | `{anomalies: [...], active_count}` |
-| `GET /temporal/stack` | `{levels: {"5": {...}, "4": {...}}}` |
 | `GET /brain/analysis` | Latest AI market analysis |
 | `GET /council/status` | Council decision status |
 
@@ -166,17 +251,19 @@ SwiftUI app in `ios/`, targeting iOS 17+. Open `ios/HEAN.xcodeproj` in Xcode.
 - `DesignSystem/` contains compiled color/formatting extensions
 - ~158 Swift files in build phase — not all `.swift` files in directory are compiled; check `project.pbxproj`
 
-## Docker Services
+## CI/CD
 
-`docker-compose.yml` defines: `api` (port 8000), `redis` (port 6379), plus optional `symbiont-testnet`, `collector`, `physics`, `brain`, `risk-svc`.
-
-Production monitoring via `docker-compose.production.yml` adds Prometheus + Grafana.
+GitHub Actions workflow in `.github/workflows/docker-build-deploy.yml`:
+- **On push/PR to main:** runs ruff check, mypy, pytest with coverage
+- **On push to main:** builds multi-platform Docker images (amd64/arm64), pushes to GHCR, Trivy security scan, Kubernetes deploy
 
 ## Code Conventions
 
-- Ruff for linting (line-length 100, py311 target). Rules: E, W, F, I, B, C4, UP
+- Ruff for linting (line-length 100, py311 target). Rules: E, W, F, I, B, C4, UP. Use `ruff format .` for formatting separately from `ruff check`
 - mypy strict mode (disallow_untyped_defs, strict_equality)
 - `asyncio_mode = "auto"` in pytest — all async tests auto-detected
+- Logging: use `from hean.logging import get_logger; logger = get_logger(__name__)` — never bare `print()` or stdlib `logging` directly
 - Strategies inherit from `BaseStrategy` (`src/hean/strategies/base.py`)
 - All exchange interactions go through `BybitHTTPClient` (never direct HTTP calls)
+- New AI/ML modules should be gated by config flags and wrapped in try/except for optional deps
 - `DRY_RUN=true` is default — blocks real order placement with a hard RuntimeError
