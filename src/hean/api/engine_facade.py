@@ -580,8 +580,6 @@ class EngineFacade:
     def engine_state(self) -> str:
         """Return last known engine lifecycle state."""
         return self._state
-
-
 def get_facade() -> EngineFacade | None:
     """Get the global EngineFacade instance from the API module."""
     try:

@@ -15,3 +15,19 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "bybit" in item.keywords:
             item.add_marker(skip_bybit)
+
+
+@pytest.fixture(autouse=True)
+def _reset_price_anomaly_detector():
+    """Reset the module-level PriceAnomalyDetector singleton between tests.
+
+    Without this, price history from earlier tests causes z-score anomaly
+    detection to fire on normal prices, blocking tick processing in strategies.
+    """
+    from hean.risk.price_anomaly_detector import price_anomaly_detector
+
+    price_anomaly_detector._price_history.clear()
+    price_anomaly_detector._last_prices.clear()
+    price_anomaly_detector._last_update_time.clear()
+    price_anomaly_detector._anomaly_count.clear()
+    price_anomaly_detector._blocked_until.clear()

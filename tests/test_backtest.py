@@ -168,9 +168,7 @@ async def test_event_simulator_terminates_correctly() -> None:
     import time
     start_time = time.time()
     await simulator.run()
-    elapsed = time.time() - start_time
-
-    # Should complete quickly after stop signal
+    elapsed = time.time() - start_time    # Should complete quickly after stop signal
     assert elapsed < 2.0, f"Simulation took too long: {elapsed}s"
 
     # Clean up

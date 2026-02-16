@@ -1409,6 +1409,7 @@ async def add_request_id(request: Request, call_next):
 # Include all existing routers from app.py
 from hean.api.routers import (  # noqa: E402
     analytics,
+    archon,
     brain,
     causal_inference,
     changelog,
@@ -1433,6 +1434,7 @@ from hean.api.routers import (  # noqa: E402
 
 API_PREFIX = "/api/v1"
 
+app.include_router(archon.router, prefix=API_PREFIX)
 app.include_router(engine.router, prefix=API_PREFIX)
 app.include_router(trading.router, prefix=API_PREFIX)
 app.include_router(trading.why_router, prefix=API_PREFIX)

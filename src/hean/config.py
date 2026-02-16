@@ -1018,6 +1018,39 @@ class HEANSettings(BaseSettings):
         description="Seconds between optimization cycles (default 3600 = 1 hour)",
     )
 
+    # ARCHON Brain-Orchestrator
+    archon_enabled: bool = Field(default=True, description="Enable ARCHON orchestrator")
+    archon_signal_pipeline_enabled: bool = Field(
+        default=True, description="Enable signal lifecycle tracking"
+    )
+    archon_reconciliation_enabled: bool = Field(
+        default=True, description="Enable periodic state reconciliation"
+    )
+    archon_cortex_enabled: bool = Field(
+        default=True, description="Enable Cortex decision engine"
+    )
+    archon_cortex_interval_sec: int = Field(
+        default=30, description="Cortex decision loop interval"
+    )
+    archon_heartbeat_interval_sec: float = Field(
+        default=5.0, description="Component heartbeat interval"
+    )
+    archon_signal_timeout_sec: float = Field(
+        default=10.0, description="Signal stage timeout before dead-letter"
+    )
+    archon_max_active_signals: int = Field(
+        default=1000, description="Max concurrent tracked signals"
+    )
+    archon_reconciliation_interval_sec: int = Field(
+        default=30, description="Position reconciliation interval"
+    )
+    archon_chronicle_enabled: bool = Field(
+        default=True, description="Enable audit trail"
+    )
+    archon_chronicle_max_memory: int = Field(
+        default=10000, description="Max in-memory chronicle entries"
+    )
+
     def model_post_init(self, __context: Any) -> None:
         """Validate trading mode after initialization."""
         # CRITICAL SAFETY CHECK: Prevent LIVE trading without explicit confirmation

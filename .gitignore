@@ -88,9 +88,7 @@ dump.rdb
 *.zip
 
 # Editor/tool artifacts
-.kilocode/
-
-# ML/AI artifacts
+.kilocode/# ML/AI artifacts
 *.pt
 *.h5
 *.zip

@@ -703,9 +703,7 @@ class FundingHarvester(BaseStrategy):
         }
 
     def close_position(self, symbol: str) -> None:
-        """Mark position as closed.
-
-        Args:
+        """Mark position as closed.        Args:
             symbol: Symbol to close
         """
         if symbol in self._positions:

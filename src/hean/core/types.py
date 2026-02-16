@@ -80,6 +80,12 @@ class EventType(str, Enum):
     RISK_SIMULATION_RESULT = "risk_simulation_result"
     META_STRATEGY_UPDATE = "meta_strategy_update"
 
+    # Archon orchestration events
+    ARCHON_DIRECTIVE = "archon_directive"
+    ARCHON_HEARTBEAT = "archon_heartbeat"
+    SIGNAL_PIPELINE_UPDATE = "signal_pipeline_update"
+    RECONCILIATION_ALERT = "reconciliation_alert"
+
 
 @dataclass
 class Event:

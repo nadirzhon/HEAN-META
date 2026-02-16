@@ -152,6 +152,9 @@ class TradingSystem:
         # AI Council (multi-model periodic system review)
         self._council = None
 
+        # ARCHON — Brain-Orchestrator
+        self._archon: Any = None  # TYPE_CHECKING import to avoid circular dependency
+
         # Phase 5: Statistical Arbitrage & Anti-Fragile Architecture
         self._correlation_engine: CorrelationEngine | None = None
         self._safety_net: GlobalSafetyNet | None = None
@@ -1097,6 +1100,22 @@ class TradingSystem:
             except Exception as e:
                 logger.warning(f"Could not start AI Council: {e}")
 
+        # ARCHON — Central Brain-Orchestrator
+        if settings.archon_enabled:
+            try:
+                from hean.archon.archon import Archon
+
+                self._archon = Archon(bus=self._bus, settings=settings)
+                await self._archon.start(
+                    accounting=self._accounting,
+                    order_manager=self._order_manager,
+                    bybit_http=getattr(self._execution_router, "_bybit_http", None),
+                )
+                logger.info("ARCHON Brain-Orchestrator started")
+            except Exception as e:
+                logger.error(f"[ARCHON] Failed to start: {e}", exc_info=True)
+                self._archon = None
+
         self._running = True
         logger.info("Trading system started")
 
@@ -1104,6 +1123,13 @@ class TradingSystem:
         """Stop the trading system."""
         logger.info("Stopping trading system...")
         self._running = False
+
+        # Stop ARCHON first
+        if self._archon:
+            try:
+                await self._archon.stop()
+            except Exception as e:
+                logger.error(f"[ARCHON] Error during stop: {e}", exc_info=True)
 
         # Stop AI Council
         if self._council:
