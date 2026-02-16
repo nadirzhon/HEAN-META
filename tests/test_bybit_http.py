@@ -173,26 +173,19 @@ class TestBybitHTTPClientOrders:
             mock_settings.bybit_api_key = "test_key"
             mock_settings.bybit_api_secret = "test_secret"
             mock_settings.dry_run = False
+            mock_settings.is_live = True
+            mock_settings.max_leverage = 10
 
             client = BybitHTTPClient()
 
-            # Mock the HTTP response
-            mock_response = {
-                "retCode": 0,
-                "retMsg": "OK",
-                "result": {
-                    "orderId": "test_order_123",
-                    "orderLinkId": "link_123",
-                    "symbol": "BTCUSDT",
-                    "side": "Buy",
-                    "orderType": "Market",
-                    "price": "50000",
-                    "qty": "0.001",
-                    "orderStatus": "New",
-                },
+            # _request returns the unwrapped "result" dict (envelope is stripped
+            # by _request_impl which does result.get("result", {}))
+            mock_result = {
+                "orderId": "test_order_123",
+                "orderLinkId": "link_123",
             }
 
-            with patch.object(client, "_request", return_value=mock_response):
+            with patch.object(client, "_request", new_callable=AsyncMock, return_value=mock_result):
                 from hean.core.types import OrderRequest
 
                 order_request = OrderRequest(
@@ -218,17 +211,18 @@ class TestBybitHTTPClientOrders:
             mock_settings.bybit_api_key = "test_key"
             mock_settings.bybit_api_secret = "test_secret"
             mock_settings.dry_run = False
+            mock_settings.is_live = True
+            mock_settings.max_leverage = 10
 
             client = BybitHTTPClient()
 
-            # Mock API error response
-            mock_response = {
-                "retCode": 10001,
-                "retMsg": "Insufficient balance",
-                "result": {},
-            }
-
-            with patch.object(client, "_request", return_value=mock_response):
+            # _request raises ValueError when retCode != 0 (see _request_impl)
+            with patch.object(
+                client,
+                "_request",
+                new_callable=AsyncMock,
+                side_effect=ValueError("Bybit API error: Insufficient balance"),
+            ):
                 from hean.core.types import OrderRequest
 
                 order_request = OrderRequest(
@@ -240,10 +234,9 @@ class TestBybitHTTPClientOrders:
                     order_type="market",
                 )
 
-                # Should raise or return error order
-                order = await client.place_order(order_request)
-                # Depending on implementation, this might be None or a rejected order
-                # At minimum, it should not crash
+                # _request raises ValueError for API errors; place_order propagates it
+                with pytest.raises((ValueError, Exception)):
+                    await client.place_order(order_request)
 
     @pytest.mark.asyncio
     async def test_cancel_order_success(self):
@@ -253,21 +246,14 @@ class TestBybitHTTPClientOrders:
             mock_settings.bybit_api_key = "test_key"
             mock_settings.bybit_api_secret = "test_secret"
             mock_settings.dry_run = False
+            mock_settings.is_live = True
 
             client = BybitHTTPClient()
 
-            mock_response = {
-                "retCode": 0,
-                "retMsg": "OK",
-                "result": {
-                    "orderId": "order_123",
-                    "orderLinkId": "link_123",
-                },
-            }
-
-            with patch.object(client, "_request", return_value=mock_response):
-                result = await client.cancel_order("order_123", "BTCUSDT")
-                assert result is not None
+            # cancel_order just calls _request and returns None
+            with patch.object(client, "_request", new_callable=AsyncMock, return_value={}):
+                await client.cancel_order("order_123", "BTCUSDT")
+                # No exception means success (cancel_order returns None)
 
 
 class TestBybitHTTPClientPositions:
