@@ -1,5 +1,23 @@
 """High-Frequency Trading infrastructure for HEAN.
 
-This module provides the C++-backed high-speed components for market data
-processing, risk enforcement, and execution optimization.
+Provides C++-backed shared memory and circuit breaker components for
+ultra-low latency market data processing and risk enforcement.
 """
+
+from .circuit_breaker import CircuitBreaker
+from .shared_memory import (
+    MarketDataEntry,
+    RiskState,
+    SharedMemoryMarketData,
+    SharedMemoryRiskState,
+    TDAPointCloudEntry,
+)
+
+__all__ = [
+    "CircuitBreaker",
+    "MarketDataEntry",
+    "RiskState",
+    "SharedMemoryMarketData",
+    "SharedMemoryRiskState",
+    "TDAPointCloudEntry",
+]
