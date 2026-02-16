@@ -22,9 +22,9 @@ struct StatusIndicator: View {
 
         var color: Color {
             switch self {
-            case .connected: return AppColors.success
-            case .disconnected: return AppColors.error
-            case .reconnecting: return AppColors.warning
+            case .connected: return Theme.Colors.success
+            case .disconnected: return Theme.Colors.error
+            case .reconnecting: return Theme.Colors.warning
             }
         }
 
@@ -52,7 +52,7 @@ struct StatusIndicator: View {
     }
 
     var body: some View {
-        HStack(spacing: AppTypography.xs) {
+        HStack(spacing: Theme.Spacing.sm) {
             // Status dot
             ZStack {
                 // Pulse ring for reconnecting
@@ -73,14 +73,14 @@ struct StatusIndicator: View {
             if showLabel {
                 // Status label
                 Text(status.label)
-                    .font(AppTypography.caption(13, weight: .medium))
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(Theme.Typography.caption(13, weight: .medium))
+                    .foregroundColor(Theme.Colors.textPrimary)
 
                 // Latency (if available and connected)
                 if let latency = latency, status == .connected {
                     Text("(\(latency)ms)")
-                        .font(AppTypography.caption(11, weight: .regular))
-                        .foregroundColor(AppColors.textTertiary)
+                        .font(Theme.Typography.caption(11, weight: .regular))
+                        .foregroundColor(Theme.Colors.textTertiary)
                 }
             }
         }
@@ -118,54 +118,54 @@ struct StatusIndicator: View {
 // MARK: - Preview
 #Preview("StatusIndicator Variants") {
     ZStack {
-        AppColors.backgroundPrimary
+        Theme.Colors.background
             .ignoresSafeArea()
 
-        VStack(spacing: AppTypography.lg) {
+        VStack(spacing: 20) {
             // With labels
-            VStack(alignment: .leading, spacing: AppTypography.md) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                 Text("With Labels")
-                    .font(AppTypography.headline())
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(Theme.Typography.headlineFont())
+                    .foregroundColor(Theme.Colors.textPrimary)
 
                 StatusIndicator(status: .connected, latency: 45, showLabel: true)
                 StatusIndicator(status: .reconnecting, showLabel: true)
                 StatusIndicator(status: .disconnected, showLabel: true)
             }
-            .padding(AppTypography.md)
-            .background(AppColors.backgroundSecondary)
-            .cornerRadius(AppTypography.radiusMd)
+            .padding(Theme.Spacing.lg)
+            .background(Theme.Colors.card)
+            .cornerRadius(Theme.CornerRadius.md)
 
             // Without labels (dots only)
-            VStack(alignment: .leading, spacing: AppTypography.md) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                 Text("Compact (No Labels)")
-                    .font(AppTypography.headline())
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(Theme.Typography.headlineFont())
+                    .foregroundColor(Theme.Colors.textPrimary)
 
-                HStack(spacing: AppTypography.lg) {
+                HStack(spacing: 20) {
                     StatusIndicator(status: .connected, showLabel: false)
                     StatusIndicator(status: .reconnecting, showLabel: false)
                     StatusIndicator(status: .disconnected, showLabel: false)
                 }
             }
-            .padding(AppTypography.md)
-            .background(AppColors.backgroundSecondary)
-            .cornerRadius(AppTypography.radiusMd)
+            .padding(Theme.Spacing.lg)
+            .background(Theme.Colors.card)
+            .cornerRadius(Theme.CornerRadius.md)
 
             // In context (header bar simulation)
             HStack {
                 Text("HEAN")
-                    .font(AppTypography.headline(18, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(Theme.Typography.headlineFont(18, weight: .bold))
+                    .foregroundColor(Theme.Colors.textPrimary)
 
                 Spacer()
 
                 StatusIndicator(status: .connected, latency: 32, showLabel: true)
             }
-            .padding(AppTypography.md)
-            .background(AppColors.backgroundSecondary)
-            .cornerRadius(AppTypography.radiusMd)
+            .padding(Theme.Spacing.lg)
+            .background(Theme.Colors.card)
+            .cornerRadius(Theme.CornerRadius.md)
         }
-        .padding(AppTypography.xl)
+        .padding(Theme.Spacing.xl)
     }
 }

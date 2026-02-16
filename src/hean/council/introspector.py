@@ -33,9 +33,11 @@ class Introspector:
         self._recent_pnl_updates: deque[dict[str, Any]] = deque(maxlen=100)
         self._error_log: deque[dict[str, Any]] = deque(maxlen=50)
         self._killswitch_events: deque[dict[str, Any]] = deque(maxlen=20)
+        self._self_insights: dict[str, Any] | None = None
 
     async def start(self) -> None:
         """Subscribe to events for data collection."""
+        self._bus.subscribe(EventType.SELF_ANALYTICS, self._handle_self_insight)
         self._bus.subscribe(EventType.RISK_ALERT, self._handle_risk_alert)
         self._bus.subscribe(EventType.RISK_BLOCKED, self._handle_risk_blocked)
         self._bus.subscribe(EventType.ORDER_FILLED, self._handle_order_event)
@@ -47,6 +49,7 @@ class Introspector:
 
     async def stop(self) -> None:
         """Clear buffers."""
+        self._bus.unsubscribe(EventType.SELF_ANALYTICS, self._handle_self_insight)
         self._recent_risk_alerts.clear()
         self._recent_order_events.clear()
         self._recent_pnl_updates.clear()
@@ -64,6 +67,7 @@ class Introspector:
             "error_summary": self._collect_error_summary(),
             "code_structure": self._collect_code_structure(),
             "recent_events": self._collect_recent_events(),
+            "self_insights": self._self_insights,
         }
 
     # -- Event handlers --
@@ -106,6 +110,9 @@ class Introspector:
             "timestamp": event.timestamp.isoformat(),
             **event.data,
         })
+
+    async def _handle_self_insight(self, event: Event) -> None:
+        self._self_insights = event.data
 
     # -- Collectors --
 

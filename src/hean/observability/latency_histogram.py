@@ -10,7 +10,6 @@ Provides high-precision latency tracking for critical paths:
 
 from __future__ import annotations
 
-import bisect
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -112,7 +111,7 @@ class LatencyHistogram:
         self._samples: deque[tuple[int, float]] = deque(maxlen=max_samples)
 
         # Prometheus-style bucket counts
-        self._bucket_counts: dict[float, int] = {b: 0 for b in self.buckets}
+        self._bucket_counts: dict[float, int] = dict.fromkeys(self.buckets, 0)
         self._bucket_counts[float("inf")] = 0  # +Inf bucket
 
         # Running stats
@@ -377,7 +376,7 @@ class LatencyHistogram:
     def reset(self) -> None:
         """Reset all histogram data."""
         self._samples.clear()
-        self._bucket_counts = {b: 0 for b in self.buckets}
+        self._bucket_counts = dict.fromkeys(self.buckets, 0)
         self._bucket_counts[float("inf")] = 0
         self._total_count = 0
         self._total_sum_ms = 0.0

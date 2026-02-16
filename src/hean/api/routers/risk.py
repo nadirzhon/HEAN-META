@@ -318,7 +318,7 @@ async def reset_killswitch(request: Request, confirm: bool = False) -> dict:
 
         # Reset killswitch
         if hasattr(trading_system, "_killswitch"):
-            trading_system._killswitch.reset()
+            await trading_system._killswitch.reset()
             logger.info("Killswitch reset via API")
 
         # Reset stop_trading flag

@@ -15,7 +15,6 @@ from typing import Any
 
 from hean.config import settings
 from hean.core.bus import EventBus
-from hean.core.regime import Regime
 from hean.core.types import Event, EventType, Signal
 from hean.logging import get_logger
 
@@ -81,15 +80,11 @@ class IncomeStream(ABC):  # noqa: B024
         await self.on_candle(event)
 
     # ------------------------------------------------------------------ Hooks for subclasses
-    async def on_context_update(self, event: Event) -> None:
+    async def on_context_update(self, event: Event) -> None:  # noqa: B027
         """Handle CONTEXT_UPDATE events (override in subclass if used)."""
-        # Default: no-op (override in subclass)
-        pass
 
-    async def on_candle(self, event: Event) -> None:
+    async def on_candle(self, event: Event) -> None:  # noqa: B027
         """Handle CANDLE events (override in subclass if used)."""
-        # Default: no-op (override in subclass)
-        pass
 
     # ------------------------------------------------------------------ Budget helpers
     def can_open_position(self) -> bool:

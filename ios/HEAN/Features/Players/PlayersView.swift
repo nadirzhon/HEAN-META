@@ -35,7 +35,7 @@ struct PlayersView: View {
                             Image(systemName: "eye.fill")
                                 .font(.system(size: 48))
                                 .foregroundColor(.gray)
-                            Text("No participant data")
+                            Text(L.noParticipants)
                                 .foregroundColor(.secondary)
                         }
                     }

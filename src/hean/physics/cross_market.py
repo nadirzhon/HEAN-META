@@ -7,7 +7,6 @@ Learns propagation delays in real-time.
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
 
 import numpy as np
 

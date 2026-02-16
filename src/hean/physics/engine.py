@@ -4,7 +4,6 @@ Subscribes to TICK events, calculates T/S/phase, and publishes
 PHYSICS_UPDATE events for downstream consumers.
 """
 
-import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -14,7 +13,7 @@ from hean.core.bus import EventBus
 from hean.core.types import Event, EventType
 from hean.logging import get_logger
 from hean.physics.entropy import MarketEntropy
-from hean.physics.phase_detector import MarketPhase, PhaseDetector, SSDMode, ResonanceState
+from hean.physics.phase_detector import PhaseDetector, ResonanceState
 from hean.physics.szilard import SzilardEngine
 from hean.physics.temperature import MarketTemperature
 

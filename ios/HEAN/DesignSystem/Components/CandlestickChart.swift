@@ -16,7 +16,7 @@ extension Candle {
     }
 
     var chartColor: Color {
-        isBullish ? AppColors.success : AppColors.error
+        isBullish ? Theme.Colors.success : Theme.Colors.error
     }
 }
 
@@ -74,7 +74,7 @@ struct CandlestickChart: View {
         GeometryReader { geometry in
             ZStack(alignment: .topTrailing) {
                 // Background
-                AppColors.backgroundSecondary
+                Theme.Colors.card
 
                 // Grid
                 if showGrid {
@@ -92,7 +92,7 @@ struct CandlestickChart: View {
                 // Price scale
                 priceScale(in: geometry.size)
             }
-            .cornerRadius(AppTypography.radiusMd)
+            .cornerRadius(Theme.CornerRadius.md)
             .gesture(
                 DragGesture()
                     .onChanged { value in
@@ -133,7 +133,7 @@ struct CandlestickChart: View {
                 path.addLine(to: CGPoint(x: size.width, y: y))
                 context.stroke(
                     path,
-                    with: .color(AppColors.textTertiary.opacity(0.2)),
+                    with: .color(Theme.Colors.textTertiary.opacity(0.2)),
                     lineWidth: 1
                 )
             }
@@ -197,7 +197,7 @@ struct CandlestickChart: View {
             path.addLine(to: CGPoint(x: size.width - 60, y: y))
         }
         .stroke(
-            AppColors.accentPrimary,
+            Theme.Colors.accent,
             style: StrokeStyle(lineWidth: 1, dash: [5, 5])
         )
     }
@@ -210,8 +210,8 @@ struct CandlestickChart: View {
             ForEach(0...steps, id: \.self) { i in
                 let price = maxPrice - (maxPrice - minPrice) * Double(i) / Double(steps)
                 Text(String(format: "$%.2f", price))
-                    .font(AppTypography.caption(10, weight: .medium))
-                    .foregroundColor(AppColors.textTertiary)
+                    .font(Theme.Typography.caption(10, weight: .medium))
+                    .foregroundColor(Theme.Colors.textTertiary)
                     .frame(width: 55, alignment: .trailing)
                     .padding(.trailing, 4)
 
@@ -221,20 +221,20 @@ struct CandlestickChart: View {
             }
         }
         .frame(width: 60, height: size.height)
-        .background(AppColors.backgroundPrimary.opacity(0.8))
+        .background(Theme.Colors.background.opacity(0.8))
     }
 }
 
 // MARK: - Preview
 #Preview("CandlestickChart") {
     ZStack {
-        AppColors.backgroundPrimary
+        Theme.Colors.background
             .ignoresSafeArea()
 
         VStack {
             Text("BTC/USDT - 1H")
-                .font(AppTypography.headline())
-                .foregroundColor(AppColors.textPrimary)
+                .font(Theme.Typography.headlineFont())
+                .foregroundColor(Theme.Colors.textPrimary)
 
             // Generate sample candles
             CandlestickChart(
@@ -245,10 +245,10 @@ struct CandlestickChart: View {
             )
 
             Text("Pinch to zoom • Drag to scroll")
-                .font(AppTypography.caption())
-                .foregroundColor(AppColors.textSecondary)
+                .font(Theme.Typography.caption())
+                .foregroundColor(Theme.Colors.textSecondary)
         }
-        .padding(AppTypography.md)
+        .padding(Theme.Spacing.lg)
     }
 }
 

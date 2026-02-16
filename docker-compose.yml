@@ -9,11 +9,15 @@ services:
         - BUILDKIT_INLINE_CACHE=1
     container_name: hean-api
     env_file:
-      - backend.env
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
       - TZ=UTC
       - PYTHONPATH=/app/src
+      - PHYSICS_SOURCE=${PHYSICS_SOURCE:-redis}
+      - BRAIN_SOURCE=${BRAIN_SOURCE:-redis}
+      - RISK_SOURCE=${RISK_SOURCE:-redis}
+      - MICROSERVICES_GROUP_PREFIX=${MICROSERVICES_GROUP_PREFIX:-hean-core}
     volumes:
       - ./src:/app/src:ro
       - ./logs:/app/logs

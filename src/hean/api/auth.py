@@ -10,13 +10,11 @@ Security features:
 - Audit logging of authentication events
 """
 
-import hashlib
 import hmac
 import secrets
 import time
-from datetime import datetime, timedelta
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable
 
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
@@ -97,9 +95,13 @@ class AuthConfig:
 auth_config = AuthConfig()
 
 
+_api_key_security = Security(api_key_header)
+_bearer_security = Security(bearer_scheme)
+
+
 async def get_api_key(
-    api_key: str | None = Security(api_key_header),
-    bearer: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+    api_key: str | None = _api_key_security,
+    bearer: HTTPAuthorizationCredentials | None = _bearer_security,
 ) -> str | None:
     """Extract API key from request headers.
 

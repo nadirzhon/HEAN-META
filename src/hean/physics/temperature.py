@@ -10,7 +10,6 @@ Higher temperature = more energy = more volatile.
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 

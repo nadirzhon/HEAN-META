@@ -15,13 +15,21 @@ from hean.exchange.bybit.http import BybitHTTPClient
 from hean.process_factory.schemas import ProcessRun, ProcessRunStatus
 from hean.process_factory.storage import SQLiteStorage
 
+try:
+    import aiosqlite  # noqa: F401
+    _has_aiosqlite = True
+except ImportError:
+    _has_aiosqlite = False
+
 
 @pytest.fixture
 async def storage(tmp_path):
-    """Create SQLiteStorage instance."""
+    """Create SQLiteStorage instance (requires aiosqlite)."""
+    pytest.importorskip("aiosqlite")
     db_path = tmp_path / "test.db"
     storage = SQLiteStorage(str(db_path))
-    await storage._init_schema(await storage._get_connection())
+    conn = await storage._get_connection()
+    await storage._init_schema(conn)
     yield storage
     await storage.close()
 

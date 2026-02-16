@@ -4,7 +4,6 @@ Uses TDA to predict real slippage BEFORE sending the order.
 If predicted slippage > threshold, switches to 'Smart-Limit' mode.
 """
 
-import asyncio
 from datetime import datetime
 from typing import Any
 

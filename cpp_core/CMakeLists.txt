@@ -10,15 +10,19 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -ffast-math -finline-f
 
 # Find Python
 find_package(Python COMPONENTS Interpreter Development REQUIRED)
+find_package(pybind11 CONFIG QUIET)
 
-# Get nanobind using FetchContent
-include(FetchContent)
-FetchContent_Declare(
-    nanobind
-    GIT_REPOSITORY https://github.com/wjakob/nanobind.git
-    GIT_TAG v1.9.0
-)
-FetchContent_MakeAvailable(nanobind)
+# Prefer locally installed nanobind (offline-friendly), fallback to FetchContent.
+find_package(nanobind CONFIG QUIET)
+if (NOT nanobind_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(
+        nanobind
+        GIT_REPOSITORY https://github.com/wjakob/nanobind.git
+        GIT_TAG v1.9.0
+    )
+    FetchContent_MakeAvailable(nanobind)
+endif()
 
 # Indicators module (50-100x faster than Python/pandas)
 nanobind_add_module(indicators_cpp indicators.cpp)
@@ -46,6 +50,25 @@ target_compile_options(order_router_cpp PRIVATE
     -flto
 )
 
+# Physics kernels module (temperature/entropy/phase)
+# Prefer pybind11 when available (as requested for Python bindings),
+# otherwise fallback to nanobind in offline/minimal environments.
+if (pybind11_FOUND)
+    pybind11_add_module(physics_cpp physics_engine_pybind.cpp)
+else()
+    nanobind_add_module(physics_cpp physics_engine.cpp)
+endif()
+
+target_compile_options(physics_cpp PRIVATE
+    -O3
+    -march=native
+    -mtune=native
+    -ffast-math
+    -finline-functions
+    -funroll-loops
+    -flto
+)
+
 # Install to Python package location
-install(TARGETS indicators_cpp order_router_cpp
+install(TARGETS indicators_cpp order_router_cpp physics_cpp
         LIBRARY DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/../src/hean/cpp_modules)

@@ -401,7 +401,6 @@ async def get_latency_prometheus() -> str:
     Returns:
         Prometheus exposition format metrics
     """
-    from fastapi.responses import PlainTextResponse
 
     return latency_histograms.to_prometheus_text()
 

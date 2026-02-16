@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import ValidationError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -24,8 +24,10 @@ from hean.api.auth import setup_auth
 from hean.api.engine_facade import EngineFacade
 from hean.api.schemas import WebSocketMessage
 from hean.api.services.market_data_store import market_data_store
+from hean.api.services.prometheus_metrics import metrics_updater_loop
 from hean.api.services.trading_metrics import trading_metrics
 from hean.api.services.websocket_service import get_websocket_service
+from hean.api.services.ws_manager import ConnectionManager
 from hean.api.telemetry import telemetry_service
 from hean.config import settings
 from hean.core.bus import EventBus
@@ -55,179 +57,7 @@ trading_state_cache: dict[str, Any] = {
 trading_state_lock = asyncio.Lock()
 last_account_broadcast: float = 0.0
 
-# WebSocket connection manager
-class ConnectionManager:
-    """Manages WebSocket connections and topic subscriptions."""
-
-    def __init__(self):
-        self.active_connections: dict[str, WebSocket] = {}
-        self.topic_subscriptions: dict[str, set[str]] = {}  # topic -> set of connection_ids
-        self.connection_topics: dict[str, set[str]] = {}  # connection_id -> set of topics
-        self.redis_pubsub_tasks: dict[str, asyncio.Task] = {}
-
-    async def connect(self, websocket: WebSocket, connection_id: str) -> None:
-        """Accept a WebSocket connection."""
-        await websocket.accept()
-        self.active_connections[connection_id] = websocket
-        self.connection_topics[connection_id] = set()
-        logger.info(f"WebSocket client connected: {connection_id}")
-        await telemetry_service.record_event(
-            "WS_CONNECT",
-            {"connection_id": connection_id, "client": websocket.client.host if websocket.client else None},
-            source="ws",
-            context={"topic": "system_heartbeat"},
-        )
-
-        # Get actual state from system, but default to hardcoded values
-        redis_status = "disconnected"
-        try:
-            if redis_state_manager:
-                await redis_state_manager._client.ping()
-                redis_status = "connected"
-        except Exception as e:
-            logger.warning(f"Redis connection check failed: {e}")
-            redis_status = "disconnected"
-
-        engine_running = engine_facade.is_running if engine_facade else False
-        equity = settings.initial_capital
-
-        # Try to get real equity if engine is running
-        if engine_running and engine_facade:
-            try:
-                status = await engine_facade.get_status()
-                equity = status.get("equity", settings.initial_capital)
-            except Exception as e:
-                logger.warning(f"Failed to get equity from engine: {e}")
-                equity = settings.initial_capital
-
-        # Send initial state immediately on connection
-        await self.send_to_connection(connection_id, {
-            "topic": "system_status",
-            "data": {
-                "type": "status_update",
-                "engine": "running" if engine_running else "stopped",
-                "redis": redis_status,
-                "equity": equity,
-                "timestamp": datetime.now(UTC).isoformat(),
-            },
-            "timestamp": datetime.now(UTC).isoformat(),
-        })
-        logger.info(f"✅ Sent initial state to {connection_id}: Engine={'RUNNING' if engine_running else 'STOPPED'}, Redis={redis_status.upper()}, Equity=${equity:.2f}")
-
-    async def disconnect(self, connection_id: str) -> None:
-        """Handle disconnection and cleanup."""
-        if connection_id == "all":
-            for cid in list(self.active_connections.keys()):
-                await self.disconnect(cid)
-            return
-
-        if connection_id in self.active_connections:
-            del self.active_connections[connection_id]
-
-        # Unsubscribe from all topics
-        if connection_id in self.connection_topics:
-            for topic in list(self.connection_topics[connection_id]):
-                self.unsubscribe(connection_id, topic)
-            del self.connection_topics[connection_id]
-
-        # Cancel Redis pubsub task if exists
-        if connection_id in self.redis_pubsub_tasks:
-            task = self.redis_pubsub_tasks[connection_id]
-            task.cancel()
-            del self.redis_pubsub_tasks[connection_id]
-
-        logger.info(f"WebSocket client disconnected: {connection_id}")
-        await telemetry_service.record_event(
-            "WS_DISCONNECT",
-            {"connection_id": connection_id},
-            source="ws",
-            context={"topic": "system_heartbeat"},
-        )
-
-    def subscribe(self, connection_id: str, topic: str) -> None:
-        """Subscribe a connection to a topic."""
-        if topic not in self.topic_subscriptions:
-            self.topic_subscriptions[topic] = set()
-        self.topic_subscriptions[topic].add(connection_id)
-
-        if connection_id not in self.connection_topics:
-            self.connection_topics[connection_id] = set()
-        self.connection_topics[connection_id].add(topic)
-
-        logger.info(f"Connection {connection_id} subscribed to topic: {topic}")
-
-    def unsubscribe(self, connection_id: str, topic: str) -> None:
-        """Unsubscribe a connection from a topic."""
-        if topic in self.topic_subscriptions:
-            self.topic_subscriptions[topic].discard(connection_id)
-            if not self.topic_subscriptions[topic]:
-                del self.topic_subscriptions[topic]
-
-        if connection_id in self.connection_topics:
-            self.connection_topics[connection_id].discard(topic)
-
-        logger.debug(f"Connection {connection_id} unsubscribed from topic: {topic}")
-
-    async def broadcast_to_topic(self, topic: str, data: dict[str, Any]) -> None:
-        """Broadcast data to all subscribers of a topic."""
-        if topic not in self.topic_subscriptions:
-            return
-
-        disconnected = []
-        message = {
-            "topic": topic,
-            "data": data,
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-
-        for connection_id in list(self.topic_subscriptions[topic]):
-            if connection_id in self.active_connections:
-                try:
-                    websocket = self.active_connections[connection_id]
-                    # Use send_json with timeout to prevent blocking
-                    await asyncio.wait_for(websocket.send_json(message), timeout=5.0)
-                except TimeoutError:
-                    logger.warning(f"Send timeout for {connection_id}, marking as disconnected")
-                    disconnected.append(connection_id)
-                except Exception as e:
-                    logger.debug(f"Failed to send to {connection_id}: {e}")
-                    disconnected.append(connection_id)
-            else:
-                disconnected.append(connection_id)
-
-        # Clean up disconnected clients
-        for connection_id in disconnected:
-            # Remove from active connections if it's dead
-            if connection_id in self.active_connections:
-                del self.active_connections[connection_id]
-                logger.info(f"Removed dead connection {connection_id} from active_connections")
-            # Unsubscribe from this topic
-            self.unsubscribe(connection_id, topic)
-            # Clean up all topics for this connection if it's completely gone
-            if connection_id in self.connection_topics:
-                for t in list(self.connection_topics[connection_id]):
-                    if t != topic:  # Already unsubscribed from current topic above
-                        self.unsubscribe(connection_id, t)
-                del self.connection_topics[connection_id]
-                logger.info(f"Cleaned up all subscriptions for dead connection {connection_id}")
-
-    async def send_to_connection(self, connection_id: str, data: dict[str, Any]) -> None:
-        """Send data to a specific connection."""
-        if connection_id in self.active_connections:
-            try:
-                websocket = self.active_connections[connection_id]
-                # Add timeout to prevent hanging on dead connections
-                await asyncio.wait_for(websocket.send_json(data), timeout=5.0)
-            except (TimeoutError, Exception) as e:
-                logger.warning(f"Failed to send to {connection_id}: {e}, marking for cleanup")
-                # Mark connection as dead and trigger cleanup
-                await self.disconnect(connection_id)
-
-    def active_count(self) -> int:
-        """Return active WebSocket client count."""
-        return len(self.active_connections)
-
-# Global connection manager
+# Global connection manager (extracted to hean.api.services.ws_manager)
 connection_manager = ConnectionManager()
 telemetry_service.set_broadcast(connection_manager.broadcast_to_topic)
 
@@ -429,25 +259,40 @@ async def build_realtime_snapshot() -> dict[str, Any]:
         logger.debug(f"Failed to build market snapshot: {exc}")
     return snapshot
 
-async def safe_task_wrapper(coro, name: str):
+async def safe_task_wrapper(coro_or_factory, name: str, max_restarts: int = 5):
     """
-    Wrapper for background tasks to prevent silent failures.
+    Wrapper for background tasks with automatic restart on failure.
 
-    Catches exceptions and logs them instead of crashing silently.
+    Accepts either a coroutine factory (callable) or a one-shot coroutine.
+    If a factory is provided, the task is restarted on crash with exponential backoff.
     """
-    try:
-        await coro
-    except asyncio.CancelledError:
-        logger.info(f"Background task '{name}' cancelled")
-        raise
-    except Exception as e:
-        logger.critical(
-            f"Background task '{name}' crashed: {e}",
-            exc_info=True,
-            extra={"task_name": name, "error": str(e)},
-        )
-        # TODO: Emit alert to monitoring system
-        raise
+    is_factory = callable(coro_or_factory) and not asyncio.iscoroutine(coro_or_factory)
+    restarts = 0
+
+    while True:
+        try:
+            if is_factory:
+                await coro_or_factory()
+            else:
+                await coro_or_factory
+                return  # One-shot coroutine completed, no restart possible
+            return  # Normal completion
+        except asyncio.CancelledError:
+            logger.info(f"Background task '{name}' cancelled")
+            raise
+        except Exception as e:
+            restarts += 1
+            logger.critical(
+                f"Background task '{name}' crashed (attempt {restarts}/{max_restarts}): {e}",
+                exc_info=True,
+                extra={"task_name": name, "error": str(e), "restart_attempt": restarts},
+            )
+            if not is_factory or restarts > max_restarts:
+                logger.critical(f"Task '{name}' exceeded max restarts ({max_restarts}), giving up")
+                return
+            delay = min(2 ** restarts, 60)
+            logger.warning(f"Restarting task '{name}' in {delay:.0f}s...")
+            await asyncio.sleep(delay)
 
 
 @asynccontextmanager
@@ -512,21 +357,27 @@ async def lifespan(app: FastAPI):
     # Initialize killswitch (will be connected to engine facade later)
     killswitch = KillSwitch(bus)
 
-    # Start background tasks with safe wrappers (prevent silent failures)
-    asyncio.create_task(safe_task_wrapper(forward_events_to_topics(), "forward_events"))
+    # Start background tasks with safe wrappers (auto-restart on failure)
+    asyncio.create_task(safe_task_wrapper(forward_events_to_topics, "forward_events"))
 
     # Start background task to forward Redis pub/sub to WebSocket topics
     if redis_state_manager:
-        asyncio.create_task(safe_task_wrapper(forward_redis_to_topics(), "forward_redis"))
+        asyncio.create_task(safe_task_wrapper(forward_redis_to_topics, "forward_redis"))
 
     # Start background task to periodically broadcast metrics
-    asyncio.create_task(safe_task_wrapper(broadcast_metrics_periodically(), "broadcast_metrics"))
+    asyncio.create_task(safe_task_wrapper(broadcast_metrics_periodically, "broadcast_metrics"))
 
     # Start heartbeat loop (publishes to system_heartbeat topic)
-    heartbeat_task = asyncio.create_task(safe_task_wrapper(heartbeat_loop(), "heartbeat"))
+    heartbeat_task = asyncio.create_task(safe_task_wrapper(heartbeat_loop, "heartbeat"))
 
     # Start market ticks publisher (publishes market_ticks topic every 500ms-1s)
-    asyncio.create_task(safe_task_wrapper(market_ticks_publisher_loop(), "market_ticks"))
+    asyncio.create_task(safe_task_wrapper(market_ticks_publisher_loop, "market_ticks"))
+
+    # Start Prometheus metrics updater (updates gauges/counters every 10s)
+    asyncio.create_task(safe_task_wrapper(
+        lambda: metrics_updater_loop(engine_facade, trading_metrics, killswitch),
+        "prometheus_metrics",
+    ))
 
     # Emit initial heartbeat for fast UI priming
     initial_state = "RUNNING" if (engine_facade and engine_facade.is_running) else telemetry_service.get_engine_state()
@@ -1558,15 +1409,16 @@ async def add_request_id(request: Request, call_next):
 # Include all existing routers from app.py
 from hean.api.routers import (  # noqa: E402
     analytics,
+    brain,
     causal_inference,
     changelog,
     council,
     engine,
     graph_engine,
     market,
+    meta_brain,
     meta_learning,
     multimodal_swarm,
-    brain,
     physics,
     risk,
     risk_governor,
@@ -1602,6 +1454,16 @@ app.include_router(temporal.router, prefix=API_PREFIX)
 app.include_router(brain.router, prefix=API_PREFIX)
 app.include_router(storage.router, prefix=API_PREFIX)
 app.include_router(council.router, prefix=API_PREFIX)
+app.include_router(meta_brain.router, prefix=API_PREFIX)
+
+
+# Prometheus metrics endpoint (no prefix — Prometheus scrapes /metrics directly)
+@app.get("/metrics", response_class=PlainTextResponse)
+async def prometheus_metrics_endpoint():
+    """Expose Prometheus metrics in text format for scraping."""
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+    return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
 
 # WebSocket endpoint for Pub/Sub
 @app.websocket("/ws")
@@ -1616,7 +1478,34 @@ async def websocket_endpoint(websocket: WebSocket):
     connection_id = str(uuid.uuid4())
     client_host = websocket.client.host if websocket.client else "unknown"
     logger.info(f"[HEAN API] WebSocket connection attempt from {client_host}, connection_id: {connection_id}")
-    await connection_manager.connect(websocket, connection_id)
+    async def _get_initial_state() -> dict:
+        """Build initial state for new WebSocket connection."""
+        redis_status = "disconnected"
+        try:
+            if redis_state_manager:
+                await redis_state_manager._client.ping()
+                redis_status = "connected"
+        except Exception:
+            redis_status = "disconnected"
+
+        engine_running = engine_facade.is_running if engine_facade else False
+        equity = settings.initial_capital
+        if engine_running and engine_facade:
+            try:
+                status = await engine_facade.get_status()
+                equity = status.get("equity", settings.initial_capital)
+            except Exception:
+                pass
+
+        return {
+            "type": "status_update",
+            "engine": "running" if engine_running else "stopped",
+            "redis": redis_status,
+            "equity": equity,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+    await connection_manager.connect(websocket, connection_id, initial_state_provider=_get_initial_state)
     logger.info(f"[HEAN API] WebSocket connection established: {connection_id}")
 
     # Keepalive task to send periodic pings
@@ -1987,7 +1876,30 @@ async def trigger_killswitch(request: Request) -> dict[str, Any]:
 @app.get("/health")
 @limiter.limit("60/minute")
 async def health_check(request: Request) -> dict[str, Any]:
-    """Health check endpoint. Rate limited to 60 requests per minute."""
+    """Health check endpoint with component-level diagnostics.
+
+    Returns HTTP 200 if core components are healthy, 503 if degraded.
+    """
+    components: dict[str, dict[str, Any]] = {}
+    overall = "healthy"
+
+    # API (always up if this responds)
+    components["api"] = {"status": "healthy"}
+
+    # EventBus
+    if bus:
+        try:
+            stats = bus.get_stats() if hasattr(bus, "get_stats") else {}
+            components["event_bus"] = {
+                "status": "healthy",
+                "queue_depth": stats.get("queue_size", 0) if stats else 0,
+            }
+        except Exception:
+            components["event_bus"] = {"status": "healthy"}
+    else:
+        components["event_bus"] = {"status": "stopped"}
+
+    # Redis
     redis_status = "unknown"
     if redis_state_manager:
         try:
@@ -1996,21 +1908,49 @@ async def health_check(request: Request) -> dict[str, Any]:
         except Exception as e:
             logger.warning(f"Redis health check failed: {e}")
             redis_status = "disconnected"
+    else:
+        redis_status = "not_configured"
+    components["redis"] = {"status": redis_status}
 
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "components": {
-            "api": "healthy",
-            "event_bus": "running" if bus else "stopped",
-            "redis": redis_status,
-            "engine": "running" if (engine_facade and engine_facade.is_running) else "stopped",
-        },
+    # Engine
+    engine_running = engine_facade and engine_facade.is_running
+    components["engine"] = {
+        "status": "running" if engine_running else "stopped",
     }
+
+    # Killswitch
+    if killswitch:
+        ks_triggered = killswitch.triggered
+        components["killswitch"] = {
+            "status": "triggered" if ks_triggered else "normal",
+            "triggered": ks_triggered,
+        }
+        if ks_triggered:
+            overall = "degraded"
+    else:
+        components["killswitch"] = {"status": "not_initialized"}
+
+    # WebSocket clients
+    components["websocket"] = {
+        "status": "healthy",
+        "active_clients": connection_manager.active_count(),
+    }
+
+    status_code = 200 if overall == "healthy" else 503
+    response = {
+        "status": overall,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "components": components,
+    }
+
+    if status_code == 503:
+        return JSONResponse(content=response, status_code=503)
+    return response
 
 
 # Settings endpoint (secrets masked) - REQUIRES AUTHENTICATION
-from hean.api.auth import verify_auth
+from hean.api.auth import verify_auth  # noqa: E402
+
 
 @app.get("/settings")
 @limiter.limit("30/minute")

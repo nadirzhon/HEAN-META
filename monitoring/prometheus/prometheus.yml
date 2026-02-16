@@ -4,6 +4,14 @@ global:
   external_labels:
     monitor: 'hean-monitor'
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
 scrape_configs:
   - job_name: 'hean-api'
     static_configs:

@@ -31,7 +31,7 @@ struct BrainView: View {
                         Image(systemName: "brain")
                             .font(.system(size: 48))
                             .foregroundColor(.gray)
-                        Text("No brain activity yet")
+                        Text(L.noBrainActivity)
                             .foregroundColor(.secondary)
                     }
                 } else {

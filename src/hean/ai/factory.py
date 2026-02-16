@@ -107,7 +107,6 @@ class AIFactory:
             logger.warning("AI Factory not enabled, skipping evaluation")
             return {}
 
-        from hean.backtest.event_sim import EventSimulator
 
         results = {}
         for candidate in candidates:

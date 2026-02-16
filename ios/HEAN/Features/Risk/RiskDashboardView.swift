@@ -39,7 +39,7 @@ struct RiskDashboardView: View {
                 }
                 .padding()
             }
-            .background(Color(hex: "0A0A0F").ignoresSafeArea())
+            .background(Theme.Colors.background.ignoresSafeArea())
             .navigationTitle("Risk")
             .refreshable { await viewModel.refresh() }
             .task { await viewModel.refresh() }
@@ -74,7 +74,7 @@ struct RiskDashboardView: View {
     private var stateMachineView: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Risk Progression").font(.headline).foregroundColor(.white)
+                Text(L.riskProgression).font(.headline).foregroundColor(.white)
 
                 HStack(spacing: 4) {
                     ForEach(RiskState.allCases, id: \.self) { state in
@@ -116,7 +116,7 @@ struct RiskDashboardView: View {
     private var drawdownCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Drawdown").font(.headline).foregroundColor(.white)
+                Text(L.drawdown).font(.headline).foregroundColor(.white)
 
                 if let metrics = viewModel.metrics {
                     // Progress bar
@@ -131,13 +131,13 @@ struct RiskDashboardView: View {
 
                             // Warning threshold marker
                             Rectangle()
-                                .fill(Color(hex: "F59E0B"))
+                                .fill(Theme.Colors.warning)
                                 .frame(width: 2)
                                 .offset(x: geo.size.width * (metrics.warningThreshold / 100))
 
                             // Critical threshold marker
                             Rectangle()
-                                .fill(Color(hex: "EF4444"))
+                                .fill(Theme.Colors.error)
                                 .frame(width: 2)
                                 .offset(x: geo.size.width * (metrics.criticalThreshold / 100))
                         }
@@ -156,10 +156,10 @@ struct RiskDashboardView: View {
 
                     HStack {
                         Label("Warning: \(String(format: "%.0f%%", metrics.warningThreshold))", systemImage: "exclamationmark.triangle")
-                            .font(.caption2).foregroundColor(Color(hex: "F59E0B"))
+                            .font(.caption2).foregroundColor(Theme.Colors.warning)
                         Spacer()
                         Label("Critical: \(String(format: "%.0f%%", metrics.criticalThreshold))", systemImage: "xmark.octagon")
-                            .font(.caption2).foregroundColor(Color(hex: "EF4444"))
+                            .font(.caption2).foregroundColor(Theme.Colors.error)
                     }
                 }
             }
@@ -168,28 +168,28 @@ struct RiskDashboardView: View {
     }
 
     private func drawdownColor(_ percent: Double) -> Color {
-        if percent >= 20 { return Color(hex: "EF4444") }
-        if percent >= 10 { return Color(hex: "F59E0B") }
-        return Color(hex: "22C55E")
+        if percent >= 20 { return Theme.Colors.error }
+        if percent >= 10 { return Theme.Colors.warning }
+        return Theme.Colors.success
     }
 
     // MARK: - Metrics Grid
 
     private var metricsGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            riskMetric("Active Positions", "\(viewModel.metrics?.activePositions ?? 0)", "chart.bar.doc.horizontal", "3B82F6")
-            riskMetric("Exposure", viewModel.metrics?.totalExposure.asCurrency ?? "$0.00", "banknote", "7B61FF")
-            riskMetric("Available Margin", viewModel.metrics?.availableMargin.asCurrency ?? "$0.00", "creditcard", "22C55E")
-            riskMetric("Drawdown", viewModel.metrics?.drawdown.asCurrency ?? "$0.00", "arrow.down.circle", "EF4444")
+            riskMetric("Active Positions", "\(viewModel.metrics?.activePositions ?? 0)", "chart.bar.doc.horizontal", Theme.Colors.info)
+            riskMetric("Exposure", viewModel.metrics?.totalExposure.asCurrency ?? "$0.00", "banknote", Theme.Colors.purple)
+            riskMetric("Available Margin", viewModel.metrics?.availableMargin.asCurrency ?? "$0.00", "creditcard", Theme.Colors.success)
+            riskMetric("Drawdown", viewModel.metrics?.drawdown.asCurrency ?? "$0.00", "arrow.down.circle", Theme.Colors.error)
         }
     }
 
-    private func riskMetric(_ label: String, _ value: String, _ icon: String, _ color: String) -> some View {
+    private func riskMetric(_ label: String, _ value: String, _ icon: String, _ color: Color) -> some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: icon)
                     .font(.caption)
-                    .foregroundColor(Color(hex: color))
+                    .foregroundColor(color)
                 Text(value)
                     .font(.system(size: 16, weight: .bold, design: .monospaced))
                     .foregroundColor(.white)
@@ -209,15 +209,15 @@ struct RiskDashboardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Quarantined Symbols", systemImage: "lock.shield")
                     .font(.headline)
-                    .foregroundColor(Color(hex: "F97316"))
+                    .foregroundColor(Theme.Colors.orange)
 
                 FlowLayout(spacing: 8) {
                     ForEach(symbols, id: \.self) { symbol in
                         Text(symbol)
                             .font(.caption.bold())
-                            .foregroundColor(Color(hex: "F97316"))
+                            .foregroundColor(Theme.Colors.orange)
                             .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(Color(hex: "F97316").opacity(0.15))
+                            .background(Theme.Colors.orange.opacity(0.15))
                             .cornerRadius(8)
                     }
                 }
@@ -233,23 +233,23 @@ struct RiskDashboardView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Image(systemName: "power")
-                        .foregroundColor(viewModel.killswitchTriggered ? Color(hex: "EF4444") : Color(hex: "22C55E"))
-                    Text("Kill Switch")
+                        .foregroundColor(viewModel.killswitchTriggered ? Theme.Colors.error : Theme.Colors.success)
+                    Text(L.killSwitch)
                         .font(.headline)
                         .foregroundColor(.white)
                     Spacer()
                     Text(viewModel.killswitchTriggered ? "TRIGGERED" : "ARMED")
                         .font(.caption.bold())
-                        .foregroundColor(viewModel.killswitchTriggered ? Color(hex: "EF4444") : Color(hex: "22C55E"))
+                        .foregroundColor(viewModel.killswitchTriggered ? Theme.Colors.error : Theme.Colors.success)
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background((viewModel.killswitchTriggered ? Color(hex: "EF4444") : Color(hex: "22C55E")).opacity(0.15))
+                        .background((viewModel.killswitchTriggered ? Theme.Colors.error : Theme.Colors.success).opacity(0.15))
                         .cornerRadius(6)
                 }
 
                 if viewModel.killswitchTriggered {
-                    Text("All trading has been halted. Review your positions and reset when ready.")
+                    Text(L.tradingHalted)
                         .font(.caption)
-                        .foregroundColor(Color(hex: "EF4444").opacity(0.8))
+                        .foregroundColor(Theme.Colors.error.opacity(0.8))
                 }
             }
             .padding()
@@ -269,7 +269,7 @@ struct RiskDashboardView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color(hex: "F59E0B"))
+                        .background(Theme.Colors.warning)
                         .cornerRadius(12)
                 }
             }
@@ -279,14 +279,14 @@ struct RiskDashboardView: View {
             } label: {
                 Label("Clear Risk Blocks", systemImage: "xmark.circle")
                     .font(.subheadline)
-                    .foregroundColor(Color(hex: "00D4FF"))
+                    .foregroundColor(Theme.Colors.accent)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color(hex: "00D4FF").opacity(0.1))
+                    .background(Theme.Colors.accent.opacity(0.1))
                     .cornerRadius(12)
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color(hex: "00D4FF").opacity(0.3), lineWidth: 0.5)
+                            .stroke(Theme.Colors.accent.opacity(0.3), lineWidth: 0.5)
                     )
             }
         }

@@ -8,7 +8,6 @@ Analyzes markets across 5 time levels simultaneously:
 - LEVEL 1 MICRO (milliseconds): Orderbook and slippage
 """
 
-import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -73,7 +72,7 @@ class TemporalStack:
         self._volume_history: dict[str, deque] = {
             s: deque(maxlen=1000) for s in self.symbols
         }
-        self._order_flow_delta: dict[str, float] = {s: 0.0 for s in self.symbols}
+        self._order_flow_delta: dict[str, float] = dict.fromkeys(self.symbols, 0.0)
         self._states: dict[TimeLevel, TemporalState] = {}
         self._last_update = datetime.utcnow()
 
@@ -238,6 +237,6 @@ class TemporalStack:
 
     def get_stack_dict(self) -> dict[str, Any]:
         return {
-            "levels": {str(l.value): s.to_dict() for l, s in self._states.items()},
+            "levels": {str(level.value): s.to_dict() for level, s in self._states.items()},
             "last_update": self._last_update.isoformat(),
         }

@@ -101,7 +101,7 @@ struct TemporalStackView: View {
                             Image(systemName: "clock.arrow.2.circlepath")
                                 .font(.system(size: 48))
                                 .foregroundColor(.gray)
-                            Text("No temporal data")
+                            Text(L.noTemporalData)
                                 .foregroundColor(.secondary)
                         }
                         .padding(.top, 40)

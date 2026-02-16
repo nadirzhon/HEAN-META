@@ -21,16 +21,17 @@ The log is:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
-import hashlib
 from collections import deque
-from dataclasses import dataclass, field, asdict
+from collections.abc import Iterator
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from hean.core.types import Event, EventType
 from hean.logging import get_logger
@@ -123,7 +124,7 @@ class LogEntry:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "LogEntry":
+    def from_dict(cls, d: dict[str, Any]) -> LogEntry:
         """Create from dictionary."""
         entry = cls(
             sequence_number=d["seq"],
@@ -271,7 +272,7 @@ class MoneyCriticalLog:
             return
 
         try:
-            with open(self._current_file_path, "r", encoding="utf-8") as f:
+            with open(self._current_file_path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -544,8 +545,7 @@ class MoneyCriticalLog:
         """
         chain = self.get_chain(correlation_id)
         if chain:
-            for entry in chain.entries:
-                yield entry
+            yield from chain.entries
 
     def close(self) -> None:
         """Close log file and flush remaining entries."""

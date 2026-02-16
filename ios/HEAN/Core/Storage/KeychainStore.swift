@@ -6,7 +6,7 @@
 import Foundation
 import Security
 
-final class KeychainStore {
+final class KeychainStore: Sendable {
     static let shared = KeychainStore()
     private let service = "com.hean.trading"
 

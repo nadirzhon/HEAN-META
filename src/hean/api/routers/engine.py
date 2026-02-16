@@ -16,7 +16,7 @@ from hean.logging import get_logger
 logger = get_logger(__name__)
 
 # Persistent Bybit HTTP client and balance cache
-_bybit_http: "BybitHTTPClient | None" = None  # type: ignore[name-defined]
+_bybit_http: object | None = None
 _bybit_balance_cache: dict | None = None
 _bybit_balance_cache_ts: float = 0.0
 _BYBIT_CACHE_TTL = 0.5  # seconds — sub-second freshness

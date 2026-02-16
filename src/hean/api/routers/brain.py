@@ -6,6 +6,7 @@ Reads from in-process brain client OR from Redis brain:signals stream
 
 import time
 from collections import deque
+from datetime import UTC
 
 from fastapi import APIRouter, Query
 
@@ -31,6 +32,7 @@ async def _read_brain_from_redis() -> list[dict]:
 
     try:
         import orjson
+
         from hean.core.system.redis_state import get_redis_state_manager
 
         manager = await get_redis_state_manager()
@@ -43,7 +45,7 @@ async def _read_brain_from_redis() -> list[dict]:
         entries = await redis_client.xrevrange("brain:signals", count=50)
         if entries:
             new_signals = []
-            for msg_id, msg_data in reversed(entries):
+            for _msg_id, msg_data in reversed(entries):
                 data_bytes = msg_data.get(b"data") or msg_data.get("data")
                 if data_bytes:
                     if isinstance(data_bytes, bytes):
@@ -87,8 +89,8 @@ def _signals_to_analysis(signals: list[dict]) -> dict:
     entropy = latest.get("entropy", 0)
     ts_ms = latest.get("timestamp", 0)
 
-    from datetime import datetime, timezone
-    ts = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat() if ts_ms else ""
+    from datetime import datetime
+    ts = datetime.fromtimestamp(ts_ms / 1000, tz=UTC).isoformat() if ts_ms else ""
 
     thoughts = []
     # Physics thought
@@ -125,11 +127,11 @@ def _signals_to_analysis(signals: list[dict]) -> dict:
 
 def _signals_to_thoughts(signals: list[dict], limit: int = 50) -> list[dict]:
     """Convert brain signals to thoughts list."""
-    from datetime import datetime, timezone
+    from datetime import datetime
     thoughts = []
     for sig in signals[-limit:]:
         ts_ms = sig.get("timestamp", 0)
-        ts = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat() if ts_ms else ""
+        ts = datetime.fromtimestamp(ts_ms / 1000, tz=UTC).isoformat() if ts_ms else ""
         thoughts.append({
             "id": f"sig-{ts_ms}-{sig.get('symbol', '')}",
             "timestamp": ts,

@@ -8,6 +8,7 @@
 #
 # Services:
 # - Prometheus: Metrics collection (port 9091)
+# - Alertmanager: Alert routing + Telegram (port 9093)
 # - Grafana: Visualization (port 3001)
 # ============================================
 
@@ -29,6 +30,7 @@ services:
       - '--web.listen-address=:9090'
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "9091:9090"
@@ -54,6 +56,46 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+
+  # ============================================
+  # Alertmanager - Alert Routing + Telegram
+  # ============================================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: hean-alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-0}
+    restart: unless-stopped
+    networks:
+      - monitoring
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   # ============================================
   # Grafana - Visualization
@@ -113,6 +155,9 @@ volumes:
   prometheus-data:
     driver: local
     name: hean-prometheus-data
+  alertmanager-data:
+    driver: local
+    name: hean-alertmanager-data
   grafana-data:
     driver: local
     name: hean-grafana-data

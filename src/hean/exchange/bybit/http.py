@@ -209,7 +209,7 @@ class BybitHTTPClient:
                     error_msg = result.get("retMsg", "Unknown error")
                     # Order already filled/cancelled — not a real error
                     if ret_code == 110001:
-                        logger.debug(f"Bybit: order not exists or already done (code: 110001)")
+                        logger.debug("Bybit: order not exists or already done (code: 110001)")
                         return {}
                     # Don't retry on authentication or validation errors
                     if ret_code in (10003, 10004, 10005, 10006):  # Auth errors

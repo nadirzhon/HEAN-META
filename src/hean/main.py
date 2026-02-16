@@ -2,13 +2,11 @@
 
 import argparse
 import asyncio
-import random
 import signal
 import sys
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Literal
 
 from hean.agent_generation.capital_optimizer import CapitalOptimizer
@@ -26,6 +24,7 @@ from hean.core.intelligence.meta_learning_engine import MetaLearningEngine
 from hean.core.intelligence.multimodal_swarm import MultimodalSwarm
 from hean.core.multi_symbol_scanner import MultiSymbolScanner
 from hean.core.regime import Regime, RegimeDetector
+from hean.core.telemetry.self_insight import SelfInsightCollector
 from hean.core.timeframes import CandleAggregator
 from hean.core.trade_density import trade_density
 from hean.core.types import (
@@ -141,6 +140,8 @@ class TradingSystem:
 
         # Context aggregator (fuses Brain+Physics+TCN+OFI+Causal → CONTEXT_READY)
         self._context_aggregator = None
+        self._microservices_bridge = None
+        self._self_insight_collector: SelfInsightCollector | None = None
 
         # Auto-improvement systems
         self._improvement_catalyst: ImprovementCatalyst | None = None
@@ -180,6 +181,12 @@ class TradingSystem:
         self._anomaly_detector = None
         self._temporal_stack = None
         self._cross_market = None
+
+        # Digital Organism components
+        self._market_genome_detector = None
+        self._doomsday_sandbox = None
+        self._meta_strategy_brain = None
+        self._evolution_bridge = None
 
         # Debug metrics for forced order flow
         self._signals_generated = 0
@@ -415,6 +422,10 @@ class TradingSystem:
         logger.info(f"PROCESS_FACTORY_ALLOW_ACTIONS: {settings.process_factory_allow_actions}")
         logger.info(f"EXECUTION_SMOKE_TEST_ENABLED: {settings.execution_smoke_test_enabled}")
 
+        use_redis_physics = self._mode == "run" and settings.physics_source == "redis"
+        use_redis_brain = self._mode == "run" and settings.brain_source == "redis"
+        use_redis_risk = self._mode == "run" and settings.risk_source == "redis"
+
         # Start core components
         await self._bus.start()
         await self._clock.start()
@@ -444,6 +455,14 @@ class TradingSystem:
         # Only start HealthCheck in run mode
         if self._health_check:
             await self._health_check.start()
+
+        # Self-insight collector
+        if getattr(settings, "self_insight_enabled", True):
+            self._self_insight_collector = SelfInsightCollector(
+                self._bus,
+                publish_interval=getattr(settings, "self_insight_interval", 60),
+            )
+            await self._self_insight_collector.start()
 
         # Start regime detector
         await self._regime_detector.start()
@@ -505,30 +524,23 @@ class TradingSystem:
 
         # Absolute+: Initialize Post-Singularity Systems
         if self._mode == "run" and getattr(settings, 'absolute_plus_enabled', True):
-            # DISABLED: Dead code - MetaLearningEngine publishes META_LEARNING_PATCH but no handler exists
-            # 1. Meta-Learning Engine (Recursive Intelligence Core)
             self._meta_learning_engine = None
-            logger.info("MetaLearningEngine DISABLED — not connected to trading flow")
-
-            # DISABLED: Dead code - CausalInferenceEngine output stored in ctx.causal but never used by strategies
-            # 2. Causal Inference Engine
             self._causal_inference_engine = None
-            logger.info("CausalInferenceEngine DISABLED — output not consumed by any strategy")
-
-            # DISABLED: Dead code - MultimodalSwarm output not consumed by any strategy
-            # 3. Multimodal Swarm (Unified Tensor Processing)
             self._multimodal_swarm = None
-            logger.info("MultimodalSwarm DISABLED — no strategy consumes tensor output")
+            logger.info(
+                "Absolute+ engines are disabled at runtime "
+                "(no execution-path consumers configured)."
+            )
 
         # Physics Engine: Market thermodynamics
-        if self._mode == "run":
+        if self._mode == "run" and not use_redis_physics:
             try:
                 from hean.physics import (
-                    PhysicsEngine,
-                    ParticipantClassifier,
-                    MarketAnomalyDetector,
-                    TemporalStack,
                     CrossMarketImpulse,
+                    MarketAnomalyDetector,
+                    ParticipantClassifier,
+                    PhysicsEngine,
+                    TemporalStack,
                 )
 
                 self._physics_engine = PhysicsEngine(bus=self._bus)
@@ -549,10 +561,12 @@ class TradingSystem:
                 logger.info("Physics Engine started (Temperature/Entropy/Phase/Participants/Anomalies/TemporalStack)")
             except Exception as e:
                 logger.warning(f"Physics Engine failed to start: {e}")
+        elif self._mode == "run":
+            logger.info("Physics source=redis, skipping in-process PhysicsEngine")
 
         # Brain: Claude AI market analysis
         self._brain_client = None
-        if self._mode == "run" and getattr(settings, 'brain_enabled', True):
+        if self._mode == "run" and getattr(settings, 'brain_enabled', True) and not use_redis_brain:
             try:
                 from hean.brain.claude_client import ClaudeBrainClient
 
@@ -566,6 +580,8 @@ class TradingSystem:
                 logger.info("Brain Client started")
             except Exception as e:
                 logger.warning(f"Brain Client failed to start: {e}")
+        elif self._mode == "run" and use_redis_brain:
+            logger.info("Brain source=redis, skipping in-process Brain Client")
 
         # ContextAggregator: fuses Brain+Physics+TCN+OFI+Causal → CONTEXT_READY
         if self._mode == "run":
@@ -708,6 +724,168 @@ class TradingSystem:
             self._killswitch.enable_auto_reset(True)
             logger.info("Killswitch configured for testnet: auto-reset enabled (15min cooldown, 10% recovery, max 10/day)")
 
+        # Physics-Aware Position Sizing
+        self._physics_positioner = None
+        if self._mode == "run" and settings.physics_aware_sizing:
+            try:
+                from hean.strategies.physics_aware_positioner import PhysicsAwarePositioner
+                self._physics_positioner = PhysicsAwarePositioner(bus=self._bus)
+                await self._physics_positioner.start()
+                logger.info("Physics-Aware Position Sizing started")
+            except Exception as e:
+                logger.warning(f"Physics-Aware Positioner failed to start: {e}")
+
+        # Dynamic Oracle Weighting
+        self._dynamic_oracle_weights = None
+        if self._mode == "run" and settings.oracle_dynamic_weighting:
+            try:
+                from hean.core.intelligence.dynamic_oracle_weights import DynamicOracleWeightManager
+                self._dynamic_oracle_weights = DynamicOracleWeightManager(bus=self._bus)
+                await self._dynamic_oracle_weights.start()
+                logger.info("Dynamic Oracle Weight Manager started")
+            except Exception as e:
+                logger.warning(f"Dynamic Oracle Weights failed to start: {e}")
+
+        # Strategy Capital Allocator
+        self._strategy_allocator = None
+        if self._mode == "run" and settings.strategy_capital_allocation:
+            try:
+                from hean.portfolio.strategy_capital_allocator import StrategyCapitalAllocator
+                capital = self._accounting.get_equity()
+                self._strategy_allocator = StrategyCapitalAllocator(
+                    bus=self._bus,
+                    total_capital=capital,
+                    allocation_method=settings.capital_allocation_method,
+                )
+                await self._strategy_allocator.start()
+                logger.info(f"Strategy Capital Allocator started (method={settings.capital_allocation_method}, capital=${capital:.2f})")
+            except Exception as e:
+                logger.warning(f"Strategy Capital Allocator failed to start: {e}")
+
+        # RL Risk Manager (PPO-based dynamic risk adjustment)
+        self._rl_risk_manager = None
+        if self._mode == "run" and settings.rl_risk_enabled:
+            try:
+                from hean.risk.rl_risk_manager import RLRiskManager
+                self._rl_risk_manager = RLRiskManager(
+                    bus=self._bus,
+                    model_path=settings.rl_risk_model_path if settings.rl_risk_model_path else None,
+                    adjustment_interval=settings.rl_risk_adjust_interval,
+                    enabled=True,
+                )
+                await self._rl_risk_manager.start()
+                logger.info(f"RL Risk Manager started (interval={settings.rl_risk_adjust_interval}s, model={'loaded' if settings.rl_risk_model_path else 'rule-based fallback'})")
+            except Exception as e:
+                logger.warning(f"RL Risk Manager failed to start: {e}")
+
+        # Physics Signal Filter
+        self._physics_filter = None
+        if self._mode == "run" and settings.physics_filter_enabled:
+            try:
+                from hean.strategies.physics_signal_filter import PhysicsSignalFilter
+                self._physics_filter = PhysicsSignalFilter(
+                    bus=self._bus,
+                    strict_mode=settings.physics_filter_strict,
+                )
+                await self._physics_filter.start()
+                logger.info(f"Physics Signal Filter started (strict={settings.physics_filter_strict})")
+            except Exception as e:
+                logger.warning(f"Physics Signal Filter failed to start: {e}")
+
+        # Ollama Sentiment Client (local LLM, free, alongside Brain)
+        self._ollama_client = None
+        if self._mode == "run" and settings.ollama_enabled:
+            try:
+                from hean.sentiment.ollama_client import OllamaSentimentClient
+                self._ollama_client = OllamaSentimentClient(
+                    bus=self._bus,
+                    url=settings.ollama_url,
+                    model=settings.ollama_model,
+                    analysis_interval=settings.ollama_sentiment_interval,
+                )
+                await self._ollama_client.start()
+                logger.info(f"Ollama Sentiment Client started (model={settings.ollama_model}, url={settings.ollama_url})")
+            except Exception as e:
+                logger.warning(f"Ollama Sentiment Client failed to start (is Ollama running?): {e}")
+
+        # Risk Governor (RiskGovernor state machine: NORMAL → SOFT_BRAKE → QUARANTINE → HARD_STOP)
+        self._risk_governor = None
+        if self._mode == "run":
+            try:
+                from hean.risk.risk_governor import RiskGovernor
+                self._risk_governor = RiskGovernor(
+                    bus=self._bus,
+                    accounting=self._accounting,
+                    killswitch=self._killswitch,
+                )
+                await self._risk_governor.start()
+                logger.info("Risk Governor started (state machine: NORMAL → SOFT_BRAKE → QUARANTINE → HARD_STOP)")
+            except Exception as e:
+                logger.warning(f"Risk Governor failed to start: {e}")
+
+        # Symbiont X GA Bridge
+        self._symbiont_x_bridge = None
+        if self._mode == "run" and settings.symbiont_x_enabled:
+            try:
+                from hean.symbiont_x.bridge import SymbiontXBridge
+                self._symbiont_x_bridge = SymbiontXBridge(
+                    bus=self._bus,
+                    generations=settings.symbiont_x_generations,
+                    population_size=settings.symbiont_x_population_size,
+                    mutation_rate=settings.symbiont_x_mutation_rate,
+                    reoptimize_interval=settings.symbiont_x_reoptimize_interval,
+                )
+                await self._symbiont_x_bridge.start()
+                logger.info(f"Symbiont X GA Bridge started (pop={settings.symbiont_x_population_size}, gens={settings.symbiont_x_generations})")
+            except Exception as e:
+                logger.warning(f"Symbiont X Bridge failed to start: {e}")
+
+        # Digital Organism: DoomsdaySandbox (Stage 2)
+        if self._mode == "run" and settings.doomsday_sandbox_enabled:
+            try:
+                from hean.risk.doomsday_sandbox import DoomsdaySandbox
+                self._doomsday_sandbox = DoomsdaySandbox(
+                    bus=self._bus,
+                    accounting=self._accounting,
+                )
+                await self._doomsday_sandbox.start()
+                logger.info("DoomsdaySandbox started (interval=%ds)", settings.doomsday_interval_sec)
+            except Exception as e:
+                logger.warning(f"DoomsdaySandbox failed to start: {e}")
+
+        # Digital Organism: MarketGenomeDetector (Stage 1)
+        if self._mode == "run" and settings.market_genome_enabled:
+            try:
+                from hean.core.intelligence.market_genome import MarketGenomeDetector
+                self._market_genome_detector = MarketGenomeDetector(
+                    bus=self._bus,
+                    interval=settings.market_genome_interval,
+                )
+                await self._market_genome_detector.start()
+                logger.info(f"MarketGenomeDetector started (interval={settings.market_genome_interval}s)")
+            except Exception as e:
+                logger.warning(f"MarketGenomeDetector failed to start: {e}")
+
+        # Digital Organism: MetaStrategyBrain (Stage 3)
+        if self._mode == "run" and settings.meta_brain_enabled:
+            try:
+                from hean.portfolio.meta_strategy_brain import MetaStrategyBrain
+                self._meta_strategy_brain = MetaStrategyBrain(
+                    bus=self._bus,
+                    accounting=self._accounting,
+                )
+                await self._meta_strategy_brain.start()
+                logger.info(
+                    "MetaStrategyBrain started (eval_interval=%ds)",
+                    settings.meta_brain_evaluation_interval,
+                )
+                # Also start EvolutionBridge
+                from hean.portfolio.evolution_bridge import EvolutionBridge
+                self._evolution_bridge = EvolutionBridge(bus=self._bus)
+                await self._evolution_bridge.start()
+            except Exception as e:
+                logger.warning(f"MetaStrategyBrain failed to start: {e}")
+
         # Start strategies
         if settings.funding_harvester_enabled:
             strategy = FundingHarvester(self._bus, symbols)
@@ -838,12 +1016,36 @@ class TradingSystem:
         self._bus.subscribe(EventType.POSITION_CLOSED, self._handle_position_closed)
         self._bus.subscribe(EventType.STOP_TRADING, self._handle_stop_trading)
         self._bus.subscribe(EventType.KILLSWITCH_TRIGGERED, self._handle_killswitch)
+        self._bus.subscribe(EventType.KILLSWITCH_RESET, self._handle_killswitch_reset)
         # Subscribe to ticks for TP/SL checks, TTL, and mark-to-market updates
         self._bus.subscribe(EventType.TICK, self._handle_tick_forced_exit)
         # Subscribe to POSITION_CLOSE_REQUEST from Oracle/other modules
         self._bus.subscribe(EventType.POSITION_CLOSE_REQUEST, self._handle_position_close_request)
-        # DISABLED: META_LEARNING_PATCH subscription removed — engine disabled, handler never existed
-        # self._bus.subscribe(EventType.META_LEARNING_PATCH, self._handle_meta_learning_patch)
+
+        # External microservices bridge (Redis streams -> EventBus)
+        if self._mode == "run" and (use_redis_physics or use_redis_brain or use_redis_risk):
+            try:
+                from hean.core.microservices_bridge import MicroservicesBridge
+
+                bridge_symbols = settings.symbols if settings.multi_symbol_enabled else settings.trading_symbols
+                self._microservices_bridge = MicroservicesBridge(
+                    bus=self._bus,
+                    redis_url=settings.redis_url,
+                    symbols=bridge_symbols,
+                    consume_physics=use_redis_physics,
+                    consume_brain=use_redis_brain,
+                    consume_risk=use_redis_risk,
+                    group_prefix=settings.microservices_group_prefix,
+                )
+                await self._microservices_bridge.start()
+                logger.info(
+                    "Microservices bridge active: physics=%s brain=%s risk=%s",
+                    use_redis_physics,
+                    use_redis_brain,
+                    use_redis_risk,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to start microservices bridge: {e}")
 
         # Schedule periodic status updates (skip in evaluate mode)
         if self._mode == "run":
@@ -944,6 +1146,14 @@ class TradingSystem:
         if self._context_aggregator:
             await self._context_aggregator.stop()
 
+        # Stop self-insight collector
+        if self._self_insight_collector:
+            await self._self_insight_collector.stop()
+
+        # Stop external microservices bridge
+        if self._microservices_bridge:
+            await self._microservices_bridge.stop()
+
         # Stop Brain Client
         if hasattr(self, '_brain_client') and self._brain_client:
             await self._brain_client.stop()
@@ -966,8 +1176,18 @@ class TradingSystem:
         if self._correlation_engine:
             await self._correlation_engine.stop()
 
-        # Stop regime detector
+        # Unsubscribe all TradingSystem event handlers (fixes leak of 8 handlers)
         self._bus.unsubscribe(EventType.REGIME_UPDATE, self._handle_regime_update)
+        self._bus.unsubscribe(EventType.SIGNAL, self._handle_signal)
+        self._bus.unsubscribe(EventType.ORDER_FILLED, self._handle_order_filled)
+        self._bus.unsubscribe(EventType.POSITION_CLOSED, self._handle_position_closed)
+        self._bus.unsubscribe(EventType.STOP_TRADING, self._handle_stop_trading)
+        self._bus.unsubscribe(EventType.KILLSWITCH_TRIGGERED, self._handle_killswitch)
+        self._bus.unsubscribe(EventType.KILLSWITCH_RESET, self._handle_killswitch_reset)
+        self._bus.unsubscribe(EventType.TICK, self._handle_tick_forced_exit)
+        self._bus.unsubscribe(EventType.POSITION_CLOSE_REQUEST, self._handle_position_close_request)
+
+        # Stop regime detector
         await self._regime_detector.stop()
 
         # Stop micro-trade task
@@ -977,6 +1197,34 @@ class TradingSystem:
                 await self._micro_trade_task
             except asyncio.CancelledError:
                 pass
+
+        # Stop new wired modules
+        if self._physics_positioner:
+            await self._physics_positioner.stop()
+        if self._dynamic_oracle_weights:
+            await self._dynamic_oracle_weights.stop()
+        if self._strategy_allocator:
+            await self._strategy_allocator.stop()
+        if hasattr(self, '_rl_risk_manager') and self._rl_risk_manager:
+            await self._rl_risk_manager.stop()
+        if hasattr(self, '_physics_filter') and self._physics_filter:
+            await self._physics_filter.stop()
+        if hasattr(self, '_ollama_client') and self._ollama_client:
+            await self._ollama_client.stop()
+        if hasattr(self, '_risk_governor') and self._risk_governor:
+            await self._risk_governor.stop()
+        if hasattr(self, '_symbiont_x_bridge') and self._symbiont_x_bridge:
+            await self._symbiont_x_bridge.stop()
+
+        # Stop Digital Organism components
+        if self._market_genome_detector:
+            await self._market_genome_detector.stop()
+        if self._doomsday_sandbox:
+            await self._doomsday_sandbox.stop()
+        if self._meta_strategy_brain:
+            await self._meta_strategy_brain.stop()
+        if self._evolution_bridge:
+            await self._evolution_bridge.stop()
 
         # Stop core components
         await self._execution_router.stop()
@@ -1007,6 +1255,7 @@ class TradingSystem:
 
         signal: Signal = event.data["signal"]
         logger.debug(f"Signal received: {signal.strategy_id} {signal.symbol} {signal.side}")
+        external_risk_approved = bool((signal.metadata or {}).get("external_risk_approved"))
 
         # CRITICAL: Mandatory stop_loss validation
         # Signals without stop_loss cannot be properly sized and represent unbounded risk
@@ -1285,10 +1534,21 @@ class TradingSystem:
         if signal.metadata:
             edge_bps = signal.metadata.get("edge_bps")
 
+        # Strategy Capital Allocation: use allocated capital instead of total equity
+        sizing_equity = equity
+        if self._strategy_allocator:
+            allocated = self._strategy_allocator.get_allocation(signal.strategy_id)
+            if allocated is not None and allocated > 0:
+                sizing_equity = allocated
+                logger.debug(
+                    f"Strategy allocator: {signal.strategy_id} allocated ${allocated:.2f} "
+                    f"(of ${equity:.2f} total)"
+                )
+
         # Calculate base size
         base_size = signal.size or self._position_sizer.calculate_size(
             signal,
-            equity,
+            sizing_equity,
             current_price,
             regime,
             rolling_pf=rolling_pf,
@@ -1304,6 +1564,25 @@ class TradingSystem:
             base_size = max(min_size_value, absolute_min)
             logger.warning(f"Base size was 0, using minimum {base_size:.6f}")
 
+        # Physics-Aware Position Sizing: adjust base_size based on market physics
+        if self._physics_positioner:
+            adjusted = self._physics_positioner.get_physics_adjusted_signal(signal)
+            if adjusted is None:
+                # Physics blocked the trade (e.g., SSD Silent mode)
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="REJECT",
+                    reason_code="PHYSICS_BLOCK",
+                    computed_qty=base_size,
+                    context={"note": "Physics-Aware Positioner blocked signal (SSD Silent or extreme entropy)"},
+                )
+                return
+            # Apply the physics size multiplier
+            physics_mult = (adjusted.metadata or {}).get("physics_size_mult", 1.0)
+            if physics_mult != 1.0:
+                base_size *= physics_mult
+                logger.debug(f"Physics adjusted size: {physics_mult:.2f}x → {base_size:.6f}")
+
         # Apply protection multiplier
         if protection_size_multiplier < 1.0:
             base_size *= protection_size_multiplier
@@ -1312,114 +1591,121 @@ class TradingSystem:
                 absolute_min = 0.001
                 base_size = max(min_size_value, absolute_min)
 
-        # Check risk limits with calculated size (always active)
-        allowed, reason = self._risk_limits.check_order_request(
-            OrderRequest(
-                signal_id=str(uuid.uuid4()),
-                strategy_id=signal.strategy_id,
-                symbol=signal.symbol,
-                side=signal.side,
-                size=base_size,
-                price=signal.entry_price,
-            ),
-            equity,
-        )
+        # Check risk limits with calculated size (always active, except pre-approved external risk)
+        if not external_risk_approved:
+            allowed, reason = self._risk_limits.check_order_request(
+                OrderRequest(
+                    signal_id=str(uuid.uuid4()),
+                    strategy_id=signal.strategy_id,
+                    symbol=signal.symbol,
+                    side=signal.side,
+                    size=base_size,
+                    price=signal.entry_price,
+                ),
+                equity,
+            )
 
-        if not allowed:
-            logger.debug(f"Signal rejected by risk limits: {reason}")
-            reason_code = "RISK_BLOCKED"
-            if "Position already exists" in reason:
-                reason_code = "POSITION_EXISTS"
-            elif "Max open positions" in reason:
+            if not allowed:
+                logger.debug(f"Signal rejected by risk limits: {reason}")
                 reason_code = "RISK_BLOCKED"
-            metrics.increment("signals_rejected")
-            no_trade_report.increment("risk_limits_reject", signal.symbol, signal.strategy_id)
-            no_trade_report.increment_pipeline("signals_rejected_risk", signal.strategy_id)
-            log_block_reason(
-                "risk_limits_reject",
-                symbol=signal.symbol,
-                strategy_id=signal.strategy_id,
-                agent_name=signal.strategy_id,
-                threshold=None,
-                measured_value=None,
-            )
-            log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"risk_limits: {reason}")
-            await self._emit_order_decision(
-                signal=signal,
-                decision="REJECT",
-                reason_code=reason_code,
-                computed_qty=base_size,
-                context={
-                    "equity": equity,
-                    "price": current_price,
-                    "reason": reason,
-                    "open_orders": len(self._order_manager.get_open_orders()),
-                    "open_positions": len(self._accounting.get_positions()),
-                },
-            )
-            return
+                if "Position already exists" in reason:
+                    reason_code = "POSITION_EXISTS"
+                elif "Max open positions" in reason:
+                    reason_code = "RISK_BLOCKED"
+                metrics.increment("signals_rejected")
+                no_trade_report.increment("risk_limits_reject", signal.symbol, signal.strategy_id)
+                no_trade_report.increment_pipeline("signals_rejected_risk", signal.strategy_id)
+                log_block_reason(
+                    "risk_limits_reject",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    agent_name=signal.strategy_id,
+                    threshold=None,
+                    measured_value=None,
+                )
+                log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"risk_limits: {reason}")
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="REJECT",
+                    reason_code=reason_code,
+                    computed_qty=base_size,
+                    context={
+                        "equity": equity,
+                        "price": current_price,
+                        "reason": reason,
+                        "open_orders": len(self._order_manager.get_open_orders()),
+                        "open_positions": len(self._accounting.get_positions()),
+                    },
+                )
+                return
 
-        # Check daily attempts and cooldown (always active)
-        regime = self._current_regime.get(signal.symbol, Regime.NORMAL)
-        allowed, reason = self._risk_limits.check_daily_attempts(signal.strategy_id, regime)
-        if not allowed:
-            logger.debug(f"Signal rejected: {reason}")
-            metrics.increment("signals_rejected")
-            no_trade_report.increment(
-                "daily_attempts_reject", signal.symbol, signal.strategy_id
-            )
-            no_trade_report.increment_pipeline(
-                "signals_rejected_daily_attempts", signal.strategy_id
-            )
-            log_block_reason(
-                "daily_attempts_reject",
-                symbol=signal.symbol,
-                strategy_id=signal.strategy_id,
-                agent_name=signal.strategy_id,
-            )
-            log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"daily_attempts: {reason}")
-            await self._emit_order_decision(
-                signal=signal,
-                decision="SKIP",
-                reason_code="DAILY_LIMIT",
-                computed_qty=base_size,
-                context={
-                    "reason": reason,
-                    "attempts": self._risk_limits._daily_attempts.get(signal.strategy_id, 0),
-                    "regime": regime.value if hasattr(regime, "value") else str(regime),
-                    "open_orders": len(self._order_manager.get_open_orders()),
-                    "open_positions": len(self._accounting.get_positions()),
-                },
-            )
-            return
+            # Check daily attempts and cooldown (always active for local signals)
+            regime = self._current_regime.get(signal.symbol, Regime.NORMAL)
+            allowed, reason = self._risk_limits.check_daily_attempts(signal.strategy_id, regime)
+            if not allowed:
+                logger.debug(f"Signal rejected: {reason}")
+                metrics.increment("signals_rejected")
+                no_trade_report.increment(
+                    "daily_attempts_reject", signal.symbol, signal.strategy_id
+                )
+                no_trade_report.increment_pipeline(
+                    "signals_rejected_daily_attempts", signal.strategy_id
+                )
+                log_block_reason(
+                    "daily_attempts_reject",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    agent_name=signal.strategy_id,
+                )
+                log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"daily_attempts: {reason}")
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="SKIP",
+                    reason_code="DAILY_LIMIT",
+                    computed_qty=base_size,
+                    context={
+                        "reason": reason,
+                        "attempts": self._risk_limits._daily_attempts.get(signal.strategy_id, 0),
+                        "regime": regime.value if hasattr(regime, "value") else str(regime),
+                        "open_orders": len(self._order_manager.get_open_orders()),
+                        "open_positions": len(self._accounting.get_positions()),
+                    },
+                )
+                return
 
-        # Check cooldown (always active)
-        allowed, reason = self._risk_limits.check_cooldown(signal.strategy_id)
-        if not allowed:
-            logger.debug(f"Signal rejected: {reason}")
-            metrics.increment("signals_rejected")
-            no_trade_report.increment("cooldown_reject", signal.symbol, signal.strategy_id)
-            no_trade_report.increment_pipeline("signals_rejected_cooldown", signal.strategy_id)
-            log_block_reason(
-                "cooldown_reject",
-                symbol=signal.symbol,
-                strategy_id=signal.strategy_id,
-                agent_name=signal.strategy_id,
+            allowed, reason = self._risk_limits.check_cooldown(signal.strategy_id)
+            if not allowed:
+                logger.debug(f"Signal rejected: {reason}")
+                metrics.increment("signals_rejected")
+                no_trade_report.increment("cooldown_reject", signal.symbol, signal.strategy_id)
+                no_trade_report.increment_pipeline("signals_rejected_cooldown", signal.strategy_id)
+                log_block_reason(
+                    "cooldown_reject",
+                    symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
+                    agent_name=signal.strategy_id,
+                )
+                log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"cooldown: {reason}")
+                await self._emit_order_decision(
+                    signal=signal,
+                    decision="SKIP",
+                    reason_code="COOLDOWN",
+                    computed_qty=base_size,
+                    context={
+                        "reason": reason,
+                        "consecutive_losses": self._risk_limits.get_consecutive_losses(signal.strategy_id),
+                        "open_orders": len(self._order_manager.get_open_orders()),
+                        "open_positions": len(self._accounting.get_positions()),
+                    },
+                )
+                return
+        else:
+            logger.debug(
+                "External risk-approved signal received: %s %s %s",
+                signal.strategy_id,
+                signal.symbol,
+                signal.side,
             )
-            log_allow_reason("BLOCK", symbol=signal.symbol, strategy_id=signal.strategy_id, note=f"cooldown: {reason}")
-            await self._emit_order_decision(
-                signal=signal,
-                decision="SKIP",
-                reason_code="COOLDOWN",
-                computed_qty=base_size,
-                context={
-                    "reason": reason,
-                    "consecutive_losses": self._risk_limits.get_consecutive_losses(signal.strategy_id),
-                    "open_orders": len(self._order_manager.get_open_orders()),
-                    "open_positions": len(self._accounting.get_positions()),
-                },
-            )
-            return
 
         # ------------------------------------------------------------------
         # Decision Memory: context-aware gating and penalty
@@ -1975,6 +2261,16 @@ class TradingSystem:
         logger.critical(f"Killswitch triggered: {reason}")
         self._stop_trading = True
 
+    async def _handle_killswitch_reset(self, event: Event) -> None:
+        """Handle killswitch reset event — resume trading."""
+        reset_type = event.data.get("reset_type", "unknown")
+        prev_reason = event.data.get("previous_reason", "Unknown")
+        logger.info(
+            f"Killswitch reset ({reset_type}), resuming trading. "
+            f"Previous reason: {prev_reason}"
+        )
+        self._stop_trading = False
+
     async def _handle_position_close_request(self, event: Event) -> None:
         """Handle POSITION_CLOSE_REQUEST from Oracle or other modules.
 
@@ -2093,7 +2389,7 @@ class TradingSystem:
 
         # Reset killswitch and stop_trading
         if hasattr(self, "_killswitch"):
-            self._killswitch.reset()
+            await self._killswitch.reset()
             logger.info("Killswitch reset via reset_paper_state")
         self._stop_trading = False
         logger.info("Stop trading flag reset via reset_paper_state")

@@ -83,6 +83,37 @@ timeseries = [
     "clickhouse-driver>=0.2.6", # ClickHouse (analytics)
 ]
 
+# Funding Arbitrage (reuse core HTTP + fast JSON)
+funding_arbitrage = [
+    "aiohttp>=3.9.0",
+    "orjson>=3.9.0",
+]
+
+# Google Trends integration
+google_trends = [
+    "pytrends>=4.9.2",
+]
+
+# ML price predictor training
+ml_predictor = [
+    "tensorflow>=2.13.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "scikit-learn>=1.3.0",
+]
+
+# Sentiment analysis stack (transformers + feeds)
+sentiment = [
+    "transformers>=4.30.0",
+    "torch>=2.0.0",
+    "sentencepiece>=0.1.99",
+    "tweepy>=4.14.0",
+    "praw>=7.7.0",
+    "aiohttp>=3.8.0",
+    "beautifulsoup4>=4.12.0",
+    "feedparser>=6.0.10",
+]
+
 # Local LLM (ZERO API COSTS)
 local_llm = [
     "ollama>=0.1.0",            # Easiest local LLM
@@ -253,3 +284,6 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
 addopts = "-v --cov=src/hean --cov-report=term-missing"
+markers = [
+    "bybit: tests that require a live Bybit testnet connection",
+]

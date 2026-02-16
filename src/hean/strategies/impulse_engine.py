@@ -6,9 +6,9 @@ from datetime import datetime, timedelta
 from hean.config import settings
 from hean.core.bus import EventBus
 from hean.core.density import DensityController
+from hean.core.market_context import UnifiedMarketContext
 from hean.core.regime import Regime
 from hean.core.trade_density import trade_density
-from hean.core.market_context import UnifiedMarketContext
 from hean.core.types import Event, EventType, Position, Signal, Tick
 from hean.execution.edge_estimator import ExecutionEdgeEstimator
 from hean.logging import get_logger

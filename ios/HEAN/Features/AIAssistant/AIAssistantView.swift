@@ -30,8 +30,8 @@ struct AIAssistantView: View {
 
                             if viewModel.isLoading {
                                 HStack(spacing: 8) {
-                                    ProgressView().tint(Color(hex: "00D4FF")).scaleEffect(0.8)
-                                    Text("Analyzing...").font(.caption).foregroundColor(.gray)
+                                    ProgressView().tint(Theme.Colors.accent).scaleEffect(0.8)
+                                    Text(L.analyzing).font(.caption).foregroundColor(.gray)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal)
@@ -55,7 +55,7 @@ struct AIAssistantView: View {
                 // Input Bar
                 inputBar
             }
-            .background(Color(hex: "0A0A0F").ignoresSafeArea())
+            .background(Theme.Colors.background.ignoresSafeArea())
             .navigationTitle("AI Assistant")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -79,14 +79,14 @@ struct AIAssistantView: View {
 
             Image(systemName: "sparkles")
                 .font(.system(size: 50))
-                .foregroundColor(Color(hex: "7B61FF"))
+                .foregroundColor(Theme.Colors.purple)
                 .symbolEffect(.pulse)
 
             Text("HEAN AI Assistant")
                 .font(.title2.bold())
                 .foregroundColor(.white)
 
-            Text("Ask me anything about your trading system.\nI analyze real-time data to give you actionable insights.")
+            Text(L.askAnything)
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
@@ -100,7 +100,7 @@ struct AIAssistantView: View {
 
     private var quickSuggestions: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Quick Questions")
+            Text(L.quickQuestions)
                 .font(.caption.bold())
                 .foregroundColor(.gray)
                 .padding(.horizontal)
@@ -114,14 +114,14 @@ struct AIAssistantView: View {
                         } label: {
                             Text(suggestion)
                                 .font(.caption)
-                                .foregroundColor(Color(hex: "00D4FF"))
+                                .foregroundColor(Theme.Colors.accent)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
-                                .background(Color(hex: "00D4FF").opacity(0.1))
+                                .background(Theme.Colors.accent.opacity(0.1))
                                 .cornerRadius(16)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 16)
-                                        .stroke(Color(hex: "00D4FF").opacity(0.3), lineWidth: 0.5)
+                                        .stroke(Theme.Colors.accent.opacity(0.3), lineWidth: 0.5)
                                 )
                         }
                     }
@@ -139,7 +139,7 @@ struct AIAssistantView: View {
             TextField("Ask about your trading...", text: $query)
                 .textFieldStyle(.plain)
                 .padding(12)
-                .background(Color(hex: "1A1A2E"))
+                .background(Theme.Colors.cardElevated)
                 .cornerRadius(12)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
@@ -154,13 +154,13 @@ struct AIAssistantView: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 32))
-                    .foregroundColor(query.isEmpty ? .gray : Color(hex: "00D4FF"))
+                    .foregroundColor(query.isEmpty ? .gray : Theme.Colors.accent)
             }
             .disabled(query.isEmpty || viewModel.isLoading)
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
-        .background(Color(hex: "12121A"))
+        .background(Theme.Colors.card)
     }
 
     private func submitQuery() {
@@ -184,9 +184,9 @@ struct MessageBubble: View {
             } else {
                 Image(systemName: "sparkles")
                     .font(.caption)
-                    .foregroundColor(Color(hex: "7B61FF"))
+                    .foregroundColor(Theme.Colors.purple)
                     .frame(width: 24, height: 24)
-                    .background(Color(hex: "7B61FF").opacity(0.15))
+                    .background(Theme.Colors.purple.opacity(0.15))
                     .cornerRadius(12)
             }
 
@@ -197,15 +197,15 @@ struct MessageBubble: View {
                     .padding(12)
                     .background(
                         message.isUser
-                            ? Color(hex: "00D4FF").opacity(0.2)
-                            : Color(hex: "1A1A2E")
+                            ? Theme.Colors.accent.opacity(0.2)
+                            : Theme.Colors.cardElevated
                     )
                     .cornerRadius(16)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
                             .stroke(
                                 message.isUser
-                                    ? Color(hex: "00D4FF").opacity(0.3)
+                                    ? Theme.Colors.accent.opacity(0.3)
                                     : Color.gray.opacity(0.15),
                                 lineWidth: 0.5
                             )

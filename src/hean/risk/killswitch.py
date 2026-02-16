@@ -48,7 +48,7 @@ class KillSwitch:
 
         # Auto-reset safety controls — lenient defaults for testnet
         self._auto_reset_enabled = True  # Enabled by default
-        self._min_cooldown_minutes = 15  # 15 minutes cooldown (was 1 hour)
+        self._min_cooldown_minutes = 5  # 5 minutes cooldown
         self._required_recovery_pct = 10  # Must recover 10% of drawdown (was 25%)
         self._equity_at_trigger: float | None = None
         self._auto_reset_count_today = 0
@@ -225,13 +225,13 @@ class KillSwitch:
                     "KILLSWITCH HARD_STOP auto-reset: new trading day started. "
                     f"Previous reason: {self._trigger_reason}"
                 )
-                self._do_reset("new_day")
+                await self._do_reset("new_day")
                 return True
             return False
 
         now = datetime.utcnow()
 
-        # Check cooldown period (15 minutes for DAILY_PAUSE)
+        # Check cooldown period for DAILY_PAUSE
         time_since_trigger = now - self._triggered_at
         cooldown = timedelta(minutes=self._min_cooldown_minutes)
         if time_since_trigger < cooldown:
@@ -269,11 +269,13 @@ class KillSwitch:
             f"KILLSWITCH AUTO-RESET after {elapsed_min:.0f}min pause. "
             f"Reason was: {self._trigger_reason}"
         )
-        self._do_reset("auto")
+        await self._do_reset("auto")
         return True
 
-    def _do_reset(self, reset_type: str) -> None:
-        """Perform the actual reset (shared by auto and manual reset)."""
+    async def _do_reset(self, reset_type: str) -> None:
+        """Perform the actual reset and notify system via KILLSWITCH_RESET event."""
+        prev_reason = self._trigger_reason
+        prev_type = self._trigger_type
         self._triggered = False
         self._trigger_reason = ""
         self._trigger_type = ""
@@ -281,6 +283,23 @@ class KillSwitch:
         self._reasons = []
         self._equity_at_trigger = None
         self._auto_reset_count_today += 1
+
+        # Notify system that killswitch has been reset — trading can resume
+        await self._bus.publish(
+            Event(
+                event_type=EventType.KILLSWITCH_RESET,
+                data={
+                    "reset_type": reset_type,
+                    "previous_reason": prev_reason,
+                    "previous_trigger_type": prev_type,
+                    "auto_resets_today": self._auto_reset_count_today,
+                },
+            )
+        )
+        logger.info(
+            f"KILLSWITCH RESET ({reset_type}): trading can resume. "
+            f"Previous: {prev_type} — {prev_reason}"
+        )
 
     async def _trigger(
         self, reason: str, equity: float | None = None, trigger_type: str = "DAILY_PAUSE"
@@ -350,7 +369,7 @@ class KillSwitch:
             "avg_rolling_pf": self._get_avg_rolling_pf(),
         }
 
-    def reset(self, force: bool = False) -> bool:
+    async def reset(self, force: bool = False) -> bool:
         """Reset the killswitch manually.
 
         Args:
@@ -368,7 +387,7 @@ class KillSwitch:
             f"Type: {self._trigger_type}. Reason: {self._trigger_reason}"
         )
 
-        self._do_reset("manual")
+        await self._do_reset("manual")
         self._error_count = 0
         return True
 

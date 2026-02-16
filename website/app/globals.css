@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+/* Neural Midnight Palette */
+@theme inline {
+  --color-space: #0D0D1A;
+  --color-space-light: #1C1C31;
+  --color-axon: #A45BFF;
+  --color-axon-glow: rgba(164, 91, 255, 0.4);
+  --color-stream: #00D4FF;
+  --color-stream-glow: rgba(0, 212, 255, 0.3);
+  --color-starlight: #C5C5DD;
+  --color-supernova: #FFFFFF;
+  --color-glass-bg: rgba(28, 28, 49, 0.5);
+  --color-glass-border: rgba(255, 255, 255, 0.1);
+
+  --font-heading: var(--font-heading);
+  --font-body: var(--font-body);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-space);
+  color: var(--color-starlight);
+  font-family: var(--font-body), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: var(--color-glass-bg);
+  border: 1px solid var(--color-glass-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Axon glow effect */
+.glow-axon {
+  box-shadow: 0 0 20px var(--color-axon-glow), 0 0 60px rgba(164, 91, 255, 0.15);
+}
+
+/* Stream glow effect */
+.glow-stream {
+  box-shadow: 0 0 20px var(--color-stream-glow), 0 0 60px rgba(0, 212, 255, 0.1);
+}
+
+/* Gradient text utility */
+.gradient-text {
+  background: linear-gradient(135deg, var(--color-axon), var(--color-stream));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  will-change: opacity;
+}
+
+/* Aurora background effect */
+.aurora-bg {
+  background: radial-gradient(ellipse at 20% 50%, rgba(164, 91, 255, 0.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 80% 50%, rgba(0, 212, 255, 0.06) 0%, transparent 50%),
+              var(--color-space);
+}
+
+/* Performance optimization for animations */
+.glass,
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth scroll for iOS */
+@supports (-webkit-touch-callout: none) {
+  html {
+    -webkit-overflow-scrolling: touch;
+  }
+}

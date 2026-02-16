@@ -1,0 +1,157 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "hean-trading",
+    "title": "HEAN Trading Operations",
+    "tags": ["hean", "trading", "operations"],
+    "timezone": "UTC",
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "10s",
+    "time": {"from": "now-3h", "to": "now"},
+    "panels": [
+      {
+        "id": 1,
+        "title": "Engine Status",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+        "targets": [{"expr": "up{job=\"hean-api\"}", "legendFormat": "API"}],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Equity (USDT)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+        "targets": [{"expr": "hean_equity", "legendFormat": "Equity"}],
+        "fieldConfig": {"defaults": {"unit": "currencyUSD", "thresholds": {"steps": [{"value": 0, "color": "red"}, {"value": 100, "color": "yellow"}, {"value": 115, "color": "green"}]}}}
+      },
+      {
+        "id": 3,
+        "title": "Drawdown %",
+        "type": "gauge",
+        "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+        "targets": [{"expr": "hean_drawdown_pct", "legendFormat": "Drawdown"}],
+        "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 20, "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 8, "color": "yellow"}, {"value": 15, "color": "red"}]}}}
+      },
+      {
+        "id": 4,
+        "title": "Open Positions",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+        "targets": [{"expr": "hean_open_positions", "legendFormat": "Positions"}],
+        "fieldConfig": {"defaults": {"thresholds": {"steps": [{"value": 0, "color": "blue"}, {"value": 8, "color": "yellow"}, {"value": 10, "color": "red"}]}}}
+      },
+      {
+        "id": 5,
+        "title": "Killswitch Status",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+        "targets": [{"expr": "hean_killswitch_triggered", "legendFormat": "Killswitch"}],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "OK", "color": "green"}, "1": {"text": "TRIGGERED", "color": "red"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Risk State",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+        "targets": [{"expr": "hean_risk_state", "legendFormat": "Risk Level"}],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "NORMAL", "color": "green"}, "1": {"text": "SOFT_BRAKE", "color": "yellow"}, "2": {"text": "QUARANTINE", "color": "orange"}, "3": {"text": "HARD_STOP", "color": "red"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Equity Over Time",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "targets": [
+          {"expr": "hean_equity", "legendFormat": "Equity"},
+          {"expr": "hean_initial_capital", "legendFormat": "Initial Capital"}
+        ],
+        "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+      },
+      {
+        "id": 11,
+        "title": "PnL Breakdown",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "targets": [
+          {"expr": "hean_realized_pnl", "legendFormat": "Realized PnL"},
+          {"expr": "hean_unrealized_pnl", "legendFormat": "Unrealized PnL"},
+          {"expr": "hean_fees", "legendFormat": "Fees"}
+        ],
+        "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+      },
+      {
+        "id": 20,
+        "title": "Signal / Order / Fill Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+        "targets": [
+          {"expr": "rate(hean_signals_total[5m])", "legendFormat": "Signals/s"},
+          {"expr": "rate(hean_orders_total[5m])", "legendFormat": "Orders/s"},
+          {"expr": "rate(hean_fills_total[5m])", "legendFormat": "Fills/s"}
+        ],
+        "fieldConfig": {"defaults": {"unit": "ops"}}
+      },
+      {
+        "id": 21,
+        "title": "Execution Latency (p95)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+        "targets": [
+          {"expr": "histogram_quantile(0.95, rate(hean_execution_latency_bucket[5m]))", "legendFormat": "p95"},
+          {"expr": "histogram_quantile(0.99, rate(hean_execution_latency_bucket[5m]))", "legendFormat": "p99"}
+        ],
+        "fieldConfig": {"defaults": {"unit": "ms"}}
+      },
+      {
+        "id": 30,
+        "title": "API Request Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 20},
+        "targets": [
+          {"expr": "rate(http_requests_total{job=\"hean-api\"}[5m])", "legendFormat": "{{method}} {{path}}"}
+        ]
+      },
+      {
+        "id": 31,
+        "title": "Memory Usage",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 20},
+        "targets": [
+          {"expr": "process_resident_memory_bytes{job=\"hean-api\"} / 1024 / 1024", "legendFormat": "API Memory (MB)"}
+        ],
+        "fieldConfig": {"defaults": {"unit": "decmbytes"}}
+      },
+      {
+        "id": 32,
+        "title": "Redis Memory",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 20},
+        "targets": [
+          {"expr": "redis_memory_used_bytes / 1024 / 1024", "legendFormat": "Redis Used (MB)"},
+          {"expr": "redis_memory_max_bytes / 1024 / 1024", "legendFormat": "Redis Max (MB)"}
+        ],
+        "fieldConfig": {"defaults": {"unit": "decmbytes"}}
+      }
+    ]
+  }
+}

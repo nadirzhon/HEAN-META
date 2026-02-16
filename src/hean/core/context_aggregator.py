@@ -18,7 +18,6 @@ from hean.core.bus import EventBus
 from hean.core.market_context import (
     BrainSnapshot,
     CausalSnapshot,
-    OrderFlowSnapshot,
     PhysicsSnapshot,
     PredictionSnapshot,
     UnifiedMarketContext,

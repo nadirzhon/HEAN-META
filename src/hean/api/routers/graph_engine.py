@@ -69,7 +69,7 @@ async def get_graph_state(request: Request) -> dict[str, Any]:
         raise HTTPException(
             status_code=500,
             detail=f"Internal error retrieving graph state: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/leader")
@@ -124,7 +124,7 @@ async def get_leader(request: Request) -> dict[str, Any]:
         raise HTTPException(
             status_code=500,
             detail=f"Internal error retrieving market leader: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/feature-vector")
@@ -166,7 +166,7 @@ async def get_feature_vector(request: Request, size: int = 5000) -> dict[str, An
         raise HTTPException(
             status_code=500,
             detail=f"Internal error retrieving feature vector: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/topology/score")
@@ -188,7 +188,7 @@ async def get_topology_score(request: Request) -> dict[str, Any]:
             raise HTTPException(
                 status_code=503,
                 detail="FastWarden not available - C++ graph engine module not loaded"
-            )
+            ) from None
     except HTTPException:
         raise
     except Exception as e:
@@ -196,7 +196,7 @@ async def get_topology_score(request: Request) -> dict[str, Any]:
         raise HTTPException(
             status_code=500,
             detail=f"Internal error retrieving topology score: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/topology/manifold/{symbol}")
@@ -210,8 +210,6 @@ async def get_manifold_data(request: Request, symbol: str) -> dict[str, Any]:
                 status_code=503,
                 detail="TDA engine not available - trading system not initialized"
             )
-
-        trading_system = engine_facade._trading_system
 
         # Try FastWarden for manifold data
         try:
@@ -229,7 +227,7 @@ async def get_manifold_data(request: Request, symbol: str) -> dict[str, Any]:
             raise HTTPException(
                 status_code=503,
                 detail="FastWarden not available for manifold data"
-            )
+            ) from None
     except HTTPException:
         raise
     except Exception as e:
@@ -237,7 +235,7 @@ async def get_manifold_data(request: Request, symbol: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=500,
             detail=f"Internal error retrieving manifold data: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/topology/watchdog")
@@ -271,7 +269,7 @@ async def get_watchdog_status(request: Request) -> dict[str, Any]:
             raise HTTPException(
                 status_code=503,
                 detail="Topological watchdog not available - FastWarden module not loaded"
-            )
+            ) from None
     except HTTPException:
         raise
     except Exception as e:
@@ -279,4 +277,4 @@ async def get_watchdog_status(request: Request) -> dict[str, Any]:
         raise HTTPException(
             status_code=500,
             detail=f"Internal error retrieving watchdog status: {str(e)}"
-        )
+        ) from e

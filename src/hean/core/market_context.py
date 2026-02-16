@@ -190,7 +190,7 @@ class UnifiedMarketContext:
         total_weight = sum(weights)
         if total_weight == 0:
             return 0.0
-        return sum(s * w for s, w in zip(signals, weights)) / total_weight
+        return sum(s * w for s, w in zip(signals, weights, strict=False)) / total_weight
 
     @property
     def consensus_direction(self) -> str:

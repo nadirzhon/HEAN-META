@@ -17,7 +17,7 @@ struct ComponentShowcase: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: AppTypography.xl) {
+            VStack(spacing: Theme.Spacing.xl) {
                 // Header
                 header
 
@@ -39,22 +39,22 @@ struct ComponentShowcase: View {
                 // Loading States
                 loadingSection
             }
-            .padding(AppTypography.md)
+            .padding(Theme.Spacing.lg)
         }
-        .background(AppColors.backgroundPrimary.ignoresSafeArea())
+        .background(Theme.Colors.background.ignoresSafeArea())
     }
 
     private var header: some View {
         GlassCard {
             HStack {
-                VStack(alignment: .leading, spacing: AppTypography.xs) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                     Text("HEAN")
-                        .font(AppTypography.title(28, weight: .bold))
-                        .foregroundColor(AppColors.textPrimary)
+                        .font(Theme.Typography.title(28, weight: .bold))
+                        .foregroundColor(Theme.Colors.textPrimary)
 
                     Text("Premium Trading Dashboard")
-                        .font(AppTypography.caption())
-                        .foregroundColor(AppColors.textSecondary)
+                        .font(Theme.Typography.caption())
+                        .foregroundColor(Theme.Colors.textSecondary)
                 }
 
                 Spacer()
@@ -65,57 +65,57 @@ struct ComponentShowcase: View {
                     showLabel: true
                 )
             }
-            .padding(AppTypography.lg)
+            .padding(20)
         }
     }
 
     private var statusSection: some View {
-        VStack(spacing: AppTypography.md) {
+        VStack(spacing: Theme.Spacing.lg) {
             sectionTitle("Connection Status")
 
             GlassCard {
-                VStack(spacing: AppTypography.md) {
+                VStack(spacing: Theme.Spacing.lg) {
                     HStack {
                         Text("WebSocket")
-                            .font(AppTypography.body())
-                            .foregroundColor(AppColors.textPrimary)
+                            .font(Theme.Typography.bodyFont())
+                            .foregroundColor(Theme.Colors.textPrimary)
                         Spacer()
                         StatusIndicator(status: .connected, latency: 32, showLabel: false)
                     }
 
                     Divider()
-                        .background(AppColors.textTertiary.opacity(0.3))
+                        .background(Theme.Colors.textTertiary.opacity(0.3))
 
                     HStack {
                         Text("Market Data")
-                            .font(AppTypography.body())
-                            .foregroundColor(AppColors.textPrimary)
+                            .font(Theme.Typography.bodyFont())
+                            .foregroundColor(Theme.Colors.textPrimary)
                         Spacer()
                         StatusIndicator(status: .reconnecting, showLabel: false)
                     }
 
                     Divider()
-                        .background(AppColors.textTertiary.opacity(0.3))
+                        .background(Theme.Colors.textTertiary.opacity(0.3))
 
                     HStack {
                         Text("API")
-                            .font(AppTypography.body())
-                            .foregroundColor(AppColors.textPrimary)
+                            .font(Theme.Typography.bodyFont())
+                            .foregroundColor(Theme.Colors.textPrimary)
                         Spacer()
                         StatusIndicator(status: .disconnected, showLabel: false)
                     }
                 }
-                .padding(AppTypography.md)
+                .padding(Theme.Spacing.lg)
             }
         }
     }
 
     private var priceTickersSection: some View {
-        VStack(spacing: AppTypography.md) {
+        VStack(spacing: Theme.Spacing.lg) {
             sectionTitle("Live Prices")
 
             // Large tickers
-            HStack(spacing: AppTypography.md) {
+            HStack(spacing: Theme.Spacing.lg) {
                 PriceTicker(
                     symbol: "BTCUSDT",
                     price: btcPrice,
@@ -134,7 +134,7 @@ struct ComponentShowcase: View {
             }
 
             // Small tickers grid
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: AppTypography.sm) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: Theme.Spacing.md) {
                 PriceTicker(symbol: "SOL", price: 95.40, changePercent: 5.2, size: .small)
                 PriceTicker(symbol: "ADA", price: 0.58, changePercent: -2.1, size: .small)
                 PriceTicker(symbol: "DOT", price: 7.23, changePercent: 1.8, size: .small)
@@ -144,26 +144,26 @@ struct ComponentShowcase: View {
             // Price update simulator
             Button(action: simulatePriceUpdate) {
                 Text("Simulate Price Update")
-                    .font(AppTypography.body(14, weight: .semibold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .padding(.horizontal, AppTypography.lg)
-                    .padding(.vertical, AppTypography.sm)
-                    .background(AppColors.accentPrimary.opacity(0.2))
-                    .cornerRadius(AppTypography.radiusSm)
+                    .font(Theme.Typography.bodyFont(14, weight: .semibold))
+                    .foregroundColor(Theme.Colors.textPrimary)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, Theme.Spacing.md)
+                    .background(Theme.Colors.accent.opacity(0.2))
+                    .cornerRadius(Theme.CornerRadius.sm)
             }
         }
     }
 
     private var chartsSection: some View {
-        VStack(spacing: AppTypography.md) {
+        VStack(spacing: Theme.Spacing.lg) {
             sectionTitle("Charts")
 
             // Candlestick chart
             GlassCard {
-                VStack(alignment: .leading, spacing: AppTypography.sm) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                     Text("BTC/USDT - 1H")
-                        .font(AppTypography.headline())
-                        .foregroundColor(AppColors.textPrimary)
+                        .font(Theme.Typography.headlineFont())
+                        .foregroundColor(Theme.Colors.textPrimary)
 
                     CandlestickChart(
                         candles: generateSampleCandles(),
@@ -173,95 +173,95 @@ struct ComponentShowcase: View {
                     )
 
                     Text("Pinch to zoom • Drag to scroll")
-                        .font(AppTypography.caption(11))
-                        .foregroundColor(AppColors.textTertiary)
+                        .font(Theme.Typography.caption(11))
+                        .foregroundColor(Theme.Colors.textTertiary)
                 }
-                .padding(AppTypography.md)
+                .padding(Theme.Spacing.lg)
             }
 
             // Sparklines
-            HStack(spacing: AppTypography.md) {
+            HStack(spacing: Theme.Spacing.lg) {
                 GlassCard {
-                    VStack(alignment: .leading, spacing: AppTypography.xs) {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                         Text("24h Trend")
-                            .font(AppTypography.caption())
-                            .foregroundColor(AppColors.textSecondary)
+                            .font(Theme.Typography.caption())
+                            .foregroundColor(Theme.Colors.textSecondary)
 
                         Sparkline(
                             dataPoints: [100, 105, 103, 110, 115, 112, 120, 125, 130],
                             smoothCurves: true
                         )
                     }
-                    .padding(AppTypography.sm)
+                    .padding(Theme.Spacing.md)
                 }
 
                 GlassCard {
-                    VStack(alignment: .leading, spacing: AppTypography.xs) {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                         Text("7d Trend")
-                            .font(AppTypography.caption())
-                            .foregroundColor(AppColors.textSecondary)
+                            .font(Theme.Typography.caption())
+                            .foregroundColor(Theme.Colors.textSecondary)
 
                         Sparkline(
                             dataPoints: [130, 125, 128, 120, 115, 118, 110, 105, 100],
                             smoothCurves: true
                         )
                     }
-                    .padding(AppTypography.sm)
+                    .padding(Theme.Spacing.md)
                 }
             }
         }
     }
 
     private var pnlSection: some View {
-        VStack(spacing: AppTypography.md) {
+        VStack(spacing: Theme.Spacing.lg) {
             sectionTitle("Portfolio Performance")
 
             GlassCard {
-                VStack(spacing: AppTypography.md) {
+                VStack(spacing: Theme.Spacing.lg) {
                     // Total PnL
                     HStack {
                         Text("Total P&L")
-                            .font(AppTypography.body())
-                            .foregroundColor(AppColors.textSecondary)
+                            .font(Theme.Typography.bodyFont())
+                            .foregroundColor(Theme.Colors.textSecondary)
                         Spacer()
                         PnLBadge(value: 2_456.78, format: .dollar, size: .expanded)
                     }
 
                     Divider()
-                        .background(AppColors.textTertiary.opacity(0.3))
+                        .background(Theme.Colors.textTertiary.opacity(0.3))
 
                     // Today's PnL
                     HStack {
                         Text("Today")
-                            .font(AppTypography.body())
-                            .foregroundColor(AppColors.textSecondary)
+                            .font(Theme.Typography.bodyFont())
+                            .foregroundColor(Theme.Colors.textSecondary)
                         Spacer()
                         PnLBadge(value: 15.67, format: .percent, size: .compact)
                     }
 
                     Divider()
-                        .background(AppColors.textTertiary.opacity(0.3))
+                        .background(Theme.Colors.textTertiary.opacity(0.3))
 
                     // This week
                     HStack {
                         Text("This Week")
-                            .font(AppTypography.body())
-                            .foregroundColor(AppColors.textSecondary)
+                            .font(Theme.Typography.bodyFont())
+                            .foregroundColor(Theme.Colors.textSecondary)
                         Spacer()
                         PnLBadge(value: -345.20, format: .dollar, size: .compact)
                     }
                 }
-                .padding(AppTypography.md)
+                .padding(Theme.Spacing.lg)
             }
         }
     }
 
     private var riskSection: some View {
-        VStack(spacing: AppTypography.md) {
+        VStack(spacing: Theme.Spacing.lg) {
             sectionTitle("Risk Management")
 
             // Compact badges
-            HStack(spacing: AppTypography.md) {
+            HStack(spacing: Theme.Spacing.lg) {
                 RiskBadge(state: .normal, variant: .compact)
                 RiskBadge(state: .softBrake, variant: .compact)
                 RiskBadge(state: .quarantine, variant: .compact)
@@ -272,50 +272,50 @@ struct ComponentShowcase: View {
             RiskBadge(state: riskState, variant: .expanded)
 
             // State toggle buttons
-            HStack(spacing: AppTypography.sm) {
+            HStack(spacing: Theme.Spacing.md) {
                 Button("Normal") { riskState = .normal }
                 Button("Soft") { riskState = .softBrake }
                 Button("Quarantine") { riskState = .quarantine }
                 Button("Stop") { riskState = .hardStop }
             }
-            .font(AppTypography.caption(12, weight: .medium))
+            .font(Theme.Typography.caption(12, weight: .medium))
             .buttonStyle(.bordered)
-            .tint(AppColors.accentPrimary)
+            .tint(Theme.Colors.accent)
         }
     }
 
     private var loadingSection: some View {
-        VStack(spacing: AppTypography.md) {
+        VStack(spacing: Theme.Spacing.lg) {
             sectionTitle("Loading States")
 
             GlassCard {
-                VStack(alignment: .leading, spacing: AppTypography.sm) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(AppColors.backgroundTertiary)
+                        .fill(Theme.Colors.cardElevated)
                         .frame(width: 120, height: 20)
 
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(AppColors.backgroundTertiary)
+                        .fill(Theme.Colors.cardElevated)
                         .frame(width: 200, height: 40)
 
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(AppColors.backgroundTertiary)
+                        .fill(Theme.Colors.cardElevated)
                         .frame(width: 150, height: 16)
                 }
-                .padding(AppTypography.md)
+                .padding(Theme.Spacing.lg)
             }
             .skeleton(isLoading: isLoading)
 
             Toggle("Show Loading", isOn: $isLoading)
-                .tint(AppColors.accentPrimary)
-                .padding(.horizontal, AppTypography.md)
+                .tint(Theme.Colors.accent)
+                .padding(.horizontal, Theme.Spacing.lg)
         }
     }
 
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(AppTypography.headline(18, weight: .bold))
-            .foregroundColor(AppColors.textPrimary)
+            .font(Theme.Typography.headlineFont(18, weight: .bold))
+            .foregroundColor(Theme.Colors.textPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 

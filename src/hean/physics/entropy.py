@@ -8,7 +8,6 @@ Low entropy = compressed (coiled spring, breakout imminent)
 High entropy = equilibrium (dispersed, no edge)
 """
 
-import math
 import time
 from collections import deque
 from dataclasses import dataclass

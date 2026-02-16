@@ -84,9 +84,10 @@ async def test_maker_orders_lower_fees() -> None:
     await bus.stop()
 
 
+@pytest.mark.bybit
 @pytest.mark.asyncio
 async def test_ttl_cancel_works() -> None:
-    """Test that maker orders are cancelled after TTL."""
+    """Test that maker orders are cancelled after TTL (requires Bybit connection)."""
     # Temporarily set short TTL for testing
     original_ttl = settings.maker_ttl_ms
     settings.maker_ttl_ms = 200  # 200ms for testing

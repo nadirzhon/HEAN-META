@@ -28,7 +28,7 @@ struct StrategiesView: View {
                 }
                 .padding()
             }
-            .background(Color(hex: "0A0A0F").ignoresSafeArea())
+            .background(Theme.Colors.background.ignoresSafeArea())
             .navigationTitle("Strategies")
             .refreshable { await viewModel.refresh() }
             .task { await viewModel.refresh() }
@@ -41,22 +41,22 @@ struct StrategiesView: View {
                 VStack {
                     Text("\(viewModel.strategies.filter(\.enabled).count)")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(hex: "22C55E"))
-                    Text("Active").font(.caption).foregroundColor(.gray)
+                        .foregroundColor(Theme.Colors.success)
+                    Text(L.active).font(.caption).foregroundColor(.gray)
                 }
                 VStack {
                     Text("\(viewModel.strategies.count)")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
-                    Text("Total").font(.caption).foregroundColor(.gray)
+                    Text(L.total).font(.caption).foregroundColor(.gray)
                 }
                 Spacer()
                 VStack(alignment: .trailing) {
                     let totalPnl = viewModel.strategies.reduce(0) { $0 + $1.totalPnl }
                     Text(totalPnl.asPnL)
                         .font(.system(size: 20, weight: .bold, design: .monospaced))
-                        .foregroundColor(totalPnl >= 0 ? Color(hex: "22C55E") : Color(hex: "EF4444"))
-                    Text("Combined P&L").font(.caption).foregroundColor(.gray)
+                        .foregroundColor(totalPnl >= 0 ? Theme.Colors.success : Theme.Colors.error)
+                    Text(L.combinedPnL).font(.caption).foregroundColor(.gray)
                 }
             }
             .padding()
@@ -67,8 +67,8 @@ struct StrategiesView: View {
         GlassCard {
             VStack(spacing: 12) {
                 Image(systemName: "brain.head.profile").font(.system(size: 40)).foregroundColor(.gray)
-                Text("No strategies loaded").font(.headline).foregroundColor(.gray)
-                Text("Start the engine to load trading strategies").font(.caption).foregroundColor(.gray.opacity(0.7))
+                Text(L.noStrategiesLoaded).font(.headline).foregroundColor(.gray)
+                Text(L.startEngineToLoad).font(.caption).foregroundColor(.gray.opacity(0.7))
             }
             .padding(30).frame(maxWidth: .infinity)
         }
@@ -93,20 +93,20 @@ struct StrategyCardView: View {
                     }
                     Spacer()
                     Toggle("", isOn: Binding(get: { strategy.enabled }, set: { onToggle($0) }))
-                        .labelsHidden().tint(Color(hex: "00D4FF"))
+                        .labelsHidden().tint(Theme.Colors.accent)
                 }
 
                 HStack(spacing: 16) {
-                    stratMetric("P&L", strategy.totalPnl.asPnL, strategy.totalPnl >= 0 ? "22C55E" : "EF4444")
-                    stratMetric("Win Rate", strategy.winRate.asPercent, "3B82F6")
-                    stratMetric("Trades", "\(strategy.totalTrades)", "F59E0B")
-                    stratMetric("PF", String(format: "%.2f", strategy.profitFactor), "7B61FF")
+                    stratMetric("P&L", strategy.totalPnl.asPnL, strategy.totalPnl >= 0 ? Theme.Colors.success : Theme.Colors.error)
+                    stratMetric("Win Rate", strategy.winRate.asPercent, Theme.Colors.info)
+                    stratMetric("Trades", "\(strategy.totalTrades)", Theme.Colors.warning)
+                    stratMetric("PF", String(format: "%.2f", strategy.profitFactor), Theme.Colors.purple)
                 }
 
                 HStack(spacing: 12) {
                     HStack(spacing: 4) {
-                        Text("W: \(strategy.wins)").font(.caption2).foregroundColor(Color(hex: "22C55E"))
-                        Text("L: \(strategy.losses)").font(.caption2).foregroundColor(Color(hex: "EF4444"))
+                        Text("W: \(strategy.wins)").font(.caption2).foregroundColor(Theme.Colors.success)
+                        Text("L: \(strategy.losses)").font(.caption2).foregroundColor(Theme.Colors.error)
                     }
                 }
             }
@@ -114,11 +114,11 @@ struct StrategyCardView: View {
         }
     }
 
-    private func stratMetric(_ label: String, _ value: String, _ color: String) -> some View {
+    private func stratMetric(_ label: String, _ value: String, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.caption2).foregroundColor(.gray)
             Text(value).font(.subheadline.weight(.semibold)).monospacedDigit()
-                .foregroundColor(Color(hex: color))
+                .foregroundColor(color)
         }
     }
 }

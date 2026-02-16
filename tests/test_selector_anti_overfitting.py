@@ -52,7 +52,7 @@ def test_min_sample_size_gating(selector):
             started_at=datetime.utcnow() - timedelta(days=i),
             finished_at=datetime.utcnow() - timedelta(days=i) + timedelta(hours=1),
             status=ProcessRunStatus.COMPLETED if i % 2 == 0 else ProcessRunStatus.FAILED,
-            metrics={"capital_delta": 10.0 if i % 2 == 0 else -5.0},
+            metrics={"capital_delta": 0.02 if i % 2 == 0 else -0.01},
             capital_allocated_usd=100.0,
             inputs={},
             outputs={},
@@ -130,7 +130,7 @@ def test_holdout_rejection(selector):
             started_at=now - timedelta(days=10 + i),  # 10+ days ago (training)
             finished_at=now - timedelta(days=10 + i) + timedelta(hours=1),
             status=ProcessRunStatus.COMPLETED,
-            metrics={"capital_delta": 10.0},  # Positive training performance
+            metrics={"capital_delta": 0.02},  # Positive training performance
             capital_allocated_usd=100.0,
             inputs={},
             outputs={},
@@ -145,7 +145,7 @@ def test_holdout_rejection(selector):
             started_at=now - timedelta(days=i),  # Recent (holdout)
             finished_at=now - timedelta(days=i) + timedelta(hours=1),
             status=ProcessRunStatus.FAILED,
-            metrics={"capital_delta": -5.0},  # Negative holdout performance
+            metrics={"capital_delta": -0.01},  # Negative holdout performance
             capital_allocated_usd=100.0,
             inputs={},
             outputs={},
@@ -161,8 +161,8 @@ def test_holdout_rejection(selector):
         runs_count=len(all_runs),
         wins=5,
         losses=2,
-        pnl_sum=40.0,  # Positive overall
-        max_dd=5.0,
+        pnl_sum=0.08,  # Positive overall
+        max_dd=0.01,
         avg_roi=0.05,
         fail_rate=0.2,
         time_efficiency=5.0,
@@ -226,8 +226,8 @@ def test_selector_promotes_after_min_sample_size(selector):
         runs_count=15,  # Above min_sample_size_for_scaling (10)
         wins=12,
         losses=3,
-        pnl_sum=100.0,
-        max_dd=5.0,
+        pnl_sum=0.21,
+        max_dd=0.01,
         avg_roi=0.1,
         fail_rate=0.2,  # Below 0.4 threshold
         time_efficiency=10.0,
@@ -240,7 +240,7 @@ def test_selector_promotes_after_min_sample_size(selector):
             started_at=datetime.utcnow() - timedelta(days=i),
             finished_at=datetime.utcnow() - timedelta(days=i) + timedelta(hours=1),
             status=ProcessRunStatus.COMPLETED if i % 5 != 0 else ProcessRunStatus.FAILED,
-            metrics={"capital_delta": 10.0 if i % 5 != 0 else -5.0},
+            metrics={"capital_delta": 0.02 if i % 5 != 0 else -0.01},
             capital_allocated_usd=100.0,
             inputs={},
             outputs={},

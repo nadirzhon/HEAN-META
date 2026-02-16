@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 
 from hean.core.bus import EventBus
-from hean.core.types import Event, EventType, Signal, Tick
+from hean.core.types import Event, EventType, Signal
 from hean.logging import get_logger
 from hean.observability.no_trade_report import no_trade_report
 from hean.observability.signal_rejection_telemetry import signal_rejection_telemetry

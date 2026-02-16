@@ -48,6 +48,21 @@ enum Theme {
 
         static let border = Color.white.opacity(0.1)
         static let divider = Color.white.opacity(0.05)
+
+        static let bullish = success
+        static let bearish = error
+        static let purple = Color(hex: "7B61FF")
+        static let orange = Color(hex: "F97316")
+        static let info = Color(hex: "3B82F6")
+
+        static let glassBorder = LinearGradient(
+            colors: [
+                Color.white.opacity(0.2),
+                Color.white.opacity(0.05)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
     enum Typography {
@@ -66,6 +81,26 @@ enum Theme {
         static let monoLarge = Font.system(size: 28, weight: .bold, design: .monospaced)
         static let mono = Font.system(size: 17, weight: .medium, design: .monospaced)
         static let monoSmall = Font.system(size: 13, weight: .regular, design: .monospaced)
+
+        // Parameterized font constructors
+        static func display(_ size: CGFloat = 32, weight: Font.Weight = .bold) -> Font {
+            .system(size: size, weight: weight, design: .rounded)
+        }
+        static func title(_ size: CGFloat = 24, weight: Font.Weight = .semibold) -> Font {
+            .system(size: size, weight: weight, design: .rounded)
+        }
+        static func headlineFont(_ size: CGFloat = 18, weight: Font.Weight = .semibold) -> Font {
+            .system(size: size, weight: weight, design: .rounded)
+        }
+        static func bodyFont(_ size: CGFloat = 16, weight: Font.Weight = .regular) -> Font {
+            .system(size: size, weight: weight, design: .rounded)
+        }
+        static func caption(_ size: CGFloat = 14, weight: Font.Weight = .regular) -> Font {
+            .system(size: size, weight: weight, design: .rounded)
+        }
+        static func monoFont(_ size: CGFloat = 16, weight: Font.Weight = .medium) -> Font {
+            .system(size: size, weight: weight, design: .monospaced)
+        }
     }
 
     enum Spacing {
@@ -91,3 +126,56 @@ enum Theme {
     }
 }
 
+// MARK: - Double Extensions for Currency Formatting
+
+extension Double {
+    var asCurrency: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        return formatter.string(from: NSNumber(value: self)) ?? "$0.00"
+    }
+
+    var asCompactCurrency: String {
+        let absValue = abs(self)
+        let sign = self < 0 ? "-" : ""
+        if absValue >= 1_000_000 {
+            return "\(sign)$\(String(format: "%.1fM", absValue / 1_000_000))"
+        } else if absValue >= 1_000 {
+            return "\(sign)$\(String(format: "%.1fK", absValue / 1_000))"
+        }
+        return "\(sign)$\(String(format: "%.2f", absValue))"
+    }
+
+    var asPercent: String {
+        String(format: "%+.2f%%", self)
+    }
+
+    var asPnL: String {
+        let sign = self >= 0 ? "+" : ""
+        return "\(sign)\(self.asCurrency)"
+    }
+
+    var asCryptoQty: String {
+        if abs(self) < 0.01 {
+            return String(format: "%.8f", self)
+        } else if abs(self) < 1 {
+            return String(format: "%.6f", self)
+        } else if abs(self) < 100 {
+            return String(format: "%.4f", self)
+        }
+        return String(format: "%.2f", self)
+    }
+
+    var asCryptoPrice: String {
+        if abs(self) < 0.01 {
+            return "$\(String(format: "%.8f", self))"
+        } else if abs(self) < 1 {
+            return "$\(String(format: "%.6f", self))"
+        }
+        return asCurrency
+    }
+}

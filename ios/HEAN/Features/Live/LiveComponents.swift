@@ -65,7 +65,7 @@ struct PhysicsCompactCard: View {
                     Image(systemName: "atom")
                         .font(.system(size: 12))
                         .foregroundColor(Theme.Colors.accent)
-                    Text("Market Physics")
+                    Text(L.marketPhysics)
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(Theme.Colors.textSecondary)
                     Spacer()

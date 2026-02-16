@@ -54,9 +54,9 @@ struct Sparkline: View {
             return color
         }
         switch trend {
-        case .up: return AppColors.success
-        case .down: return AppColors.error
-        case .neutral: return AppColors.textSecondary
+        case .up: return Theme.Colors.success
+        case .down: return Theme.Colors.error
+        case .neutral: return Theme.Colors.textSecondary
         }
     }
 
@@ -146,55 +146,55 @@ struct Sparkline: View {
 // MARK: - Preview
 #Preview("Sparkline Variants") {
     ZStack {
-        AppColors.backgroundPrimary
+        Theme.Colors.background
             .ignoresSafeArea()
 
-        VStack(spacing: AppTypography.lg) {
+        VStack(spacing: 20) {
             // Upward trend
-            VStack(alignment: .leading, spacing: AppTypography.xs) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 Text("Upward Trend (Smooth)")
-                    .font(AppTypography.caption())
-                    .foregroundColor(AppColors.textSecondary)
+                    .font(Theme.Typography.caption())
+                    .foregroundColor(Theme.Colors.textSecondary)
 
                 Sparkline(
                     dataPoints: [100, 105, 103, 110, 115, 112, 120, 125, 130],
                     smoothCurves: true
                 )
             }
-            .padding(AppTypography.md)
-            .background(AppColors.backgroundSecondary)
-            .cornerRadius(AppTypography.radiusMd)
+            .padding(Theme.Spacing.lg)
+            .background(Theme.Colors.card)
+            .cornerRadius(Theme.CornerRadius.md)
 
             // Downward trend
-            VStack(alignment: .leading, spacing: AppTypography.xs) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 Text("Downward Trend (Angular)")
-                    .font(AppTypography.caption())
-                    .foregroundColor(AppColors.textSecondary)
+                    .font(Theme.Typography.caption())
+                    .foregroundColor(Theme.Colors.textSecondary)
 
                 Sparkline(
                     dataPoints: [130, 125, 128, 120, 115, 118, 110, 105, 100],
                     smoothCurves: false
                 )
             }
-            .padding(AppTypography.md)
-            .background(AppColors.backgroundSecondary)
-            .cornerRadius(AppTypography.radiusMd)
+            .padding(Theme.Spacing.lg)
+            .background(Theme.Colors.card)
+            .cornerRadius(Theme.CornerRadius.md)
 
             // Volatile
-            VStack(alignment: .leading, spacing: AppTypography.xs) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 Text("Volatile (No Gradient)")
-                    .font(AppTypography.caption())
-                    .foregroundColor(AppColors.textSecondary)
+                    .font(Theme.Typography.caption())
+                    .foregroundColor(Theme.Colors.textSecondary)
 
                 Sparkline(
                     dataPoints: [100, 110, 95, 115, 90, 120, 100, 125, 105],
                     showGradient: false
                 )
             }
-            .padding(AppTypography.md)
-            .background(AppColors.backgroundSecondary)
-            .cornerRadius(AppTypography.radiusMd)
+            .padding(Theme.Spacing.lg)
+            .background(Theme.Colors.card)
+            .cornerRadius(Theme.CornerRadius.md)
         }
-        .padding(AppTypography.xl)
+        .padding(Theme.Spacing.xl)
     }
 }

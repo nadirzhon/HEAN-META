@@ -8,7 +8,6 @@ Detects phase transitions using temperature and entropy:
 Key insight: ICE -> WATER transitions offer maximum edge with minimum risk.
 """
 
-import math
 import time
 from collections import deque
 from dataclasses import dataclass, field

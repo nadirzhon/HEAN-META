@@ -357,3 +357,75 @@ class DuckDBStore:
         except Exception as e:
             logger.warning(f"DuckDB brain query error: {e}")
             return []
+
+    def get_ohlcv_candles(
+        self,
+        symbol: str,
+        timeframe: str,  # e.g., '1m', '5m', '1h'
+        start_ts: float | None = None,
+        end_ts: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Aggregates ticks into OHLCV candles.
+
+        Args:
+            symbol: The trading symbol (e.g., 'BTCUSDT').
+            timeframe: The candle timeframe ('1m', '5m', '1h', etc.).
+            start_ts: Optional start unix timestamp.
+            end_ts: Optional end unix timestamp.
+
+        Returns:
+            A list of OHLCV dictionaries.
+        """
+        if not self._conn:
+            logger.warning("DuckDB connection not available.")
+            return []
+
+        timeframe_map = {
+            '1m': '1 minute', '5m': '5 minutes', '15m': '15 minutes',
+            '1h': '1 hour', '4h': '4 hours', '1d': '1 day'
+        }
+        if timeframe not in timeframe_map:
+            raise ValueError(f"Unsupported timeframe: {timeframe}. Supported: {list(timeframe_map.keys())}")
+
+        interval = timeframe_map[timeframe]
+
+        # Build query
+        base_query = f"""
+            SELECT
+                epoch(time_bucket(INTERVAL '{interval}', to_timestamp(timestamp))) AS candle_ts,
+                first(price) AS open,
+                max(price) AS high,
+                min(price) AS low,
+                last(price) AS close,
+                sum(volume) AS volume
+            FROM ticks
+            WHERE symbol = ?
+        """
+        params = [symbol]
+
+        if start_ts:
+            base_query += " AND timestamp >= ?"
+            params.append(start_ts)
+        if end_ts:
+            base_query += " AND timestamp < ?"
+            params.append(end_ts)
+
+        base_query += " GROUP BY candle_ts ORDER BY candle_ts"
+
+        try:
+            result = self._conn.execute(base_query, params).fetchall()
+            return [
+                {
+                    "timestamp": int(r[0] * 1000),  # to ms for backtester
+                    "open": r[1],
+                    "high": r[2],
+                    "low": r[3],
+                    "close": r[4],
+                    "volume": r[5],
+                }
+                for r in result
+            ]
+        except Exception as e:
+            logger.error(f"Failed to get OHLCV candles: {e}")
+            return []

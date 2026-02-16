@@ -3,36 +3,31 @@ import Charts
 
 struct DashboardView: View {
     @EnvironmentObject var dataManager: TradingDataManager
-    @Namespace private var namespace
     
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Главная статистика
                 if let backtest = dataManager.currentBacktest {
                     PerformanceMetricsGrid(results: backtest)
-                        .padding(.horizontal)
                     
-                    // Кривая эквити с 3D визуализацией
                     EquityCurveCard()
-                        .padding(.horizontal)
                     
-                    // Детальная статистика
-                    DetailedStatsCard(results: backtest)
-                        .padding(.horizontal)
-                    
-                    // Распределение сделок
-                    TradeDistributionCard()
-                        .padding(.horizontal)
+                    // Group smaller cards horizontally
+                    HStack(alignment: .top, spacing: 20) {
+                        DetailedStatsCard(results: backtest)
+                        TradeDistributionCard()
+                    }
                 }
                 
                 if dataManager.isLoading {
                     ProgressView("Loading backtest data...")
                         .padding()
+                        .tint(Theme.accent)
                 }
             }
-            .padding(.vertical)
+            .padding()
         }
+        .background(Theme.background)
     }
 }
 
@@ -40,54 +35,41 @@ struct DashboardView: View {
 
 struct PerformanceMetricsGrid: View {
     let results: BacktestResults
-    @State private var animateMetrics = false
     
     var body: some View {
-        GlassEffectContainer(spacing: 12) {
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ], spacing: 12) {
-                MetricCard(
-                    title: "Total Return",
-                    value: String(format: "%.2f%%", results.totalReturn),
-                    icon: "arrow.up.right.circle.fill",
-                    color: results.totalReturn > 0 ? .green : .red,
-                    trend: results.totalReturn
-                )
-                
-                MetricCard(
-                    title: "Win Rate",
-                    value: String(format: "%.1f%%", results.winRate),
-                    icon: "target",
-                    color: .blue,
-                    trend: results.winRate - 50
-                )
-                
-                MetricCard(
-                    title: "Profit Factor",
-                    value: String(format: "%.2f", results.profitFactor),
-                    icon: "chart.bar.fill",
-                    color: .purple,
-                    trend: results.profitFactor - 1
-                )
-                
-                MetricCard(
-                    title: "Sharpe Ratio",
-                    value: String(format: "%.2f", results.sharpeRatio),
-                    icon: "waveform.path.ecg",
-                    color: .orange,
-                    trend: results.sharpeRatio - 1
-                )
-            }
-            .padding()
-        }
-        .scaleEffect(animateMetrics ? 1.0 : 0.95)
-        .opacity(animateMetrics ? 1.0 : 0.0)
-        .onAppear {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
-                animateMetrics = true
-            }
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+            MetricCard(
+                title: "Total Return",
+                value: String(format: "%.2f%%", results.totalReturn),
+                icon: "arrow.up.right.circle.fill",
+                color: results.totalReturn > 0 ? Theme.positive : Theme.negative,
+                trend: results.totalReturn,
+                isProminent: true
+            )
+            
+            MetricCard(
+                title: "Win Rate",
+                value: String(format: "%.1f%%", results.winRate),
+                icon: "target",
+                color: Theme.accent,
+                trend: results.winRate - 50
+            )
+            
+            MetricCard(
+                title: "Profit Factor",
+                value: String(format: "%.2f", results.profitFactor),
+                icon: "chart.bar.fill",
+                color: .purple,
+                trend: results.profitFactor - 1
+            )
+            
+            MetricCard(
+                title: "Sharpe Ratio",
+                value: String(format: "%.2f", results.sharpeRatio),
+                icon: "waveform.path.ecg",
+                color: .orange,
+                trend: results.sharpeRatio - 1
+            )
         }
     }
 }
@@ -98,33 +80,42 @@ struct MetricCard: View {
     let icon: String
     let color: Color
     let trend: Double
-    
+    var isProminent: Bool = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let cardContent = VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: icon)
                     .font(.title3)
-                    .foregroundStyle(color)
-                    .symbolEffect(.pulse)
-                
+                    .foregroundStyle(isProminent ? .white : color)
+
                 Spacer()
-                
+
                 TrendIndicator(value: trend)
             }
-            
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(value)
                     .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                
+                    .foregroundStyle(isProminent ? .white : Theme.text)
+
                 Text(title)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(isProminent ? .white.opacity(0.8) : Theme.secondaryText)
             }
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(color.opacity(0.1)).interactive(), in: .rect(cornerRadius: 20))
+
+        if isProminent {
+            cardContent
+                .padding()
+                .background(
+                    LinearGradient(gradient: Gradient(colors: [color.opacity(0.7), color]), startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+                .cornerRadius(15)
+                .shadow(color: color.opacity(0.3), radius: 10, y: 5)
+        } else {
+            cardContent.card()
+        }
     }
 }
 
@@ -143,93 +134,108 @@ struct TrendIndicator: View {
         .padding(.vertical, 4)
         .background(
             Capsule()
-                .fill(value > 0 ? Color.green.opacity(0.2) : value < 0 ? Color.red.opacity(0.2) : Color.gray.opacity(0.2))
+                .fill(value > 0 ? Theme.positive.opacity(0.1) : value < 0 ? Theme.negative.opacity(0.1) : Color.gray.opacity(0.1))
         )
-        .foregroundStyle(value > 0 ? .green : value < 0 ? .red : .gray)
+        .foregroundStyle(value > 0 ? Theme.positive : value < 0 ? Theme.negative : Theme.secondaryText)
     }
 }
 
 // MARK: - Equity Curve Card
 
+enum Timeframe: String, CaseIterable, Identifiable {
+    case week = "1W"
+    case month = "1M"
+    case threeMonths = "3M"
+    case all = "All"
+    
+    var id: String { self.rawValue }
+}
+
 struct EquityCurveCard: View {
     @EnvironmentObject var dataManager: TradingDataManager
-    
+    @State private var selectedTimeframe: Timeframe = .month
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Equity Curve")
                         .font(.headline)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.text)
                     
-                    Text("30-Day Performance")
+                    Text(timeframeDescription)
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.6))
+                        .foregroundStyle(Theme.secondaryText)
                 }
                 
                 Spacer()
                 
-                if let first = dataManager.equityCurve.first,
-                   let last = dataManager.equityCurve.last {
+                if let first = dataManager.equityCurve.first, let last = dataManager.equityCurve.last {
+                    let profit = last.equity - first.equity
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text("+$\(String(format: "%.0f", last.equity - first.equity))")
+                        Text(String(format: "%@$%.0f", profit >= 0 ? "+" : "", profit))
                             .font(.title3.weight(.bold))
-                            .foregroundStyle(.green)
-                        
-                        Text("\(String(format: "%.1f%%", ((last.equity - first.equity) / first.equity) * 100))")
-                            .font(.caption)
-                            .foregroundStyle(.green.opacity(0.8))
+                            .foregroundStyle(profit >= 0 ? Theme.positive : Theme.negative)
                     }
                 }
             }
-            
-            // Chart
+
+            Picker("Timeframe", selection: $selectedTimeframe) {
+                ForEach(Timeframe.allCases) { timeframe in
+                    Text(timeframe.rawValue).tag(timeframe)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: selectedTimeframe) {
+                // This is a placeholder for the action to update data.
+                // In a real app, you would call a method on dataManager, like:
+                // dataManager.updateEquityCurve(for: selectedTimeframe)
+            }
+
             Chart(dataManager.equityCurve) { point in
-                LineMark(
-                    x: .value("Date", point.date),
-                    y: .value("Equity", point.equity)
-                )
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.green, .blue],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                LineMark(x: .value("Date", point.date), y: .value("Equity", point.equity))
+                    .foregroundStyle(Theme.accent)
+                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 
-                AreaMark(
-                    x: .value("Date", point.date),
-                    y: .value("Equity", point.equity)
-                )
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.green.opacity(0.3), .blue.opacity(0.1)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+                AreaMark(x: .value("Date", point.date), y: .value("Equity", point.equity))
+                    .foregroundStyle(LinearGradient(colors: [Theme.accent.opacity(0.3), Theme.accent.opacity(0.0)], startPoint: .top, endPoint: .bottom))
+                
+                if let initialEquity = dataManager.equityCurve.first?.equity {
+                    RuleMark(y: .value("Start", initialEquity))
+                        .foregroundStyle(Theme.secondaryText)
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 5]))
+                        .annotation(position: .top, alignment: .leading) {
+                            Text("Start")
+                                .font(.caption)
+                                .foregroundStyle(Theme.secondaryText)
+                                .padding(.leading, 5)
+                        }
+                }
             }
             .chartXAxis {
                 AxisMarks(preset: .aligned, values: .stride(by: .day, count: 7)) { value in
-                    AxisGridLine()
-                        .foregroundStyle(.white.opacity(0.1))
-                    AxisValueLabel(format: .dateTime.month().day())
-                        .foregroundStyle(.white.opacity(0.6))
+                    AxisGridLine().foregroundStyle(Theme.separator)
+                    AxisValueLabel(format: .dateTime.month().day()).foregroundStyle(Theme.secondaryText)
                 }
             }
             .chartYAxis {
                 AxisMarks { value in
-                    AxisGridLine()
-                        .foregroundStyle(.white.opacity(0.1))
-                    AxisValueLabel()
-                        .foregroundStyle(.white.opacity(0.6))
+                    AxisGridLine().foregroundStyle(Theme.separator)
+                    AxisValueLabel().foregroundStyle(Theme.secondaryText)
                 }
             }
             .frame(height: 250)
         }
-        .padding(20)
-        .glassEffect(.regular.tint(.blue.opacity(0.05)).interactive(), in: .rect(cornerRadius: 24))
+        .card()
+    }
+    
+    private var timeframeDescription: String {
+        switch selectedTimeframe {
+        case .week: return "7-Day Performance"
+        case .month: return "30-Day Performance"
+        case .threeMonths: return "90-Day Performance"
+        case .all: return "All-Time Performance"
+        }
     }
 }
 
@@ -242,42 +248,39 @@ struct DetailedStatsCard: View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Detailed Statistics")
                 .font(.headline)
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.text)
             
             VStack(spacing: 12) {
                 StatRow(label: "Total Trades", value: "\(results.totalTrades)")
-                StatRow(label: "Winning Trades", value: "\(results.winningTrades)", color: .green)
-                StatRow(label: "Losing Trades", value: "\(results.losingTrades)", color: .red)
+                StatRow(label: "Winning Trades", value: "\(results.winningTrades)", color: Theme.positive)
+                StatRow(label: "Losing Trades", value: "\(results.losingTrades)", color: Theme.negative)
                 
-                Divider()
-                    .background(Color.white.opacity(0.2))
+                Divider().background(Theme.separator)
                 
-                StatRow(label: "Average Win", value: "$\(String(format: "%.2f", results.averageWin))", color: .green)
-                StatRow(label: "Average Loss", value: "$\(String(format: "%.2f", abs(results.averageLoss)))", color: .red)
+                StatRow(label: "Average Win", value: "$\(String(format: "%.2f", results.averageWin))", color: Theme.positive)
+                StatRow(label: "Average Loss", value: "$\(String(format: "%.2f", abs(results.averageLoss)))", color: Theme.negative)
                 
-                Divider()
-                    .background(Color.white.opacity(0.2))
+                Divider().background(Theme.separator)
                 
-                StatRow(label: "Max Drawdown", value: "\(String(format: "%.2f%%", results.maxDrawdown))", color: .red)
+                StatRow(label: "Max Drawdown", value: "\(String(format: "%.2f%%", results.maxDrawdown))", color: Theme.negative)
                 StatRow(label: "Initial Equity", value: "$\(String(format: "%.0f", results.initialEquity))")
-                StatRow(label: "Final Equity", value: "$\(String(format: "%.0f", results.finalEquity))", color: .green)
+                StatRow(label: "Final Equity", value: "$\(String(format: "%.0f", results.finalEquity))", color: Theme.positive)
             }
         }
-        .padding(20)
-        .glassEffect(.regular.tint(.purple.opacity(0.05)).interactive(), in: .rect(cornerRadius: 24))
+        .card()
     }
 }
 
 struct StatRow: View {
     let label: String
     let value: String
-    var color: Color = .white
+    var color: Color = Theme.text
     
     var body: some View {
         HStack {
             Text(label)
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(Theme.secondaryText)
             
             Spacer()
             
@@ -297,25 +300,17 @@ struct TradeDistributionCard: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Trade Distribution")
                 .font(.headline)
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.text)
             
             if let backtest = dataManager.currentBacktest {
                 Chart {
-                    SectorMark(
-                        angle: .value("Count", backtest.winningTrades),
-                        innerRadius: .ratio(0.6),
-                        angularInset: 2.0
-                    )
-                    .foregroundStyle(.green)
-                    .cornerRadius(8)
+                    SectorMark(angle: .value("Count", backtest.winningTrades), innerRadius: .ratio(0.6), angularInset: 2.0)
+                        .foregroundStyle(Theme.positive)
+                        .cornerRadius(8)
                     
-                    SectorMark(
-                        angle: .value("Count", backtest.losingTrades),
-                        innerRadius: .ratio(0.6),
-                        angularInset: 2.0
-                    )
-                    .foregroundStyle(.red)
-                    .cornerRadius(8)
+                    SectorMark(angle: .value("Count", backtest.losingTrades), innerRadius: .ratio(0.6), angularInset: 2.0)
+                        .foregroundStyle(Theme.negative)
+                        .cornerRadius(8)
                 }
                 .frame(height: 200)
                 .chartBackground { proxy in
@@ -324,23 +319,22 @@ struct TradeDistributionCard: View {
                         VStack(spacing: 4) {
                             Text("\(backtest.totalTrades)")
                                 .font(.system(size: 32, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Theme.text)
                             Text("Total Trades")
                                 .font(.caption)
-                                .foregroundStyle(.white.opacity(0.6))
+                                .foregroundStyle(Theme.secondaryText)
                         }
                         .position(x: frame.midX, y: frame.midY)
                     }
                 }
                 
                 HStack(spacing: 20) {
-                    LegendItem(color: .green, label: "Wins", value: backtest.winningTrades)
-                    LegendItem(color: .red, label: "Losses", value: backtest.losingTrades)
+                    LegendItem(color: Theme.positive, label: "Wins", value: backtest.winningTrades)
+                    LegendItem(color: Theme.negative, label: "Losses", value: backtest.losingTrades)
                 }
             }
         }
-        .padding(20)
-        .glassEffect(.regular.tint(.orange.opacity(0.05)).interactive(), in: .rect(cornerRadius: 24))
+        .card()
     }
 }
 
@@ -351,17 +345,9 @@ struct LegendItem: View {
     
     var body: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(color)
-                .frame(width: 12, height: 12)
-            
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.7))
-            
-            Text("\(value)")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
+            Circle().fill(color).frame(width: 12, height: 12)
+            Text(label).font(.caption).foregroundStyle(Theme.secondaryText)
+            Text("\(value)").font(.caption.weight(.semibold)).foregroundStyle(Theme.text)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -369,6 +355,6 @@ struct LegendItem: View {
 
 #Preview {
     DashboardView()
-        .environmentObject(TradingDataManager())
-        .background(Color.black)
+        .environmentObject(TradingDataManager.preview)
+        .background(Theme.background)
 }

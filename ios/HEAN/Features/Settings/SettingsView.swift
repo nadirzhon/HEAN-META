@@ -80,7 +80,7 @@ struct SettingsView: View {
                         showStartConfirm = true
                     } label: {
                         HStack {
-                            Label(L.startEngine, systemImage: "play.fill").foregroundColor(Color(hex: "22C55E"))
+                            Label(L.startEngine, systemImage: "play.fill").foregroundColor(Theme.Colors.success)
                             if isEngineLoading { Spacer(); ProgressView().tint(.white).scaleEffect(0.7) }
                         }
                     }
@@ -89,27 +89,27 @@ struct SettingsView: View {
                     Button {
                         showPauseConfirm = true
                     } label: {
-                        Label(L.pauseEngine, systemImage: "pause.fill").foregroundColor(Color(hex: "F59E0B"))
+                        Label(L.pauseEngine, systemImage: "pause.fill").foregroundColor(Theme.Colors.warning)
                     }
                     .disabled(isEngineLoading)
 
                     Button {
                         showResumeConfirm = true
                     } label: {
-                        Label(L.resumeEngine, systemImage: "play.circle.fill").foregroundColor(Color(hex: "3B82F6"))
+                        Label(L.resumeEngine, systemImage: "play.circle.fill").foregroundColor(Theme.Colors.info)
                     }
                     .disabled(isEngineLoading)
 
                     Button {
                         showStopConfirm = true
                     } label: {
-                        Label(L.stopEngine, systemImage: "stop.fill").foregroundColor(Color(hex: "EF4444"))
+                        Label(L.stopEngine, systemImage: "stop.fill").foregroundColor(Theme.Colors.error)
                     }
                     .disabled(isEngineLoading)
 
                     Button { showKillConfirm = true } label: {
                         Label(L.emergencyKill, systemImage: "hand.raised.fill")
-                            .foregroundColor(Color(hex: "EF4444")).fontWeight(.bold)
+                            .foregroundColor(Theme.Colors.error).fontWeight(.bold)
                     }
                     .disabled(isEngineLoading)
 
@@ -165,19 +165,19 @@ struct SettingsView: View {
                         Text("\(L.maxRiskPerTrade): \(String(format: "%.1f", maxRiskPercent))%")
                             .font(.subheadline)
                         Slider(value: $maxRiskPercent, in: 0.5...10, step: 0.5)
-                            .tint(Color(hex: "00D4FF"))
+                            .tint(Theme.Colors.accent)
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(L.maxLeverage): \(String(format: "%.0f", maxLeverage))x")
                             .font(.subheadline)
                         Slider(value: $maxLeverage, in: 1...20, step: 1)
-                            .tint(Color(hex: "00D4FF"))
+                            .tint(Theme.Colors.accent)
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(L.minRiskReward): 1:\(String(format: "%.1f", minRiskReward))")
                             .font(.subheadline)
                         Slider(value: $minRiskReward, in: 1...5, step: 0.5)
-                            .tint(Color(hex: "00D4FF"))
+                            .tint(Theme.Colors.accent)
                     }
                 } header: {
                     Label(L.tradingParameters, systemImage: "chart.bar.xaxis")
@@ -188,13 +188,13 @@ struct SettingsView: View {
                         Text("\(L.analysisInterval): \(Int(analysisInterval))s")
                             .font(.subheadline)
                         Slider(value: $analysisInterval, in: 10...120, step: 5)
-                            .tint(Color(hex: "00D4FF"))
+                            .tint(Theme.Colors.accent)
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(L.confidenceThreshold): \(Int(confidenceThreshold * 100))%")
                             .font(.subheadline)
                         Slider(value: $confidenceThreshold, in: 0.3...0.95, step: 0.05)
-                            .tint(Color(hex: "00D4FF"))
+                            .tint(Theme.Colors.accent)
                     }
                 } header: {
                     Label(L.brainSettings, systemImage: "brain")
@@ -203,12 +203,12 @@ struct SettingsView: View {
                 Section {
                     HStack { Text(L.version); Spacer(); Text("2.0.0").foregroundColor(.gray) }
                     HStack { Text(L.build); Spacer(); Text("2026.02").foregroundColor(.gray) }
-                    HStack { Text(L.target); Spacer(); Text("Bybit Testnet").foregroundColor(Color(hex: "00D4FF")) }
+                    HStack { Text(L.target); Spacer(); Text("Bybit Testnet").foregroundColor(Theme.Colors.accent) }
                     HStack {
                         Text(L.engine)
                         Spacer()
                         Text(viewModel.engineState)
-                            .foregroundColor(viewModel.engineState == "Running" ? Color(hex: "22C55E") : .gray)
+                            .foregroundColor(viewModel.engineState == "Running" ? Theme.Colors.success : .gray)
                     }
                     HStack {
                         Text(L.uptime)
@@ -221,7 +221,7 @@ struct SettingsView: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Color(hex: "0A0A0F"))
+            .background(Theme.Colors.background)
             .navigationTitle(L.settings)
             .onAppear {
                 // One-time migration from UserDefaults to Keychain
@@ -237,13 +237,13 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(L.save) { saveSettings() }
-                        .foregroundColor(Color(hex: "00D4FF"))
+                        .foregroundColor(Theme.Colors.accent)
                 }
             }
             .overlay(alignment: .top) {
                 if showSaved {
                     Text(L.settingsSaved).font(.headline).foregroundColor(.white)
-                        .padding().background(Color(hex: "22C55E").cornerRadius(12))
+                        .padding().background(Theme.Colors.success.cornerRadius(12))
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }

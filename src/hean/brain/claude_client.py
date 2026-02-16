@@ -6,15 +6,13 @@ and stores thought history for the API.
 
 import asyncio
 import json
-import time
 import uuid
-from collections import deque
+from collections import defaultdict, deque
 from datetime import datetime
 from typing import Any
 
-from hean.brain.models import BrainAnalysis, BrainThought, Force, TradingSignal
+from hean.brain.models import BrainAnalysis, BrainThought, TradingSignal
 from hean.brain.snapshot import MarketSnapshotFormatter
-from hean.config import settings
 from hean.core.bus import EventBus
 from hean.core.types import Event, EventType
 from hean.logging import get_logger
@@ -75,11 +73,13 @@ class ClaudeBrainClient:
 
         self._running = False
         self._analysis_task: asyncio.Task | None = None
+        self._self_insight: dict[str, Any] | None = None
 
     async def start(self) -> None:
         """Start the brain client."""
         self._running = True
         self._bus.subscribe(EventType.CONTEXT_UPDATE, self._handle_context_update)
+        self._bus.subscribe(EventType.SELF_ANALYTICS, self._handle_self_insight)
         self._analysis_task = asyncio.create_task(self._analysis_loop())
         provider = "openrouter/qwen3" if self._openrouter_client else (
             "anthropic/claude" if self._anthropic_client else "rule-based"
@@ -92,6 +92,7 @@ class ClaudeBrainClient:
         """Stop the brain client."""
         self._running = False
         self._bus.unsubscribe(EventType.CONTEXT_UPDATE, self._handle_context_update)
+        self._bus.unsubscribe(EventType.SELF_ANALYTICS, self._handle_self_insight)
         if self._analysis_task:
             self._analysis_task.cancel()
             try:
@@ -112,6 +113,10 @@ class ClaudeBrainClient:
         elif context_type == "participant_breakdown":
             symbol = data.get("symbol", "BTCUSDT")
             self._latest_participants[symbol] = data.get("breakdown", {})
+
+    async def _handle_self_insight(self, event: Event) -> None:
+        """Handle SELF_ANALYTICS events."""
+        self._self_insight = event.data
 
     async def _analysis_loop(self) -> None:
         """Periodic analysis loop."""
@@ -150,6 +155,39 @@ class ClaudeBrainClient:
                 logger.warning(f"Brain analysis error: {e}")
                 await asyncio.sleep(5)
 
+    def _append_self_insight(self, prompt: str) -> str:
+        summary = self._self_insight_summary()
+        if summary:
+            return f"{prompt}\n\nSelf-insight summary:\n{summary}"
+        return prompt
+
+    def _self_insight_summary(self) -> str:
+        if not self._self_insight:
+            return ""
+        lines = []
+        decision_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"recent": 0, "blocked": 0})
+        for decision in self._self_insight.get("decision_history", [])[:10]:
+            strat = decision.get("strategy_id", "unknown")
+            decision_stats[strat]["recent"] += 1
+            if decision.get("decision") in ("BLOCK", "REJECT"):
+                decision_stats[strat]["blocked"] += 1
+        for strat, stats in decision_stats.items():
+            lines.append(f"- {strat}: {stats['recent']} recent decisions, {stats['blocked']} blocked")
+        low_entropy = [
+            f"{entry['symbol']}({entry['phase']})"
+            for entry in self._self_insight.get("recent_physics", [])
+            if entry.get("entropy", 999) < 2.0
+        ]
+        if low_entropy:
+            lines.append(f"- Low entropy states observed: {', '.join(low_entropy)}")
+        failures = self._self_insight.get("failures", [])[:3]
+        if failures:
+            lines.append(f"- Recent failure: {failures[0].get('message', 'unknown')}")
+        updates = self._self_insight.get("symbiont_updates", [])[:2]
+        if updates:
+            lines.append(f"- Symbiont updates: {updates[0].get('strategy_id')} params {list(updates[0].get('params', {}).keys())}")
+        return "\n".join(lines)
+
     async def _openrouter_analysis(
         self,
         physics: dict[str, Any],
@@ -162,6 +200,7 @@ class ClaudeBrainClient:
             anomalies=self._latest_anomalies[:5] if self._latest_anomalies else None,
             temporal=self._latest_temporal or None,
         )
+        prompt = self._append_self_insight(prompt)
 
         try:
             response = await self._openrouter_client.chat.completions.create(
@@ -224,6 +263,7 @@ class ClaudeBrainClient:
             anomalies=self._latest_anomalies[:5] if self._latest_anomalies else None,
             temporal=self._latest_temporal or None,
         )
+        prompt = self._append_self_insight(prompt)
 
         try:
             message = await self._anthropic_client.messages.create(

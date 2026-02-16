@@ -37,11 +37,17 @@ struct ContentView: View {
                 }
                 .tag(3)
 
+            GenesisView()
+                .tabItem {
+                    Label(L.genesis, systemImage: "sparkles")
+                }
+                .tag(4)
+
             SettingsView()
                 .tabItem {
                     Label(L.settings, systemImage: "gearshape.fill")
                 }
-                .tag(4)
+                .tag(5)
         }
         .tint(Theme.Colors.accent)
     }

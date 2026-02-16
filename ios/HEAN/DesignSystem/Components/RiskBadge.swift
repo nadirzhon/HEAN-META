@@ -22,10 +22,10 @@ struct RiskBadge: View {
 
         var color: Color {
             switch self {
-            case .normal: return AppColors.success
-            case .softBrake: return AppColors.warning
+            case .normal: return Theme.Colors.success
+            case .softBrake: return Theme.Colors.warning
             case .quarantine: return Color.orange
-            case .hardStop: return AppColors.error
+            case .hardStop: return Theme.Colors.error
             }
         }
 
@@ -88,7 +88,7 @@ struct RiskBadge: View {
         Image(systemName: state.icon)
             .font(.system(size: 16, weight: .bold))
             .foregroundColor(state.color)
-            .padding(AppTypography.xs)
+            .padding(Theme.Spacing.sm)
             .background(
                 Circle()
                     .fill(state.color.opacity(0.2))
@@ -99,14 +99,14 @@ struct RiskBadge: View {
     }
 
     private var expandedView: some View {
-        VStack(alignment: .leading, spacing: AppTypography.sm) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
             // Header with icon and label
-            HStack(spacing: AppTypography.sm) {
+            HStack(spacing: Theme.Spacing.md) {
                 Image(systemName: state.icon)
                     .font(.system(size: 20, weight: .bold))
 
                 Text(state.rawValue.replacingOccurrences(of: "_", with: " "))
-                    .font(AppTypography.headline(16, weight: .bold))
+                    .font(Theme.Typography.headlineFont(16, weight: .bold))
 
                 Spacer()
             }
@@ -114,15 +114,15 @@ struct RiskBadge: View {
 
             // Description
             Text(state.description)
-                .font(AppTypography.caption(13))
-                .foregroundColor(AppColors.textSecondary)
+                .font(Theme.Typography.caption(13))
+                .foregroundColor(Theme.Colors.textSecondary)
         }
-        .padding(AppTypography.md)
+        .padding(Theme.Spacing.lg)
         .background(
-            RoundedRectangle(cornerRadius: AppTypography.radiusMd)
+            RoundedRectangle(cornerRadius: Theme.CornerRadius.md)
                 .fill(state.color.opacity(0.15))
                 .overlay(
-                    RoundedRectangle(cornerRadius: AppTypography.radiusMd)
+                    RoundedRectangle(cornerRadius: Theme.CornerRadius.md)
                         .strokeBorder(state.color.opacity(isPulsing ? 0.6 : 0.3), lineWidth: 2)
                         .scaleEffect(isPulsing ? 1.05 : 1.0)
                 )
@@ -141,18 +141,18 @@ struct RiskBadge: View {
 // MARK: - Preview
 #Preview("RiskBadge Variants") {
     ZStack {
-        AppColors.backgroundPrimary
+        Theme.Colors.background
             .ignoresSafeArea()
 
         ScrollView {
-            VStack(spacing: AppTypography.lg) {
+            VStack(spacing: 20) {
                 // Compact variants
-                VStack(alignment: .leading, spacing: AppTypography.sm) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                     Text("Compact Badges")
-                        .font(AppTypography.headline())
-                        .foregroundColor(AppColors.textPrimary)
+                        .font(Theme.Typography.headlineFont())
+                        .foregroundColor(Theme.Colors.textPrimary)
 
-                    HStack(spacing: AppTypography.md) {
+                    HStack(spacing: Theme.Spacing.lg) {
                         RiskBadge(state: .normal, variant: .compact)
                         RiskBadge(state: .softBrake, variant: .compact)
                         RiskBadge(state: .quarantine, variant: .compact)
@@ -161,13 +161,13 @@ struct RiskBadge: View {
                 }
 
                 Divider()
-                    .background(AppColors.textTertiary)
+                    .background(Theme.Colors.textTertiary)
 
                 // Expanded variants
-                VStack(alignment: .leading, spacing: AppTypography.md) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                     Text("Expanded Badges")
-                        .font(AppTypography.headline())
-                        .foregroundColor(AppColors.textPrimary)
+                        .font(Theme.Typography.headlineFont())
+                        .foregroundColor(Theme.Colors.textPrimary)
 
                     RiskBadge(state: .normal, variant: .expanded)
                     RiskBadge(state: .softBrake, variant: .expanded)
@@ -175,7 +175,7 @@ struct RiskBadge: View {
                     RiskBadge(state: .hardStop, variant: .expanded)
                 }
             }
-            .padding(AppTypography.xl)
+            .padding(Theme.Spacing.xl)
         }
     }
 }

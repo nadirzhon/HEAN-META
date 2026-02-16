@@ -28,12 +28,19 @@ class Candle:
     volume: float = 0.0
 
 
+_EPOCH = datetime(1970, 1, 1)
+
+
 def _floor_time(ts: datetime, delta: timedelta) -> datetime:
-    """Floor a datetime to the nearest lower multiple of `delta` since epoch."""
-    seconds = ts.timestamp()
+    """Floor a datetime to the nearest lower multiple of `delta` since epoch.
+
+    Uses timedelta arithmetic to avoid the naive-datetime timezone mismatch
+    between .timestamp() (interprets as local time) and utcfromtimestamp (UTC).
+    """
+    total_seconds = (ts - _EPOCH).total_seconds()
     step = delta.total_seconds()
-    floored = seconds - (seconds % step)
-    return datetime.utcfromtimestamp(floored)
+    floored = total_seconds - (total_seconds % step)
+    return _EPOCH + timedelta(seconds=floored)
 
 
 class CandleAggregator:

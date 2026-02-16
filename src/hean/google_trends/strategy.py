@@ -252,7 +252,7 @@ class GoogleTrendsStrategy(BaseStrategy):
             if entry_price is None:
                 # Skip signal if no price data available
                 logger.debug(f"Skipping signal for {symbol} - no price data")
-                continue
+                return
 
             # Calculate risk management levels
             side = "buy" if signal.action == "BUY" else "sell"

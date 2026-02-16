@@ -1,7 +1,6 @@
 """Tests for multi-timeframe candle aggregation."""
 
-import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -26,15 +25,18 @@ async def test_candle_boundaries_and_aggregation() -> None:
 
     bus.subscribe(EventType.CANDLE, on_candle)
 
-    # Use a fixed reference time at exact minute boundary
-    base = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+    # Use a fixed POSIX timestamp at an exact minute boundary.
+    # datetime.utcfromtimestamp returns naive UTC datetimes that _floor_time
+    # also produces via utcfromtimestamp, so comparisons are in the same space.
+    _BASE_TS = 1735689600.0  # 2025-01-01 00:00:00 UTC
+    base = datetime.utcfromtimestamp(_BASE_TS)
 
     # Generate ticks within first minute [00:00:00, 00:01:00)
     ticks = [
-        Tick(symbol="BTCUSDT", price=100.0, timestamp=base + timedelta(seconds=0), volume=1.0),
-        Tick(symbol="BTCUSDT", price=101.0, timestamp=base + timedelta(seconds=10), volume=2.0),
-        Tick(symbol="BTCUSDT", price=99.0, timestamp=base + timedelta(seconds=20), volume=3.0),
-        Tick(symbol="BTCUSDT", price=102.0, timestamp=base + timedelta(seconds=59), volume=4.0),
+        Tick(symbol="BTCUSDT", price=100.0, timestamp=datetime.utcfromtimestamp(_BASE_TS + 0), volume=1.0),
+        Tick(symbol="BTCUSDT", price=101.0, timestamp=datetime.utcfromtimestamp(_BASE_TS + 10), volume=2.0),
+        Tick(symbol="BTCUSDT", price=99.0, timestamp=datetime.utcfromtimestamp(_BASE_TS + 20), volume=3.0),
+        Tick(symbol="BTCUSDT", price=102.0, timestamp=datetime.utcfromtimestamp(_BASE_TS + 59), volume=4.0),
     ]
 
     for t in ticks:
@@ -44,13 +46,15 @@ async def test_candle_boundaries_and_aggregation() -> None:
     next_minute_tick = Tick(
         symbol="BTCUSDT",
         price=103.0,
-        timestamp=base + timedelta(minutes=1, seconds=1),
+        timestamp=datetime.utcfromtimestamp(_BASE_TS + 61),
         volume=5.0,
     )
     await bus.publish(Event(event_type=EventType.TICK, data={"tick": next_minute_tick}))
 
-    # Give bus a moment to process
-    await asyncio.sleep(0)  # type: ignore[name-defined]
+    # Drain all queues: flush() processes CRITICAL→NORMAL→LOW, but TICK (LOW)
+    # handlers may emit CANDLE (NORMAL) events that need another flush pass.
+    while await bus.flush() > 0:
+        pass
 
     # Extract emitted candles for 1m timeframe
     m1_candles = [
@@ -81,5 +85,3 @@ async def test_candle_boundaries_and_aggregation() -> None:
 
     await aggregator.stop()
     await bus.stop()
-
-

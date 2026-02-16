@@ -98,7 +98,7 @@ def test_bad_regime_mix_primary_reason() -> None:
     readiness = _make_readiness(
         passed=False,
         positive_regimes=1,
-        total_regimes=2,
+        total_regimes=4,
         regime_returns={"NORMAL": 5_000.0, "TREND": -15_000.0},
     )
     no_trade = _make_no_trade()

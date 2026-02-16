@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from hean.symbiont_x.genome_lab import StrategyGenome
+from hean.symbiont_x.genome_lab.genome_types import GeneType, StrategyGenome
+
+from . import indicators
 
 
 @dataclass
@@ -61,6 +62,24 @@ class BacktestEngine:
 
     def __init__(self, config: BacktestConfig | None = None):
         self.config = config or BacktestConfig()
+        self._indicator_cache: dict[str, list[float | None]] = {}
+        self._price_data: list[float] = []
+
+    def _prepare_indicators(self, genome: StrategyGenome, historical_data: list[dict[str, Any]]):
+        """Pre-calculates all indicators needed for the genome."""
+        self._indicator_cache = {}
+        self._price_data = [c['close'] for c in historical_data]
+
+        indicator_genes = genome.get_genes_by_type(GeneType.INDICATOR_PARAM)
+        for gene in indicator_genes:
+            if 'period' in gene.name:
+                period = int(gene.value)
+                if 'sma' in gene.name:
+                    self._indicator_cache[f'sma_{period}'] = indicators.calculate_sma(self._price_data, period)
+                elif 'ema' in gene.name:
+                    self._indicator_cache[f'ema_{period}'] = indicators.calculate_ema(self._price_data, period)
+                elif 'rsi' in gene.name:
+                    self._indicator_cache[f'rsi_{period}'] = indicators.calculate_rsi(self._price_data, period)
 
     def run_backtest(
         self,
@@ -81,17 +100,25 @@ class BacktestEngine:
             BacktestResult with metrics
         """
 
+        if not historical_data:
+            raise ValueError("Historical data cannot be empty")
+
         capital = self.config.initial_capital
         position = None  # Current position
         trades = []
         equity_curve = []
 
-        # Extract genome parameters
-        _entry_threshold = genome.genes.get('entry_threshold', 0.5)  # noqa: F841
-        _exit_threshold = genome.genes.get('exit_threshold', 0.3)  # noqa: F841
-        stop_loss_pct = genome.genes.get('stop_loss_pct', 2.0)
-        take_profit_pct = genome.genes.get('take_profit_pct', 5.0)
-        position_size_pct = genome.genes.get('position_size_pct', 10.0) / 100.0
+        # Pre-calculate indicators for efficiency
+        self._prepare_indicators(genome, historical_data)
+
+        # Extract risk parameters from genome
+        stop_loss_gene = genome.get_gene(GeneType.STOP_LOSS)
+        take_profit_gene = genome.get_gene(GeneType.TAKE_PROFIT)
+        position_size_gene = genome.get_gene(GeneType.POSITION_SIZE)
+
+        stop_loss_pct = stop_loss_gene.value if stop_loss_gene else 2.0
+        take_profit_pct = take_profit_gene.value if take_profit_gene else 5.0
+        position_size_pct = (position_size_gene.value / 100.0) if position_size_gene else 0.1
 
         for i, candle in enumerate(historical_data):
             timestamp = candle['timestamp']
@@ -99,132 +126,143 @@ class BacktestEngine:
 
             # Check if we have an open position
             if position is not None:
-                # Check stop loss
                 pnl_pct = ((price - position.entry_price) / position.entry_price) * 100
-
                 should_exit = False
-                _exit_reason = None  # noqa: F841
 
                 if pnl_pct <= -stop_loss_pct:
                     should_exit = True
-                    _exit_reason = "STOP_LOSS"  # noqa: F841
                 elif pnl_pct >= take_profit_pct:
                     should_exit = True
-                    _exit_reason = "TAKE_PROFIT"  # noqa: F841
-                elif self._should_exit(genome, historical_data, i):
+                elif self._should_exit(genome, i):
                     should_exit = True
-                    _exit_reason = "SIGNAL"  # noqa: F841
 
                 if should_exit:
-                    # Close position
                     position.exit_time = timestamp
                     position.exit_price = price
                     position.pnl = (price - position.entry_price) * position.size
                     position.pnl_pct = pnl_pct
-
-                    # Apply commission
                     commission = abs(position.pnl) * self.config.commission_pct
                     position.pnl -= commission
-
-                    # Update capital
                     capital += position.pnl
-
                     trades.append(position)
                     position = None
 
             # Check for entry signal (if no position)
-            elif position is None and self._should_enter(genome, historical_data, i):
-                # Open position
+            elif position is None and self._should_enter(genome, i):
                 position_size_value = capital * position_size_pct
                 position_size = position_size_value / price
-
-                position = Trade(
-                    entry_time=timestamp,
-                    entry_price=price,
-                    size=position_size,
-                    side="LONG"
-                )
+                position = Trade(entry_time=timestamp, entry_price=price, size=position_size, side="LONG")
 
             # Record equity
             current_equity = capital
             if position is not None:
                 unrealized_pnl = (price - position.entry_price) * position.size
                 current_equity += unrealized_pnl
-
-            equity_curve.append({
-                'timestamp': timestamp,
-                'equity': current_equity,
-                'price': price
-            })
+            equity_curve.append({'timestamp': timestamp, 'equity': current_equity, 'price': price})
 
         # Close any remaining position at end
         if position is not None:
-            last_price = historical_data[-1]['close']
+            last_price = self._price_data[-1]
             position.exit_time = historical_data[-1]['timestamp']
             position.exit_price = last_price
             position.pnl = (last_price - position.entry_price) * position.size
             position.pnl_pct = ((last_price - position.entry_price) / position.entry_price) * 100
-
-            # Apply commission
             commission = abs(position.pnl) * self.config.commission_pct
             position.pnl -= commission
-
             capital += position.pnl
             trades.append(position)
 
-        # Calculate metrics
         return self._calculate_metrics(genome, trades, equity_curve, capital)
 
-    def _should_enter(
-        self,
-        genome: StrategyGenome,
-        historical_data: list[dict[str, Any]],
-        current_index: int
-    ) -> bool:
-        """
-        Determine if strategy should enter position
-
-        This is a simplified version - real implementation would use
-        proper indicators and signals based on genome parameters
-        """
-
-        if current_index < 10:
-            return False  # Need history
-
-        # Simple momentum strategy as example
-        current_price = historical_data[current_index]['close']
-        past_price = historical_data[current_index - 10]['close']
-
-        momentum = (current_price - past_price) / past_price
-
-        entry_threshold = genome.genes.get('entry_threshold', 0.5) / 100.0
-
-        return momentum > entry_threshold
-
-    def _should_exit(
-        self,
-        genome: StrategyGenome,
-        historical_data: list[dict[str, Any]],
-        current_index: int
-    ) -> bool:
-        """
-        Determine if strategy should exit position
-        """
-
-        if current_index < 5:
+    def _should_enter(self, genome: StrategyGenome, current_index: int) -> bool:
+        """Determine if strategy should enter based on genome."""
+        entry_signal_gene = genome.get_gene(GeneType.ENTRY_SIGNAL)
+        if not entry_signal_gene:
             return False
 
-        # Simple mean reversion exit
-        current_price = historical_data[current_index]['close']
-        avg_price = statistics.mean([
-            historical_data[i]['close']
-            for i in range(current_index - 5, current_index)
-        ])
+        signal_type = entry_signal_gene.value
+        current_price = self._price_data[current_index]
 
-        exit_threshold = genome.genes.get('exit_threshold', 0.3) / 100.0
+        if signal_type == 'momentum':
+            momentum_period_gene = genome.get_gene(GeneType.INDICATOR_PARAM, 'momentum_period')
+            period = int(momentum_period_gene.value) if momentum_period_gene else 10
+            momentum_threshold_gene = genome.get_gene(GeneType.THRESHOLD, 'momentum_threshold')
+            threshold = momentum_threshold_gene.value if momentum_threshold_gene else 0.005
+            if current_index < period:
+                return False
 
-        # Exit if price reverted to mean
-        return abs(current_price - avg_price) / avg_price < exit_threshold
+            past_price = self._price_data[current_index - period]
+            momentum = (current_price - past_price) / past_price
+            return momentum > threshold
+
+        elif signal_type == 'mean_reversion':
+            ema_period_gene = genome.get_gene(GeneType.INDICATOR_PARAM, 'ema_period')
+            period = int(ema_period_gene.value) if ema_period_gene else 20
+            reversion_threshold_gene = genome.get_gene(GeneType.THRESHOLD, 'reversion_threshold_pct')
+            threshold_pct = reversion_threshold_gene.value if reversion_threshold_gene else 1.0
+            if f'ema_{period}' not in self._indicator_cache:
+                return False
+
+            ema_values = self._indicator_cache[f'ema_{period}']
+            if not ema_values or ema_values[current_index] is None:
+                return False
+
+            ema = ema_values[current_index]
+            delta_pct = (current_price - ema) / ema * 100
+            return delta_pct < -threshold_pct  # Enter when price is below EMA by threshold
+
+        elif signal_type == 'rsi_oversold':
+            rsi_period_gene = genome.get_gene(GeneType.INDICATOR_PARAM, 'rsi_period')
+            period = int(rsi_period_gene.value) if rsi_period_gene else 14
+            rsi_oversold_gene = genome.get_gene(GeneType.THRESHOLD, 'rsi_oversold_level')
+            threshold = rsi_oversold_gene.value if rsi_oversold_gene else 30.0
+            if f'rsi_{period}' not in self._indicator_cache:
+                return False
+
+            rsi_values = self._indicator_cache[f'rsi_{period}']
+            if not rsi_values or rsi_values[current_index] is None:
+                return False
+
+            return rsi_values[current_index] < threshold
+
+        return False
+
+    def _should_exit(self, genome: StrategyGenome, current_index: int) -> bool:
+        """Determine if strategy should exit based on genome."""
+        exit_signal_gene = genome.get_gene(GeneType.EXIT_SIGNAL)
+        if not exit_signal_gene:
+            return False
+
+        signal_type = exit_signal_gene.value
+        current_price = self._price_data[current_index]
+
+        if signal_type == 'momentum_reverse':
+            momentum_period_gene = genome.get_gene(GeneType.INDICATOR_PARAM, 'momentum_period')
+            period = int(momentum_period_gene.value) if momentum_period_gene else 10
+            momentum_threshold_gene = genome.get_gene(GeneType.THRESHOLD, 'momentum_threshold')
+            threshold = momentum_threshold_gene.value if momentum_threshold_gene else 0.005
+            if current_index < period:
+                return False
+
+            past_price = self._price_data[current_index - period]
+            momentum = (current_price - past_price) / past_price
+            return momentum < -threshold  # Exit on reversal
+
+        elif signal_type == 'revert_to_mean':
+            ema_period_gene = genome.get_gene(GeneType.INDICATOR_PARAM, 'ema_period')
+            period = int(ema_period_gene.value) if ema_period_gene else 20
+            if f'ema_{period}' not in self._indicator_cache:
+                return False
+
+            ema_values = self._indicator_cache[f'ema_{period}']
+            if not ema_values or ema_values[current_index] is None:
+                return False
+
+            ema = ema_values[current_index]
+            # Exit if price has crossed back above the moving average
+            return current_price > ema
+
+        return False
 
     def _calculate_metrics(
         self,

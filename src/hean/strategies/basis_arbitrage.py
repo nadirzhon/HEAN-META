@@ -148,7 +148,6 @@ class BasisArbitrage(BaseStrategy):
         if symbol not in self._positions or not self._positions[symbol]:
             if abs(basis) > self._basis_threshold:
                 # Anti-overtrading checks
-                from datetime import timedelta
                 now = datetime.utcnow()
 
                 # Reset daily counter if new day

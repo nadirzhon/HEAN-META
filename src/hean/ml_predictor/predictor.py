@@ -3,7 +3,6 @@ Real-time price predictor using trained LSTM model
 """
 
 import logging
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np

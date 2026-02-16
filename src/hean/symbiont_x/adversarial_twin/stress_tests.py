@@ -99,7 +99,7 @@ class StressTestSuite:
     def run_all_tests(self, strategy_config: dict) -> list[StressTestResult]:
         """Запускает все стресс-тесты"""
 
-        strategy_id = strategy_config.get('strategy_id', 'unknown')
+        strategy_config.get('strategy_id', 'unknown')
 
         results = []
 

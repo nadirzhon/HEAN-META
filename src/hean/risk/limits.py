@@ -8,8 +8,6 @@ from hean.core.types import OrderRequest, Position
 from hean.logging import get_logger
 from hean.observability.signal_rejection_telemetry import signal_rejection_telemetry
 from hean.paper_trade_assist import (
-    get_cooldown_multiplier,
-    get_daily_attempts_multiplier,
     get_max_open_positions_override,
     log_allow_reason,
     log_block_reason,

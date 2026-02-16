@@ -37,9 +37,9 @@ struct AnomaliesView: View {
                         Image(systemName: "checkmark.shield.fill")
                             .font(.system(size: 48))
                             .foregroundColor(.green)
-                        Text("No anomalies detected")
+                        Text(L.noAnomalies)
                             .foregroundColor(.secondary)
-                        Text("Market conditions are normal")
+                        Text(L.marketNormal)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -109,7 +109,7 @@ struct AnomalyRow: View {
                     .lineLimit(2)
 
                 HStack {
-                    Text("Severity")
+                    Text(L.severity)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                     ProgressView(value: anomaly.severity)

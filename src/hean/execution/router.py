@@ -497,7 +497,7 @@ class ExecutionRouter:
                 valid_micro_requests = [r for r in micro_requests if r.size > 0]
 
                 if len(valid_micro_requests) == 0:
-                    logger.error(f"Iceberg split produced no valid orders, using original request")
+                    logger.error("Iceberg split produced no valid orders, using original request")
                     # Continue with original order_request
                 elif len(valid_micro_requests) > 1:
                     # Order was split into iceberg batches

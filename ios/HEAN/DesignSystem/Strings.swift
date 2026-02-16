@@ -19,6 +19,7 @@ struct L {
     static var mind: String { isRussian ? "Разум" : "Mind" }
     static var action: String { isRussian ? "Действия" : "Action" }
     static var xray: String { isRussian ? "Анализ" : "X-Ray" }
+    static var genesis: String { isRussian ? "Генезис" : "Genesis" }
     static var settings: String { isRussian ? "Настройки" : "Settings" }
 
     // MARK: - Portfolio
@@ -172,6 +173,49 @@ struct L {
     static var size: String { isRussian ? "Объем" : "Size" }
     static var long: String { isRussian ? "ЛОНГ" : "LONG" }
     static var short: String { isRussian ? "ШОРТ" : "SHORT" }
+
+    // MARK: - Strategies
+
+    static var active: String { isRussian ? "Активных" : "Active" }
+    static var total: String { isRussian ? "Всего" : "Total" }
+    static var combinedPnL: String { isRussian ? "Общий P&L" : "Combined P&L" }
+    static var noStrategiesLoaded: String { isRussian ? "Стратегии не загружены" : "No strategies loaded" }
+    static var startEngineToLoad: String { isRussian ? "Запустите движок для загрузки стратегий" : "Start the engine to load trading strategies" }
+    static var profitFactor: String { isRussian ? "PF" : "PF" }
+
+    // MARK: - Signals
+
+    static var waitingForSignals: String { isRussian ? "Ожидание сигналов..." : "Waiting for signals..." }
+    static var signalsWillAppear: String { isRussian ? "Сигналы появятся здесь в реальном времени\nкогда стратегии обнаружат торговые возможности" : "Signals will appear here in real-time\nas strategies detect trading opportunities" }
+    static var strategy: String { isRussian ? "Стратегия" : "Strategy" }
+
+    // MARK: - Risk Dashboard
+
+    static var riskProgression: String { isRussian ? "Прогресс риска" : "Risk Progression" }
+    static var drawdown: String { isRussian ? "Просадка" : "Drawdown" }
+    static var killSwitch: String { isRussian ? "Аварийный стоп" : "Kill Switch" }
+    static var tradingHalted: String { isRussian ? "Вся торговля остановлена. Проверьте позиции и сбросьте когда будете готовы." : "All trading has been halted. Review your positions and reset when ready." }
+    static var current: String { isRussian ? "Текущая" : "Current" }
+    static var maxDrawdown: String { isRussian ? "Макс." : "Max" }
+    static var activePositionsCount: String { isRussian ? "Активные позиции" : "Active Positions" }
+    static var exposure: String { isRussian ? "Экспозиция" : "Exposure" }
+    static var availableMargin: String { isRussian ? "Доступная маржа" : "Available Margin" }
+    static var quarantinedSymbols: String { isRussian ? "Символы в карантине" : "Quarantined Symbols" }
+
+    // MARK: - AI Assistant
+
+    static var analyzing: String { isRussian ? "Анализирую..." : "Analyzing..." }
+    static var askAnything: String { isRussian ? "Спрашивайте что угодно о вашей торговой системе.\nЯ анализирую данные в реальном времени для полезных рекомендаций." : "Ask me anything about your trading system.\nI analyze real-time data to give you actionable insights." }
+    static var quickQuestions: String { isRussian ? "Быстрые вопросы" : "Quick Questions" }
+
+    // MARK: - Physics UI
+
+    static var marketPhysics: String { isRussian ? "Физика рынка" : "Market Physics" }
+    static var noBrainActivity: String { isRussian ? "Нет активности мозга" : "No brain activity yet" }
+    static var noAnomalies: String { isRussian ? "Аномалий не обнаружено" : "No anomalies detected" }
+    static var marketNormal: String { isRussian ? "Рыночные условия нормальные" : "Market conditions are normal" }
+    static var noTemporalData: String { isRussian ? "Нет временных данных" : "No temporal data" }
+    static var noParticipants: String { isRussian ? "Нет данных участников" : "No participant data" }
 
     // MARK: - Positions active count
     static func positionsActive(_ count: Int) -> String {

@@ -89,8 +89,8 @@ class TestBybitPublicWebSocket:
             bus = EventBus()
             ws = BybitPublicWebSocket(bus)
 
-            # Verify reconnection parameters exist
-            assert hasattr(ws, "_reconnect_delay") or hasattr(ws, "_max_reconnect_attempts")
+            # Verify reconnection method exists (reconnect logic uses local vars in _listen)
+            assert hasattr(ws, "_reconnect"), "WebSocket should have _reconnect method"
 
 
 class TestBybitPrivateWebSocket:

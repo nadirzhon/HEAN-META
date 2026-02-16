@@ -74,51 +74,51 @@ extension View {
 // MARK: - Preview
 #Preview("SkeletonView") {
     ZStack {
-        AppColors.backgroundPrimary
+        Theme.Colors.background
             .ignoresSafeArea()
 
-        VStack(spacing: AppTypography.lg) {
+        VStack(spacing: 20) {
             // Card skeleton
-            VStack(alignment: .leading, spacing: AppTypography.sm) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(AppColors.backgroundSecondary)
+                    .fill(Theme.Colors.card)
                     .frame(width: 120, height: 20)
 
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(AppColors.backgroundSecondary)
+                    .fill(Theme.Colors.card)
                     .frame(width: 200, height: 40)
 
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(AppColors.backgroundSecondary)
+                    .fill(Theme.Colors.card)
                     .frame(width: 150, height: 16)
             }
-            .padding(AppTypography.md)
-            .background(AppColors.backgroundSecondary)
-            .cornerRadius(AppTypography.radiusMd)
+            .padding(Theme.Spacing.lg)
+            .background(Theme.Colors.card)
+            .cornerRadius(Theme.CornerRadius.md)
             .skeleton(isLoading: true)
 
             // Text skeleton
-            VStack(alignment: .leading, spacing: AppTypography.xs) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(AppColors.textTertiary.opacity(0.3))
+                    .fill(Theme.Colors.textTertiary.opacity(0.3))
                     .frame(height: 16)
 
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(AppColors.textTertiary.opacity(0.3))
+                    .fill(Theme.Colors.textTertiary.opacity(0.3))
                     .frame(width: 250, height: 16)
 
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(AppColors.textTertiary.opacity(0.3))
+                    .fill(Theme.Colors.textTertiary.opacity(0.3))
                     .frame(width: 180, height: 16)
             }
             .skeleton(isLoading: true)
 
             // Circle avatar skeleton
             Circle()
-                .fill(AppColors.backgroundSecondary)
+                .fill(Theme.Colors.card)
                 .frame(width: 60, height: 60)
                 .skeleton(isLoading: true)
         }
-        .padding(AppTypography.xl)
+        .padding(Theme.Spacing.xl)
     }
 }

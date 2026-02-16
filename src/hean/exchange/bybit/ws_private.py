@@ -254,7 +254,7 @@ class BybitPrivateWebSocket:
                     time_since_last = time.time() - last_message_time
                     if time_since_last >= CONNECTION_TIMEOUT:
                         logger.warning(f"WebSocket connection timeout ({time_since_last:.1f}s), reconnecting...")
-                        raise ConnectionError("Connection timeout")
+                        raise ConnectionError("Connection timeout") from None
                     # Send ping to keep connection alive
                     try:
                         ping_msg = {"op": "ping"}

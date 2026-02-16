@@ -126,8 +126,9 @@ class TestBybitSignatureGeneration:
             assert sig1 != sig2
 
 
+@pytest.mark.bybit
 class TestBybitHTTPClientConnection:
-    """Test connection management."""
+    """Test connection management (requires live Bybit testnet)."""
 
     @pytest.mark.asyncio
     async def test_connect_creates_client(self):
@@ -171,6 +172,7 @@ class TestBybitHTTPClientOrders:
             mock_settings.bybit_testnet = True
             mock_settings.bybit_api_key = "test_key"
             mock_settings.bybit_api_secret = "test_secret"
+            mock_settings.dry_run = False
 
             client = BybitHTTPClient()
 
@@ -215,6 +217,7 @@ class TestBybitHTTPClientOrders:
             mock_settings.bybit_testnet = True
             mock_settings.bybit_api_key = "test_key"
             mock_settings.bybit_api_secret = "test_secret"
+            mock_settings.dry_run = False
 
             client = BybitHTTPClient()
 
@@ -249,6 +252,7 @@ class TestBybitHTTPClientOrders:
             mock_settings.bybit_testnet = True
             mock_settings.bybit_api_key = "test_key"
             mock_settings.bybit_api_secret = "test_secret"
+            mock_settings.dry_run = False
 
             client = BybitHTTPClient()
 
@@ -355,7 +359,7 @@ class TestBybitHTTPClientCircuitBreaker:
                         pass
 
                 # Circuit should be open now
-                assert client._circuit_breaker._state.name in ["OPEN", "HALF_OPEN"]
+                assert client._circuit_breaker.state in ["OPEN", "HALF_OPEN"]
 
 
 class TestBybitHTTPClientRateLimiting:
@@ -413,8 +417,8 @@ class TestBybitHTTPClientBalance:
     """Test balance retrieval."""
 
     @pytest.mark.asyncio
-    async def test_get_wallet_balance_success(self):
-        """Test successful wallet balance retrieval."""
+    async def test_get_account_info_success(self):
+        """Test successful account info / wallet balance retrieval."""
         with patch("hean.exchange.bybit.http.settings") as mock_settings:
             mock_settings.bybit_testnet = True
             mock_settings.bybit_api_key = "test_key"
@@ -438,5 +442,6 @@ class TestBybitHTTPClientBalance:
             }
 
             with patch.object(client, "_request", return_value=mock_response):
-                balance = await client.get_wallet_balance()
-                assert balance is not None
+                info = await client.get_account_info()
+                assert info is not None
+                assert info["retCode"] == 0

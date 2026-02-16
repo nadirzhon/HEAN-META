@@ -68,9 +68,17 @@ class EventType(str, Enum):
     OFI_UPDATE = "ofi_update"
     CAUSAL_SIGNAL = "causal_signal"
 
+    # Self-analysis telemetry
+    SELF_ANALYTICS = "self_analytics"
+
     # Council events
     COUNCIL_REVIEW = "council_review"
     COUNCIL_RECOMMENDATION = "council_recommendation"
+
+    # Digital Organism events
+    MARKET_GENOME_UPDATE = "market_genome_update"
+    RISK_SIMULATION_RESULT = "risk_simulation_result"
+    META_STRATEGY_UPDATE = "meta_strategy_update"
 
 
 @dataclass

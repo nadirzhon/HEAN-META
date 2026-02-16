@@ -2,15 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+See also: `GEMINI.md` for additional Gemini-specific project context.
+
 ## Project Overview
 
-HEAN is an event-driven crypto trading system for Bybit Testnet. All trades execute on testnet with virtual funds. The system consists of a Python backend (FastAPI + async event bus), a native iOS SwiftUI app, and Docker deployment with Redis as central message broker and state store.
+HEAN is an event-driven crypto trading system for Bybit Testnet. All trades execute on testnet with virtual funds. Three frontends:
+- **Python backend** — FastAPI + async EventBus + Redis
+- **iOS app** — SwiftUI native (iOS 17+)
+- **Web dashboard** — Next.js 15 + React 19 + Zustand + Tailwind 4 (at `dashboard/`)
 
 ## Commands
 
 ```bash
 make install              # pip install -e ".[dev]"
-make test                 # pytest (679 tests, ~10 min full suite)
+make test                 # pytest (~680 tests)
 make test-quick           # pytest excluding Bybit connection tests
 make lint                 # ruff check src/ && mypy src/
 make run                  # python -m hean.main run
@@ -50,6 +55,18 @@ make docker-clean                                     # Remove containers and vo
 make prod-with-monitoring                             # Production + Prometheus/Grafana
 ```
 
+iOS (build from CLI):
+```bash
+xcodebuild -project ios/HEAN.xcodeproj -scheme HEAN \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -quiet build
+```
+
+Dashboard:
+```bash
+cd dashboard && npm install && npm run dev    # Next.js dev server on port 3001
+cd dashboard && npm run build                 # Production build
+```
+
 ## Architecture
 
 ```
@@ -80,15 +97,14 @@ When running via Docker, the system decomposes into independent services communi
 - `api` — FastAPI gateway (REST + WebSocket), port 8000
 - `symbiont-testnet` — Core trading logic container
 - `redis` — Central message broker and state store, port 6379
-- `collector` — Bybit WebSocket market data ingestion
-- `physics` — Market thermodynamics calculations
-- `brain` — AI-based decision making (Claude)
-- `oracle` — Hybrid price+narrative AI signal service
-- `risk-svc` — Dedicated risk management service
-- `rl-risk-manager` (training profile) — PPO-based risk parameter training job (one-shot, not long-running)
+- `collector` — Bybit WebSocket market data ingestion (`services/collector/`)
+- `physics` — Market thermodynamics calculations (`services/physics/`)
+- `brain` — AI-based decision making via Claude (`services/brain/`)
+- `risk-svc` — Dedicated risk management service (`services/risk/`)
+- `oracle` — Hybrid price+narrative AI signal service (`services/oracle/`)
 - `mlflow` (training profile) — MLflow tracking server, port 5000
 
-Each microservice lives in `services/<name>/` with its own `Dockerfile` and `main.py`. They communicate exclusively via Redis Streams — no direct service-to-service calls.
+Each microservice lives in `services/<name>/` with its own `main.py`. They communicate exclusively via Redis Streams — no direct service-to-service calls.
 
 `ServiceEventBridge` (`src/hean/core/system/service_event_bridge.py`) bridges between the in-process EventBus and Redis Streams bidirectionally:
 - **Inbound** (Redis → EventBus): `physics:*`, `brain:analysis`, `oracle:signals`, `risk:policy_updates`
@@ -98,11 +114,10 @@ In local dev mode (`make run`), all components run in a single process via `Trad
 
 ### Key Entry Points
 
-- `src/hean/main.py` — CLI entrypoint + `TradingSystem` class that instantiates and wires all components (~3000 lines)
-- `src/hean/api/main.py` — FastAPI server with WebSocket; registers 21 routers under `/api/v1/`
+- `src/hean/main.py` — CLI entrypoint + `TradingSystem` class that instantiates and wires all components (~3800 lines)
+- `src/hean/api/main.py` — FastAPI server with WebSocket; registers routers under `/api/v1/`
 - `src/hean/api/engine_facade.py` — Unified interface to TradingSystem; `get_facade()` used by all routers
 - `src/hean/core/bus.py` — Async `EventBus` with multi-priority queues and circuit breaker
-- `src/hean/core/system/event_wiring.py` — `EventWiring` centralizes all EventBus subscriptions (audit event flow here, not scattered through component init)
 - `src/hean/core/system/component_registry.py` — `ComponentRegistry` manages component lifecycle (init → start → stop) with dependency ordering
 
 ### Event-Driven Design
@@ -134,8 +149,9 @@ All components communicate via `EventBus` (`src/hean/core/bus.py`). Types in `sr
   - `FundingHarvester`, `BasisArbitrage` — Funding rate and basis spread arbitrage
   - `MomentumTrader`, `CorrelationArbitrage`, `EnhancedGrid`, `HFScalping`
   - `InventoryNeutralMM`, `RebateFarmer`, `LiquiditySweep`, `SentimentStrategy`
-- **`src/hean/risk/`** — `RiskGovernor` (state machine: NORMAL → SOFT_BRAKE → QUARANTINE → HARD_STOP, wired into signal chain in `main.py`), `KillSwitch` (>20% drawdown), `PositionSizer`, `KellyCriterion`, `DepositProtector`, `SmartLeverage`, `RLRiskManager` (optional PPO-based risk param adjustment), `TradingRiskEnv` (Gymnasium env for RL training)
-- **`src/hean/execution/`** — `router_bybit_only.py` is the production router (with idempotency). `router.py` is the generic router interface
+  - Supporting modules: `manager.py` (strategy lifecycle), `edge_confirmation.py`, `multi_factor_confirmation.py`, `physics_aware_positioner.py`, `physics_signal_filter.py`
+- **`src/hean/risk/`** — `RiskGovernor` (state machine: NORMAL → SOFT_BRAKE → QUARANTINE → HARD_STOP), `KillSwitch` (>20% drawdown), `PositionSizer`, `KellyCriterion`, `DepositProtector`, `SmartLeverage`, `RLRiskManager` (optional PPO-based risk param adjustment), `TradingRiskEnv` (Gymnasium env for RL training)
+- **`src/hean/execution/`** — `router_bybit_only.py` is the production router (with idempotency). `router.py` is the generic router interface. `position_reconciliation.py` syncs local state with exchange
 - **`src/hean/exchange/bybit/`** — `http.py` (REST with instrument/leverage caching), `ws_public.py` (market data), `ws_private.py` (order/position updates)
 - **`src/hean/portfolio/`** — Accounting, capital allocation, profit capture
 - **`src/hean/physics/`** — Market thermodynamics: temperature, entropy, phase detection (accumulation/markup/distribution/markdown), Szilard engine, participant classifier, anomaly detector, temporal stack
@@ -144,7 +160,7 @@ All components communicate via `EventBus` (`src/hean/core/bus.py`). Types in `sr
 - **`src/hean/sentiment/`** — `SentimentAnalyzer` (FinBERT), `OllamaSentimentClient` (local LLM via Ollama), news/reddit/twitter clients, `SentimentAggregator`
 - **`src/hean/core/intelligence/`** — `OracleIntegration` (hybrid 4-source signal fusion), `OracleEngine` (TCN + fingerprinting), `TCPriceReversalPredictor` (PyTorch TCN), `CorrelationEngine`, `VolatilityPredictor`
 - **`src/hean/storage/`** — DuckDB persistence for ticks, physics snapshots, brain analyses
-- **`src/hean/symbiont_x/`** — Genetic algorithm strategy evolution (genome lab, immune system, decision ledger). Has its own test suite but is not wired into main trading flow
+- **`src/hean/symbiont_x/`** — Genetic algorithm strategy evolution (genome lab, immune system, decision ledger, backtesting engine). Has its own test suite but is not wired into main trading flow
 
 ### Hybrid Oracle (Signal Fusion)
 
@@ -205,9 +221,9 @@ All new configurable parameters must be added to `HEANSettings` in `src/hean/con
 
 Two env files are used:
 - **`.env`** — Main config loaded by `HEANSettings` (Bybit keys, strategy flags, AI keys, capital). Copy from `.env.example`
-- **`backend.env`** — Docker-specific overrides for the `api` container (auth, CORS, runtime flags). Copy from `backend.env.example`
+- **`backend.env`** — Docker-specific overrides (auth, CORS, runtime flags). Copy from `backend.env.example`
 
-In Docker, the `api` service uses `backend.env` via `env_file`, while `brain` and `symbiont-testnet` use `.env`. Both files are needed for Docker deployments.
+In Docker, the `api` and `symbiont-testnet` services both load `.env`. `backend.env` provides additional Docker-specific overrides. Both files are needed for Docker deployments.
 
 ## API Endpoints
 
@@ -228,18 +244,20 @@ Key endpoints:
 | `GET /physics/state?symbol=X` | Temperature, entropy, phase, Szilard profit |
 | `GET /brain/analysis` | Latest AI market analysis |
 | `GET /council/status` | Council decision status |
+| `POST /engine/start` | Start trading engine |
+| `POST /engine/stop` | Stop trading engine |
 
 WebSocket: `ws://localhost:8000/ws` — topics: `system_status`, `order_decisions`, `ai_catalyst`
 
 ## iOS App
 
-SwiftUI app in `ios/`, targeting iOS 17+. Open `ios/HEAN.xcodeproj` in Xcode.
+SwiftUI app in `ios/`, targeting iOS 17+. Open `ios/HEAN.xcodeproj` in Xcode. ~162 Swift files in build phase.
 
 ### Architecture
 - **DIContainer** (`Core/DI/DIContainer.swift`) — `@EnvironmentObject` dependency injection
 - **APIClient** (`Core/Networking/APIClient.swift`) — Actor-based HTTP client
 - **APIEndpoints** (`Core/Networking/APIEndpoints.swift`) — Centralized endpoint enum
-- **Command Center** — 5 tabs: Live, Mind, Action, X-Ray, Settings
+- **Command Center** — 6 tabs: Live, Mind, Action, X-Ray, Genesis, Settings
 
 ### Critical iOS Patterns
 - Backend `snake_case` → iOS `camelCase`: always add `CodingKeys`
@@ -248,8 +266,36 @@ SwiftUI app in `ios/`, targeting iOS 17+. Open `ios/HEAN.xcodeproj` in Xcode.
 - Custom `init(from:)` with fallback keys (try `"id"` then `"position_id"`)
 - Case-insensitive enum decoding (`"buy"/"BUY"/"Buy"`)
 - `Services.swift` is the compiled consolidated service file; `Services/Live/*.swift` files are NOT in the build
-- `DesignSystem/` contains compiled color/formatting extensions
-- ~158 Swift files in build phase — not all `.swift` files in directory are compiled; check `project.pbxproj`
+- `DesignSystem/` contains compiled color/formatting extensions (`Color(hex:)`, `Double.asCurrency`, etc.)
+- Not all `.swift` files in the directory are compiled; check `project.pbxproj` for the source of truth
+- When adding new Swift files, manually add PBXBuildFile + PBXFileReference + PBXGroup entries to `project.pbxproj`
+- Build IDs follow sequential pattern: `B1000xxx` (file ref), `A1000xxx` (build file), `E1000xxx` (groups)
+- Complex Canvas closures cause Swift type-checker timeouts — extract into separate private structs with explicit type annotations
+- Bilingual strings via `L.isRussian` in `DesignSystem/Strings.swift`
+
+### Genesis Tab
+Cinematic 5-scene animated intro (`Features/Genesis/`):
+1. Chaos — chaotic market waves (Canvas + TimelineView)
+2. Spark of Reason — order emerges from chaos
+3. Architecture of Consciousness — 6 agent nodes with neural connections
+4. Signal Path — pulse through Analysis→Strategy→Risk→Execution pipeline
+5. Conscious Growth — nodes converge, equity curve draws
+
+Uses pure SwiftUI animations (TimelineView, Canvas, Shape with animatableData). Auto-play mode with 8s per scene + manual navigation.
+
+## Web Dashboard
+
+Next.js 15 app in `dashboard/` with React 19, Zustand state management, Tailwind 4, Framer Motion, and Recharts.
+
+Key structure:
+- `src/store/heanStore.ts` — Zustand store for global state
+- `src/services/api.ts` + `websocket.ts` — Backend communication
+- `src/components/tabs/` — CockpitTab, NeuroMapTab, TacticalTab, BlackBoxTab
+- `src/components/cockpit/` — EquityChart, PositionsSummary, LiveFeed, MetricRow
+- `src/components/neuromap/` — NeuroMapView, PulsingNode, AnimatedConnection (visual agent topology)
+- `src/components/ui/` — GlassCard, MetricCard, AnimatedNumber, StatusBadge
+
+Runs on port 3001 (`npm run dev`). Connects to backend API on port 8000.
 
 ## CI/CD
 

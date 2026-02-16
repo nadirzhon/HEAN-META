@@ -16,7 +16,7 @@ struct GlassCard<Content: View>: View {
     let padding: CGFloat?
 
     init(
-        cornerRadius: CGFloat = AppTypography.radiusMd,
+        cornerRadius: CGFloat = Theme.CornerRadius.md,
         borderWidth: CGFloat = 1,
         shadowRadius: CGFloat = 10,
         padding: CGFloat? = nil,
@@ -84,7 +84,7 @@ struct GlassCardAccent<Content: View>: View {
     let cornerRadius: CGFloat
 
     init(
-        cornerRadius: CGFloat = AppTypography.radiusMd,
+        cornerRadius: CGFloat = Theme.CornerRadius.md,
         @ViewBuilder content: () -> Content
     ) {
         self.content = content()
@@ -103,8 +103,8 @@ struct GlassCardAccent<Content: View>: View {
                     .strokeBorder(
                         LinearGradient(
                             colors: [
-                                AppColors.accentPrimary.opacity(0.5),
-                                AppColors.accentPrimary.opacity(0.2),
+                                Theme.Colors.accent.opacity(0.5),
+                                Theme.Colors.accent.opacity(0.2),
                                 Color.white.opacity(0.1)
                             ],
                             startPoint: .topLeading,
@@ -113,59 +113,59 @@ struct GlassCardAccent<Content: View>: View {
                         lineWidth: 1.5
                     )
             )
-            .shadow(color: AppColors.accentPrimary.opacity(0.15), radius: 15, x: 0, y: 5)
+            .shadow(color: Theme.Colors.accent.opacity(0.15), radius: 15, x: 0, y: 5)
     }
 }
 
 // MARK: - Preview
 #Preview("GlassCard Variants") {
     ZStack {
-        AppColors.backgroundPrimary
+        Theme.Colors.background
             .ignoresSafeArea()
 
-        VStack(spacing: AppTypography.lg) {
+        VStack(spacing: 20) {
             // Basic card
             GlassCard {
-                VStack(alignment: .leading, spacing: AppTypography.sm) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                     Text("Basic Card")
-                        .font(AppTypography.headline())
-                        .foregroundColor(AppColors.textPrimary)
+                        .font(Theme.Typography.headlineFont())
+                        .foregroundColor(Theme.Colors.textPrimary)
 
                     Text("Premium glassmorphism effect")
-                        .font(AppTypography.caption())
-                        .foregroundColor(AppColors.textSecondary)
+                        .font(Theme.Typography.caption())
+                        .foregroundColor(Theme.Colors.textSecondary)
                 }
-                .padding(AppTypography.md)
+                .padding(Theme.Spacing.lg)
             }
 
             // Large radius card
-            GlassCard(cornerRadius: AppTypography.radiusLg) {
+            GlassCard(cornerRadius: Theme.CornerRadius.lg) {
                 HStack {
                     Image(systemName: "chart.line.uptrend.xyaxis")
                         .font(.system(size: 32))
-                        .foregroundColor(AppColors.accentPrimary)
+                        .foregroundColor(Theme.Colors.accent)
 
                     VStack(alignment: .leading) {
                         Text("Trading Stats")
-                            .font(AppTypography.headline())
-                            .foregroundColor(AppColors.textPrimary)
+                            .font(Theme.Typography.headlineFont())
+                            .foregroundColor(Theme.Colors.textPrimary)
                         Text("Real-time data")
-                            .font(AppTypography.caption())
-                            .foregroundColor(AppColors.textSecondary)
+                            .font(Theme.Typography.caption())
+                            .foregroundColor(Theme.Colors.textSecondary)
                     }
                     Spacer()
                 }
-                .padding(AppTypography.lg)
+                .padding(20)
             }
 
             // Compact card
-            GlassCard(cornerRadius: AppTypography.radiusSm, shadowRadius: 5) {
+            GlassCard(cornerRadius: Theme.CornerRadius.sm, shadowRadius: 5) {
                 Text("Compact Card")
-                    .font(AppTypography.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .padding(AppTypography.sm)
+                    .font(Theme.Typography.bodyFont())
+                    .foregroundColor(Theme.Colors.textPrimary)
+                    .padding(Theme.Spacing.md)
             }
         }
-        .padding(AppTypography.xl)
+        .padding(Theme.Spacing.xl)
     }
 }

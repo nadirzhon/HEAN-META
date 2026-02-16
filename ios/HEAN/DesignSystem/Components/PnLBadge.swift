@@ -46,14 +46,14 @@ struct PnLBadge: View {
 
     private var color: Color {
         if value == 0 {
-            return AppColors.textSecondary
+            return Theme.Colors.textSecondary
         }
-        return isPositive ? AppColors.success : AppColors.error
+        return isPositive ? Theme.Colors.success : Theme.Colors.error
     }
 
     private var backgroundColor: Color {
         if value == 0 {
-            return AppColors.textTertiary.opacity(0.1)
+            return Theme.Colors.textTertiary.opacity(0.1)
         }
         return color.opacity(0.15)
     }
@@ -90,16 +90,16 @@ struct PnLBadge: View {
     }
 
     var body: some View {
-        HStack(spacing: AppTypography.xs / 2) {
+        HStack(spacing: Theme.Spacing.sm / 2) {
             Image(systemName: icon)
                 .font(.system(size: size == .compact ? 10 : 12, weight: .bold))
 
             Text(formattedValue)
-                .font(size == .compact ? AppTypography.caption(12, weight: .semibold) : AppTypography.body(14, weight: .semibold))
+                .font(size == .compact ? Theme.Typography.caption(12, weight: .semibold) : Theme.Typography.bodyFont(14, weight: .semibold))
         }
         .foregroundColor(color)
-        .padding(.horizontal, size == .compact ? AppTypography.sm : AppTypography.md)
-        .padding(.vertical, size == .compact ? 6 : AppTypography.xs)
+        .padding(.horizontal, size == .compact ? Theme.Spacing.md : Theme.Spacing.lg)
+        .padding(.vertical, size == .compact ? 6 : Theme.Spacing.sm)
         .background(
             Capsule()
                 .fill(backgroundColor)
@@ -111,30 +111,30 @@ struct PnLBadge: View {
 // MARK: - Preview
 #Preview("PnLBadge Variants") {
     ZStack {
-        AppColors.backgroundPrimary
+        Theme.Colors.background
             .ignoresSafeArea()
 
-        VStack(spacing: AppTypography.lg) {
+        VStack(spacing: 20) {
             // Positive dollar
-            HStack(spacing: AppTypography.md) {
+            HStack(spacing: Theme.Spacing.lg) {
                 PnLBadge(value: 1234.56, format: .dollar, size: .compact)
                 PnLBadge(value: 1234.56, format: .dollar, size: .expanded)
             }
 
             // Negative dollar
-            HStack(spacing: AppTypography.md) {
+            HStack(spacing: Theme.Spacing.lg) {
                 PnLBadge(value: -567.89, format: .dollar, size: .compact)
                 PnLBadge(value: -567.89, format: .dollar, size: .expanded)
             }
 
             // Percent
-            HStack(spacing: AppTypography.md) {
+            HStack(spacing: Theme.Spacing.lg) {
                 PnLBadge(value: 12.34, format: .percent, size: .compact)
                 PnLBadge(value: -8.76, format: .percent, size: .expanded)
             }
 
             // Combined
-            VStack(spacing: AppTypography.sm) {
+            VStack(spacing: Theme.Spacing.md) {
                 PnLBadge(value: 2500.00, format: .combined, size: .compact)
                 PnLBadge(value: -1500.00, format: .combined, size: .expanded)
             }
@@ -142,6 +142,6 @@ struct PnLBadge: View {
             // Zero
             PnLBadge(value: 0, format: .dollar, size: .compact)
         }
-        .padding(AppTypography.xl)
+        .padding(Theme.Spacing.xl)
     }
 }

@@ -15,6 +15,7 @@ from hean.main import TradingSystem
 from hean.portfolio.accounting import PortfolioAccounting
 
 
+@pytest.mark.bybit
 @pytest.mark.asyncio
 async def test_backtest_produces_trades() -> None:
     """Test that backtest produces at least some trades after no-trade fixes.

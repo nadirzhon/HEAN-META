@@ -29,13 +29,13 @@ struct SignalFeedView: View {
                 .padding()
                 .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.signals.count)
             }
-            .background(Color(hex: "0A0A0F").ignoresSafeArea())
+            .background(Theme.Colors.background.ignoresSafeArea())
             .navigationTitle("Signals")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(viewModel.isListening ? Color(hex: "22C55E") : Color(hex: "EF4444"))
+                            .fill(viewModel.isListening ? Theme.Colors.success : Theme.Colors.error)
                             .frame(width: 8, height: 8)
                         Text(viewModel.isListening ? "Live" : "Offline")
                             .font(.caption)
@@ -57,11 +57,11 @@ struct SignalFeedView: View {
                 .foregroundColor(.gray)
                 .symbolEffect(.variableColor, isActive: viewModel.isListening)
 
-            Text("Waiting for signals...")
+            Text(L.waitingForSignals)
                 .font(.headline)
                 .foregroundColor(.gray)
 
-            Text("Signals will appear here in real-time\nas strategies detect trading opportunities")
+            Text(L.signalsWillAppear)
                 .font(.caption)
                 .foregroundColor(.gray.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -83,9 +83,9 @@ struct SignalCardView: View {
                     // Side indicator
                     Text(signal.side.uppercased())
                         .font(.caption.bold())
-                        .foregroundColor(signal.isBuy ? Color(hex: "22C55E") : Color(hex: "EF4444"))
+                        .foregroundColor(signal.isBuy ? Theme.Colors.success : Theme.Colors.error)
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background((signal.isBuy ? Color(hex: "22C55E") : Color(hex: "EF4444")).opacity(0.15))
+                        .background((signal.isBuy ? Theme.Colors.success : Theme.Colors.error).opacity(0.15))
                         .cornerRadius(6)
 
                     Text(signal.symbol)
@@ -104,7 +104,7 @@ struct SignalCardView: View {
                 HStack(spacing: 16) {
                     if let strategy = signal.strategy {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Strategy").font(.caption2).foregroundColor(.gray)
+                            Text(L.strategy).font(.caption2).foregroundColor(.gray)
                             Text(strategy)
                                 .font(.subheadline.weight(.semibold)).monospacedDigit()
                                 .foregroundColor(.white)
@@ -126,7 +126,7 @@ struct SignalCardView: View {
                     if let strategy = signal.strategy {
                         Label(strategy, systemImage: "brain.head.profile")
                             .font(.caption2)
-                            .foregroundColor(Color(hex: "7B61FF"))
+                            .foregroundColor(Theme.Colors.purple)
                     }
 
                     Spacer()
@@ -148,11 +148,11 @@ struct SignalCardView: View {
 enum ConfidenceLevel {
     case high, medium, low
 
-    var color: String {
+    var color: Color {
         switch self {
-        case .high: return "22C55E"
-        case .medium: return "F59E0B"
-        case .low: return "EF4444"
+        case .high: return Theme.Colors.success
+        case .medium: return Theme.Colors.warning
+        case .low: return Theme.Colors.error
         }
     }
 }
@@ -174,9 +174,9 @@ struct ConfidenceBadgeView: View {
             Text(String(format: "%.0f%%", confidence * 100))
                 .font(.caption.weight(.bold)).monospacedDigit()
         }
-        .foregroundColor(Color(hex: level.color))
+        .foregroundColor(level.color)
         .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(Color(hex: level.color).opacity(0.15))
+        .background(level.color.opacity(0.15))
         .cornerRadius(8)
     }
 }

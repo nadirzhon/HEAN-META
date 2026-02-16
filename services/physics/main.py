@@ -7,16 +7,32 @@ Publishes to: physics:{symbol}
 """
 import asyncio
 import logging
-import math
 import os
 import signal
 import sys
 import time
 from collections import deque
 
-import numpy as np
 import orjson
 import redis.asyncio as aioredis
+
+try:
+    from physics_kernels import (
+        backend_name as kernel_backend_name,
+        calc_entropy as calc_entropy_kernel,
+        calc_temperature as calc_temperature_kernel,
+        detect_phase as detect_phase_kernel,
+        extract_price_volume,
+    )
+except Exception:
+    # Script execution fallback when launched from different cwd.
+    from services.physics.physics_kernels import (
+        backend_name as kernel_backend_name,
+        calc_entropy as calc_entropy_kernel,
+        calc_temperature as calc_temperature_kernel,
+        detect_phase as detect_phase_kernel,
+        extract_price_volume,
+    )
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +58,7 @@ class PhysicsCalculator:
         self.prices: dict[str, deque] = {s: deque(maxlen=lookback) for s in symbols}
         self.volumes: dict[str, deque] = {s: deque(maxlen=lookback) for s in symbols}
         self.calc_count = 0
+        self.kernel_backend = kernel_backend_name()
 
     async def connect_redis(self) -> None:
         max_retries = 10
@@ -62,35 +79,13 @@ class PhysicsCalculator:
                     raise
 
     def calc_temperature(self, prices: list[float], volumes: list[float]) -> float:
-        if len(prices) < 2:
-            return 0.0
-        p = np.array(prices)
-        v = np.array(volumes)
-        dp = np.diff(p)
-        vm = v[1:]
-        ke = float(np.sum((dp * vm) ** 2))
-        return ke / len(prices)
+        return calc_temperature_kernel(prices, volumes)
 
     def calc_entropy(self, volumes: list[float]) -> float:
-        if not volumes:
-            return 0.0
-        v = np.array(volumes, dtype=np.float64)
-        v = v[v > 0]
-        if len(v) == 0:
-            return 0.0
-        total = np.sum(v)
-        if total == 0:
-            return 0.0
-        p = v / total
-        return -float(np.sum(p * np.log(p)))
+        return calc_entropy_kernel(volumes)
 
     def detect_phase(self, temperature: float, entropy: float) -> str:
-        if temperature < 400 and entropy < 2.5:
-            return "ICE"
-        elif temperature >= 800 and entropy >= 3.5:
-            return "VAPOR"
-        else:
-            return "WATER"
+        return detect_phase_kernel(temperature, entropy)
 
     async def process_symbol(self, symbol: str) -> None:
         prices = list(self.prices[symbol])
@@ -143,7 +138,9 @@ class PhysicsCalculator:
             except Exception:
                 pass
 
-        logger.info(f"Physics engine started for {self.symbols}")
+        logger.info(
+            f"Physics engine started for {self.symbols} (backend={self.kernel_backend})"
+        )
 
         streams = {f"market:{s}": ">" for s in self.symbols}
 
@@ -162,15 +159,10 @@ class PhysicsCalculator:
                             event = orjson.loads(data_bytes)
                             data = event.get("data", {})
 
-                            # Extract price from different data types
-                            if isinstance(data, list) and data:
-                                price = float(data[0].get("p", 0))
-                                volume = float(data[0].get("v", 0))
-                            elif isinstance(data, dict):
-                                price = float(data.get("lastPrice", data.get("p", 0)))
-                                volume = float(data.get("volume24h", data.get("v", 1)))
-                            else:
+                            price_volume = extract_price_volume(data)
+                            if price_volume is None:
                                 continue
+                            price, volume = price_volume
 
                             if price > 0:
                                 self.prices[symbol].append(price)

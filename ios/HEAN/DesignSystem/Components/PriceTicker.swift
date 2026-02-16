@@ -34,25 +34,25 @@ struct PriceTicker: View {
 
         var priceFont: Font {
             switch self {
-            case .small: return AppTypography.mono(18, weight: .semibold)
-            case .medium: return AppTypography.mono(24, weight: .bold)
-            case .large: return AppTypography.mono(32, weight: .bold)
+            case .small: return Theme.Typography.monoFont(18, weight: .semibold)
+            case .medium: return Theme.Typography.monoFont(24, weight: .bold)
+            case .large: return Theme.Typography.monoFont(32, weight: .bold)
             }
         }
 
         var symbolFont: Font {
             switch self {
-            case .small: return AppTypography.caption(12)
-            case .medium: return AppTypography.body(14)
-            case .large: return AppTypography.headline(16)
+            case .small: return Theme.Typography.caption(12)
+            case .medium: return Theme.Typography.bodyFont(14)
+            case .large: return Theme.Typography.headlineFont(16)
             }
         }
 
         var changeFont: Font {
             switch self {
-            case .small: return AppTypography.caption(11, weight: .medium)
-            case .medium: return AppTypography.caption(13, weight: .medium)
-            case .large: return AppTypography.body(15, weight: .medium)
+            case .small: return Theme.Typography.caption(11, weight: .medium)
+            case .medium: return Theme.Typography.caption(13, weight: .medium)
+            case .large: return Theme.Typography.bodyFont(15, weight: .medium)
             }
         }
     }
@@ -62,7 +62,7 @@ struct PriceTicker: View {
     }
 
     private var changeColor: Color {
-        isPositive ? AppColors.success : AppColors.error
+        isPositive ? Theme.Colors.success : Theme.Colors.error
     }
 
     private var formattedPrice: String {
@@ -74,20 +74,20 @@ struct PriceTicker: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppTypography.xs / 2) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm / 2) {
             // Symbol label (only if not empty)
             if !symbol.isEmpty {
                 Text(symbol)
                     .font(size.symbolFont)
-                    .foregroundColor(AppColors.textSecondary)
+                    .foregroundColor(Theme.Colors.textSecondary)
             }
 
             // Price
             Text(formattedPrice)
                 .font(size.priceFont)
-                .foregroundColor(AppColors.textPrimary)
+                .foregroundColor(Theme.Colors.textPrimary)
                 .scaleEffect(isPulsing ? 1.05 : 1.0)
-                .animation(AppAnimation.spring, value: isPulsing)
+                .animation(Theme.Animation.spring, value: isPulsing)
 
             // Change percentage with arrow
             HStack(spacing: 4) {
@@ -99,9 +99,9 @@ struct PriceTicker: View {
             }
             .foregroundColor(changeColor)
         }
-        .padding(size == .small ? AppTypography.sm : AppTypography.md)
+        .padding(size == .small ? Theme.Spacing.md : Theme.Spacing.lg)
         .background(
-            RoundedRectangle(cornerRadius: AppTypography.radiusSm)
+            RoundedRectangle(cornerRadius: Theme.CornerRadius.sm)
                 .fill(flashColor ?? Color.clear)
                 .animation(.easeOut(duration: 0.3), value: flashColor)
         )
@@ -121,7 +121,7 @@ struct PriceTicker: View {
 
         // Flash background
         let direction = newPrice > oldPrice
-        flashColor = direction ? AppColors.success.opacity(0.2) : AppColors.error.opacity(0.2)
+        flashColor = direction ? Theme.Colors.success.opacity(0.2) : Theme.Colors.error.opacity(0.2)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             flashColor = nil
         }
@@ -131,10 +131,10 @@ struct PriceTicker: View {
 // MARK: - Preview
 #Preview("PriceTicker Sizes") {
     ZStack {
-        AppColors.backgroundPrimary
+        Theme.Colors.background
             .ignoresSafeArea()
 
-        VStack(spacing: AppTypography.lg) {
+        VStack(spacing: 20) {
             // Large bullish
             PriceTicker(
                 symbol: "BTCUSDT",
@@ -152,7 +152,7 @@ struct PriceTicker: View {
             )
 
             // Small
-            HStack(spacing: AppTypography.md) {
+            HStack(spacing: Theme.Spacing.lg) {
                 PriceTicker(
                     symbol: "BTC",
                     price: 42_350.75,
@@ -168,6 +168,6 @@ struct PriceTicker: View {
                 )
             }
         }
-        .padding(AppTypography.xl)
+        .padding(Theme.Spacing.xl)
     }
 }

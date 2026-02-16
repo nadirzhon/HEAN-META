@@ -1,4 +1,7 @@
-"""Tests for volatility-aware execution gating in ExecutionRouter."""
+"""Tests for volatility-aware execution gating in ExecutionRouter.
+
+These tests create a real ExecutionRouter which connects to Bybit testnet.
+"""
 
 import asyncio
 from datetime import datetime
@@ -9,6 +12,8 @@ from hean.core.bus import EventBus
 from hean.core.types import Event, EventType, OrderRequest, Tick
 from hean.execution.order_manager import OrderManager
 from hean.execution.router import ExecutionRouter
+
+pytestmark = pytest.mark.bybit
 
 
 @pytest.mark.asyncio

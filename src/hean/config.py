@@ -265,27 +265,27 @@ class HEANSettings(BaseSettings):
     )
     impulse_engine_enabled: bool = Field(default=True, description="Enable impulse engine strategy")
 
-    # Dormant Strategies (AFO-Director Phase 5 - disabled by default until tested)
+    # Dormant Strategies (AFO-Director Phase 5 - NOW ENABLED for maximum trading activity)
     hf_scalping_enabled: bool = Field(
-        default=False, description="Enable high-frequency scalping strategy (40-60 trades/day, 0.2-0.4% TP)"
+        default=True, description="Enable high-frequency scalping strategy (40-60 trades/day, 0.2-0.4% TP)"
     )
     enhanced_grid_enabled: bool = Field(
-        default=False, description="Enable enhanced grid trading strategy (range-bound markets only)"
+        default=True, description="Enable enhanced grid trading strategy (range-bound markets only)"
     )
     momentum_trader_enabled: bool = Field(
-        default=False, description="Enable momentum trader strategy (trend following)"
+        default=True, description="Enable momentum trader strategy (trend following)"
     )
     inventory_neutral_mm_enabled: bool = Field(
-        default=False, description="Enable inventory-neutral market making strategy"
+        default=True, description="Enable inventory-neutral market making strategy"
     )
     correlation_arb_enabled: bool = Field(
-        default=False, description="Enable correlation arbitrage strategy"
+        default=True, description="Enable correlation arbitrage strategy"
     )
     rebate_farmer_enabled: bool = Field(
-        default=False, description="Enable rebate farmer strategy (maker fee capture)"
+        default=True, description="Enable rebate farmer strategy (maker fee capture)"
     )
     sentiment_strategy_enabled: bool = Field(
-        default=False, description="Enable sentiment-based trading strategy"
+        default=True, description="Enable sentiment-based trading strategy"
     )
 
     # Trading Symbols
@@ -307,8 +307,8 @@ class HEANSettings(BaseSettings):
 
     # Multi-Symbol Support (AFO-Director feature)
     multi_symbol_enabled: bool = Field(
-        default=False,
-        description="Enable multi-symbol scanning and trading (default False). When enabled, scans all symbols in SYMBOLS list.",
+        default=True,
+        description="Enable multi-symbol scanning and trading. Scans all symbols in SYMBOLS list for maximum opportunities.",
     )
     symbols: list[str] = Field(
         default=[
@@ -449,6 +449,80 @@ class HEANSettings(BaseSettings):
     brain_analysis_interval: int = Field(default=60, gt=5, description="Brain analysis interval in seconds")
     brain_enabled: bool = Field(default=True, description="Enable Claude Brain analysis module")
 
+    # Ollama Sentiment (local LLM, free, no API key required)
+    ollama_enabled: bool = Field(
+        default=True,
+        description="Enable Ollama local LLM sentiment analysis (runs alongside Brain)",
+    )
+    ollama_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama server URL (default: http://localhost:11434)",
+    )
+    ollama_model: str = Field(
+        default="llama3.2:3b",
+        description="Ollama model to use for sentiment analysis (default: llama3.2:3b)",
+    )
+    ollama_sentiment_interval: int = Field(
+        default=300,
+        gt=5,
+        description="Seconds between Ollama sentiment analyses (default 300 = 5 min)",
+    )
+
+    # RL Risk Manager (trained PPO agent for dynamic risk adjustment)
+    rl_risk_enabled: bool = Field(
+        default=True,
+        description="Enable RL-based risk manager (graceful fallback to rule-based if no model)",
+    )
+    rl_risk_model_path: str = Field(
+        default="",
+        description="Path to trained PPO model for RL risk manager (.zip file)",
+    )
+    rl_risk_adjust_interval: int = Field(
+        default=60,
+        gt=5,
+        description="Seconds between RL risk parameter adjustments (default 60)",
+    )
+
+    # Dynamic Oracle Weighting
+    oracle_dynamic_weighting: bool = Field(
+        default=True,
+        description="Enable dynamic AI/ML model weighting based on market conditions",
+    )
+
+    # Physics-Aware Position Sizing
+    physics_aware_sizing: bool = Field(
+        default=True,
+        description="Enable physics-aware position sizing (adjusts size based on temperature, entropy, phase)",
+    )
+
+    # Strategy Capital Allocator
+    strategy_capital_allocation: bool = Field(
+        default=True,
+        description="Enable dynamic capital allocation across strategies based on performance + regime",
+    )
+    capital_allocation_method: str = Field(
+        default="hybrid",
+        description="Capital allocation method: 'performance_weighted', 'phase_matched', or 'hybrid'",
+    )
+
+    # Source-of-truth for specialized services (local engine or external Redis microservices)
+    physics_source: Literal["local", "redis"] = Field(
+        default="local",
+        description="Physics source: 'local' uses in-process PhysicsEngine, 'redis' consumes physics:* streams.",
+    )
+    brain_source: Literal["local", "redis"] = Field(
+        default="local",
+        description="Brain source: 'local' uses in-process ClaudeBrainClient, 'redis' consumes brain:analysis stream.",
+    )
+    risk_source: Literal["local", "redis"] = Field(
+        default="local",
+        description="Risk source: 'local' uses in-process risk gates, 'redis' also consumes risk:approved stream.",
+    )
+    microservices_group_prefix: str = Field(
+        default="hean-core",
+        description="Redis stream consumer group prefix for MicroservicesBridge.",
+    )
+
     # AI Factory (Shadow → Canary → Production pipeline)
     ai_factory_enabled: bool = Field(
         default=True,
@@ -474,6 +548,16 @@ class HEANSettings(BaseSettings):
     council_auto_apply_safe: bool = Field(
         default=True,
         description="Auto-apply safe parameter/strategy recommendations",
+    )
+
+    self_insight_enabled: bool = Field(
+        default=True,
+        description="Enable self-telemetry collection for Brain/Council analysis",
+    )
+    self_insight_interval: int = Field(
+        default=60,
+        gt=10,
+        description="Seconds between publishing self-analytics snapshots",
     )
 
     # API Authentication (CRITICAL: Enable in production!)
@@ -819,6 +903,119 @@ class HEANSettings(BaseSettings):
         ge=0.0,
         le=1.0,
         description="Position size multiplier during emergency (80% reduction = 0.2x) (Phase 5)",
+    )
+
+    # Phase 2: Execution Cost Optimization
+    twap_enabled: bool = Field(
+        default=True,
+        description="Enable TWAP execution for large orders",
+    )
+    twap_threshold_usd: float = Field(
+        default=500.0,
+        gt=0,
+        description="Minimum order size (USD) to use TWAP (default $500)",
+    )
+    twap_duration_sec: int = Field(
+        default=300,
+        gt=0,
+        description="TWAP execution duration in seconds (default 300 = 5 min)",
+    )
+    twap_num_slices: int = Field(
+        default=10,
+        gt=0,
+        description="Number of slices for TWAP execution (default 10)",
+    )
+    smart_order_selection_enabled: bool = Field(
+        default=True,
+        description="Enable smart order type selection (limit vs market based on edge)",
+    )
+
+    # Phase 2: Physics Integration
+    physics_sizing_enabled: bool = Field(
+        default=True,
+        description="Enable physics-aware position sizing (temperature, entropy, phase)",
+    )
+    physics_filter_enabled: bool = Field(
+        default=True,
+        description="Enable physics-based signal filtering",
+    )
+    physics_filter_strict: bool = Field(
+        default=True,
+        description="If True, blocks counter-phase signals; if False, only penalizes",
+    )
+
+    # Digital Organism: MarketGenomeDetector (Stage 1)
+    market_genome_enabled: bool = Field(
+        default=True,
+        description="Enable MarketGenomeDetector (unified market state synthesis)",
+    )
+    market_genome_interval: float = Field(
+        default=10.0,
+        gt=1.0,
+        description="Seconds between MARKET_GENOME_UPDATE publications per symbol",
+    )
+
+    # Digital Organism: DoomsdaySandbox (Stage 2)
+    doomsday_sandbox_enabled: bool = Field(
+        default=True,
+        description="Enable DoomsdaySandbox catastrophe simulation engine",
+    )
+    doomsday_interval_sec: int = Field(
+        default=3600,
+        gt=60,
+        description="Seconds between automatic stress test runs",
+    )
+    doomsday_auto_protect: bool = Field(
+        default=True,
+        description="Auto-trigger SOFT_BRAKE when survival_score < threshold",
+    )
+    doomsday_survival_threshold: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=1.0,
+        description="Survival score threshold for auto-protection (0.0-1.0)",
+    )
+    doomsday_run_on_physics_alert: bool = Field(
+        default=True,
+        description="Auto-run simulations when physics detects danger signals",
+    )
+
+    # Digital Organism: MetaStrategyBrain (Stage 3)
+    meta_brain_enabled: bool = Field(
+        default=True,
+        description="Enable MetaStrategyBrain for dynamic strategy lifecycle management",
+    )
+    meta_brain_evaluation_interval: int = Field(
+        default=300,
+        gt=30,
+        description="Seconds between strategy fitness evaluations",
+    )
+
+    # Phase 2: Symbiont X Bridge
+    symbiont_x_enabled: bool = Field(
+        default=True,
+        description="Enable Symbiont X GA optimization bridge",
+    )
+    symbiont_x_generations: int = Field(
+        default=50,
+        gt=0,
+        description="Number of GA generations per optimization cycle (default 50)",
+    )
+    symbiont_x_population_size: int = Field(
+        default=20,
+        gt=0,
+        description="Population size for GA (default 20)",
+    )
+    symbiont_x_mutation_rate: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Mutation rate for GA (default 0.1 = 10%)",
+    )
+    symbiont_x_reoptimize_interval: int = Field(
+        default=3600,
+        gt=60,
+        description="Seconds between optimization cycles (default 3600 = 1 hour)",
     )
 
     def model_post_init(self, __context: Any) -> None:

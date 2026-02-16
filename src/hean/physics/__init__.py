@@ -9,22 +9,22 @@ Provides thermodynamic analysis of market states:
 - Temporal Stack: Multi-timeframe analysis
 """
 
-from hean.physics.engine import PhysicsEngine, PhysicsState
-from hean.physics.rust_bridge import (
-    market_temperature,
-    market_entropy,
-    detect_phase,
-    szilard_profit,
-    information_bits,
-    thermal_efficiency,
-    RUST_AVAILABLE,
-)
-from hean.physics.participant_classifier import ParticipantClassifier
 from hean.physics.anomaly_detector import MarketAnomalyDetector
-from hean.physics.temporal_stack import TemporalStack
 from hean.physics.cross_market import CrossMarketImpulse
 from hean.physics.emotion_arbitrage import EmotionArbitrage
-from hean.physics.phase_detector import SSDMode, ResonanceState
+from hean.physics.engine import PhysicsEngine, PhysicsState
+from hean.physics.participant_classifier import ParticipantClassifier
+from hean.physics.phase_detector import ResonanceState, SSDMode
+from hean.physics.rust_bridge import (
+    RUST_AVAILABLE,
+    detect_phase,
+    information_bits,
+    market_entropy,
+    market_temperature,
+    szilard_profit,
+    thermal_efficiency,
+)
+from hean.physics.temporal_stack import TemporalStack
 
 __all__ = [
     "PhysicsEngine",
