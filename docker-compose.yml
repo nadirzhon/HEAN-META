@@ -13,13 +13,13 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - TZ=UTC
-      - PYTHONPATH=/app/src
+      - PYTHONPATH=/app/packages/hean-core/src:/app/packages/hean-exchange/src:/app/packages/hean-portfolio/src:/app/packages/hean-risk/src:/app/packages/hean-execution/src:/app/packages/hean-strategies/src:/app/packages/hean-physics/src:/app/packages/hean-intelligence/src:/app/packages/hean-observability/src:/app/packages/hean-symbiont/src:/app/packages/hean-api/src:/app/packages/hean-app/src
       - PHYSICS_SOURCE=${PHYSICS_SOURCE:-redis}
       - BRAIN_SOURCE=${BRAIN_SOURCE:-redis}
       - RISK_SOURCE=${RISK_SOURCE:-redis}
       - MICROSERVICES_GROUP_PREFIX=${MICROSERVICES_GROUP_PREFIX:-hean-core}
     volumes:
-      - ./backend/src:/app/src:ro
+      - ./backend/packages:/app/packages:ro
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
     command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --workers 2
@@ -94,7 +94,7 @@ services:
       - .env.symbiont
     environment:
       - PYTHONUNBUFFERED=1
-      - PYTHONPATH=/app/src
+      - PYTHONPATH=/app/packages/hean-core/src:/app/packages/hean-exchange/src:/app/packages/hean-portfolio/src:/app/packages/hean-risk/src:/app/packages/hean-execution/src:/app/packages/hean-strategies/src:/app/packages/hean-physics/src:/app/packages/hean-intelligence/src:/app/packages/hean-observability/src:/app/packages/hean-symbiont/src:/app/packages/hean-api/src:/app/packages/hean-app/src
       - TZ=UTC
       - BYBIT_TESTNET=true
       - REDIS_URL=redis://redis:6379/0

@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+env:
+  # PYTHONPATH for uv workspace packages
+  HEAN_PYTHONPATH: packages/hean-core/src:packages/hean-exchange/src:packages/hean-portfolio/src:packages/hean-risk/src:packages/hean-execution/src:packages/hean-strategies/src:packages/hean-physics/src:packages/hean-intelligence/src:packages/hean-observability/src:packages/hean-symbiont/src:packages/hean-api/src:packages/hean-app/src
+
 jobs:
   verify-submodules:
     name: Verify Submodules
@@ -24,6 +28,7 @@ jobs:
           echo ""
           echo "=== Verify key files ==="
           test -f backend/pyproject.toml && echo "backend/pyproject.toml OK"
+          test -d backend/packages/hean-core && echo "backend/packages/hean-core OK"
           test -d ios/HEAN.xcodeproj && echo "ios/HEAN.xcodeproj OK"
           test -f dashboard/package.json && echo "dashboard/package.json OK"
           test -d infra/k8s && echo "infra/k8s OK"
@@ -39,11 +44,16 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: cd backend && pip install -e ".[dev]"
+        working-directory: backend
+        run: |
+          pip install ruff mypy pydantic pydantic-settings aiohttp redis orjson numpy networkx psutil
+          pip install websockets httpx fastapi uvicorn slowapi prometheus-client duckdb polars pyarrow
       - name: Ruff
-        run: cd backend && ruff check src/
+        working-directory: backend
+        run: ruff check packages/
       - name: Mypy
-        run: cd backend && mypy src/
+        working-directory: backend
+        run: PYTHONPATH=${{ env.HEAN_PYTHONPATH }} mypy packages/ --ignore-missing-imports
 
   backend-test:
     name: Backend Test
@@ -57,9 +67,19 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: cd backend && pip install -e ".[dev]"
+        working-directory: backend
+        run: |
+          pip install pydantic pydantic-settings aiohttp redis orjson numpy networkx psutil
+          pip install websockets httpx fastapi uvicorn slowapi prometheus-client duckdb polars pyarrow
+          pip install python-dotenv python-socketio
+          pip install pytest pytest-asyncio pytest-cov
       - name: Run tests
-        run: cd backend && pytest tests/ -v --ignore=tests/test_bybit_http.py --ignore=tests/test_bybit_websocket.py --cov=src/hean --cov-report=xml
+        working-directory: backend
+        run: |
+          PYTHONPATH=${{ env.HEAN_PYTHONPATH }} pytest tests/ -v \
+            --ignore=tests/test_bybit_http.py \
+            --ignore=tests/test_bybit_websocket.py \
+            --cov-report=xml
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:

@@ -26,7 +26,7 @@ services:
       - backend.env
     environment:
       PYTHONUNBUFFERED: 1
-      PYTHONPATH: /app/src
+      PYTHONPATH: /app/packages/hean-core/src:/app/packages/hean-exchange/src:/app/packages/hean-portfolio/src:/app/packages/hean-risk/src:/app/packages/hean-execution/src:/app/packages/hean-strategies/src:/app/packages/hean-physics/src:/app/packages/hean-intelligence/src:/app/packages/hean-observability/src:/app/packages/hean-symbiont/src:/app/packages/hean-api/src:/app/packages/hean-app/src
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       REDIS_HOST: redis
       REDIS_PORT: 6379

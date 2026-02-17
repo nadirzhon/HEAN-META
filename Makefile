@@ -12,6 +12,9 @@ DOCKER_COMPOSE_PROD := docker-compose -f docker-compose.production.yml
 DOCKER_COMPOSE_DEV := docker-compose --profile dev
 DOCKER_COMPOSE_MONITORING := docker-compose -f docker-compose.monitoring.yml
 
+# PYTHONPATH for workspace packages (used by test/run/lint targets)
+BACKEND_PYTHONPATH := $(shell echo backend/packages/hean-{core,exchange,portfolio,risk,execution,strategies,physics,intelligence,observability,symbiont,api,app}/src | tr ' ' ':')
+
 help: ## Show this help message
 	@echo "HEAN - AI Trading System (Monorepo)"
 	@echo "===================================="
@@ -31,18 +34,18 @@ submodules-update: ## Update all submodules to latest remote
 # Development Setup (Backend)
 # ================================================================================
 
-install: ## Install Python dependencies
-	cd backend && pip install -e ".[dev]"
+install: ## Install Python dependencies via uv
+	cd backend && uv sync --dev
 
 test: ## Run tests
-	cd backend && pytest
+	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) pytest
 
 lint: ## Run linter and type checker
-	cd backend && ruff check src/
-	cd backend && mypy src/
+	cd backend && ruff check packages/
+	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) mypy packages/
 
 run: ## Run the system (CLI)
-	cd backend && python -m hean.main run
+	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) python -m hean.main run
 
 # ================================================================================
 # Docker Development
@@ -172,27 +175,27 @@ stats: ## Show container resource usage
 
 # Quick test (skip tests needing Bybit API keys)
 test-quick: ## Run tests excluding Bybit connection tests
-	cd backend && pytest tests/ --ignore=tests/test_bybit_http.py --ignore=tests/test_bybit_websocket.py -q
+	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) pytest tests/ --ignore=tests/test_bybit_http.py --ignore=tests/test_bybit_websocket.py -q
 
 smoke: ## Run smoke test against running API
 	bash backend/scripts/smoke_test.sh
 
 # Test commands
 test-truth-layer:
-	cd backend && pytest tests/test_truth_layer_invariants.py -v
+	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) pytest tests/test_truth_layer_invariants.py -v
 
 test-selector:
-	cd backend && pytest tests/test_selector_anti_overfitting.py -v
+	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) pytest tests/test_selector_anti_overfitting.py -v
 
 test-openai:
-	cd backend && pytest tests/test_openai_factory_hardening.py -v
+	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) pytest tests/test_openai_factory_hardening.py -v
 
 test-idempotency:
-	cd backend && pytest tests/test_idempotency_resilience.py -v
+	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) pytest tests/test_idempotency_resilience.py -v
 
 # Report/evaluate commands
 report:
-	cd backend && python -m hean.main process report
+	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) python -m hean.main process report
 
 evaluate:
-	cd backend && python -m hean.main evaluate --days 30
+	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) python -m hean.main evaluate --days 30
