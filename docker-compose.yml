@@ -3,8 +3,8 @@ services:
   api:
     image: hean-api:latest
     build:
-      context: .
-      dockerfile: api/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
       args:
         - BUILDKIT_INLINE_CACHE=1
     container_name: hean-api
@@ -19,7 +19,7 @@ services:
       - RISK_SOURCE=${RISK_SOURCE:-redis}
       - MICROSERVICES_GROUP_PREFIX=${MICROSERVICES_GROUP_PREFIX:-hean-core}
     volumes:
-      - ./src:/app/src:ro
+      - ./backend/src:/app/src:ro
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
     command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --workers 2
@@ -87,7 +87,7 @@ services:
   symbiont-testnet:
     image: hean-symbiont:latest
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile.testnet
     container_name: hean-symbiont-testnet
     env_file:
@@ -134,7 +134,7 @@ services:
   # ============================================
   collector:
     build:
-      context: ./services/collector
+      context: ./backend/services/collector
       dockerfile: Dockerfile
     container_name: hean-collector
     environment:
@@ -167,7 +167,7 @@ services:
   # ============================================
   physics:
     build:
-      context: ./services/physics
+      context: ./backend/services/physics
       dockerfile: Dockerfile
     container_name: hean-physics
     environment:
@@ -200,7 +200,7 @@ services:
   # ============================================
   brain:
     build:
-      context: ./services/brain
+      context: ./backend/services/brain
       dockerfile: Dockerfile
     container_name: hean-brain
     env_file:
@@ -235,7 +235,7 @@ services:
   # ============================================
   risk-svc:
     build:
-      context: ./services/risk
+      context: ./backend/services/risk
       dockerfile: Dockerfile
     container_name: hean-risk-svc
     environment:

@@ -1,5 +1,5 @@
 # ================================================================================
-# HEAN - AI Trading System Makefile
+# HEAN - AI Trading System Makefile (Monorepo Orchestrator)
 # ================================================================================
 
 .PHONY: help install test lint run dev docker-build docker-up docker-down docker-logs docker-restart monitoring-up monitoring-down
@@ -13,26 +13,36 @@ DOCKER_COMPOSE_DEV := docker-compose --profile dev
 DOCKER_COMPOSE_MONITORING := docker-compose -f docker-compose.monitoring.yml
 
 help: ## Show this help message
-	@echo "HEAN - AI Trading System"
-	@echo "========================"
+	@echo "HEAN - AI Trading System (Monorepo)"
+	@echo "===================================="
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-25s\033[0m %s\n", $$1, $$2}'
 
 # ================================================================================
-# Development Setup
+# Submodule Management
+# ================================================================================
+
+submodules-init: ## Initialize and clone all submodules
+	git submodule update --init --recursive
+
+submodules-update: ## Update all submodules to latest remote
+	git submodule update --remote --merge
+
+# ================================================================================
+# Development Setup (Backend)
 # ================================================================================
 
 install: ## Install Python dependencies
-	pip install -e ".[dev]"
+	cd backend && pip install -e ".[dev]"
 
 test: ## Run tests
-	pytest
+	cd backend && pytest
 
 lint: ## Run linter and type checker
-	ruff check src/
-	mypy src/
+	cd backend && ruff check src/
+	cd backend && mypy src/
 
 run: ## Run the system (CLI)
-	python -m hean.main run
+	cd backend && python -m hean.main run
 
 # ================================================================================
 # Docker Development
@@ -118,13 +128,27 @@ redis-backup: ## Backup Redis data
 # ================================================================================
 
 k8s-deploy: ## Deploy to Kubernetes
-	kubectl apply -f k8s/
+	kubectl apply -f infra/k8s/
 
 k8s-delete: ## Delete Kubernetes resources
-	kubectl delete -f k8s/
+	kubectl delete -f infra/k8s/
 
 k8s-status: ## Check Kubernetes status
 	kubectl get pods,svc,ingress -n hean-production
+
+# ================================================================================
+# Frontend Development
+# ================================================================================
+
+dashboard-dev: ## Start dashboard dev server
+	cd dashboard && npm install && npm run dev
+
+dashboard-build: ## Build dashboard for production
+	cd dashboard && npm run build
+
+ios-build: ## Build iOS app for simulator
+	xcodebuild -project ios/HEAN.xcodeproj -scheme HEAN \
+		-destination 'platform=iOS Simulator,name=iPhone 17 Pro' -quiet build
 
 # ================================================================================
 # Security & Audit
@@ -148,27 +172,27 @@ stats: ## Show container resource usage
 
 # Quick test (skip tests needing Bybit API keys)
 test-quick: ## Run tests excluding Bybit connection tests
-	pytest tests/ --ignore=tests/test_bybit_http.py --ignore=tests/test_bybit_websocket.py -q
+	cd backend && pytest tests/ --ignore=tests/test_bybit_http.py --ignore=tests/test_bybit_websocket.py -q
 
 smoke: ## Run smoke test against running API
-	bash scripts/smoke_test.sh
+	bash backend/scripts/smoke_test.sh
 
 # Test commands
 test-truth-layer:
-	pytest tests/test_truth_layer_invariants.py -v
+	cd backend && pytest tests/test_truth_layer_invariants.py -v
 
 test-selector:
-	pytest tests/test_selector_anti_overfitting.py -v
+	cd backend && pytest tests/test_selector_anti_overfitting.py -v
 
 test-openai:
-	pytest tests/test_openai_factory_hardening.py -v
+	cd backend && pytest tests/test_openai_factory_hardening.py -v
 
 test-idempotency:
-	pytest tests/test_idempotency_resilience.py -v
+	cd backend && pytest tests/test_idempotency_resilience.py -v
 
 # Report/evaluate commands
 report:
-	python -m hean.main process report
+	cd backend && python -m hean.main process report
 
 evaluate:
-	python -m hean.main evaluate --days 30
+	cd backend && python -m hean.main evaluate --days 30

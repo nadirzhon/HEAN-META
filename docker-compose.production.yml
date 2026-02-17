@@ -18,8 +18,8 @@ services:
   api:
     image: hean-api:production
     build:
-      context: .
-      dockerfile: api/Dockerfile.optimized
+      context: ./backend
+      dockerfile: Dockerfile
       args:
         BUILDKIT_INLINE_CACHE: 1
     env_file:
@@ -118,7 +118,7 @@ services:
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
     volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
@@ -147,8 +147,8 @@ services:
       GF_INSTALL_PLUGINS: redis-datasource
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infra/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infra/monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
     ports:
       - "3001:3000"
     restart: always
