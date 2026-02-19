@@ -140,6 +140,48 @@ services:
           cpus: '0.25'
           memory: 256M
 
+  # ============================================
+  # Jaeger - Distributed Tracing (OTEL all-in-one)
+  # ============================================
+  # Receives traces via OTLP gRPC (port 4317) and HTTP (port 4318).
+  # UI available at http://localhost:16686
+  # Enable tracing: OTEL_ENABLED=true OTEL_ENDPOINT=http://localhost:4317
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: hean-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      # Keep traces for 72 hours in the in-memory store (default: 8h)
+      - SPAN_STORAGE_TYPE=memory
+      - MEMORY_MAX_TRACES=100000
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC receiver (used by otel.py OTLPSpanExporter)
+      - "4318:4318"     # OTLP HTTP receiver (alternative transport)
+      - "14268:14268"   # Jaeger Thrift HTTP collector (legacy clients)
+    restart: unless-stopped
+    networks:
+      - monitoring
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:16686/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
 # ============================================
 # Networks
 # ============================================

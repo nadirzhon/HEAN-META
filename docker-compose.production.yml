@@ -8,8 +8,35 @@
 # - Health checks and auto-restart
 # - Network isolation
 # - Optional monitoring stack
+# - File-based Docker secrets (never passed as env vars)
 
 version: '3.9'
+
+# ============================================
+# Secrets — file-based, never in env vars
+# ============================================
+# Each secret file must exist on the host before `docker-compose up`.
+# Create them with:
+#
+#   mkdir -p secrets && chmod 700 secrets
+#   echo -n "your_bybit_api_key"     > secrets/bybit_api_key.txt
+#   echo -n "your_bybit_api_secret"  > secrets/bybit_api_secret.txt
+#   echo -n "your_anthropic_key"     > secrets/anthropic_api_key.txt
+#   echo -n "$(python3 -c 'import secrets; print(secrets.token_hex(32))')" \
+#                                    > secrets/api_auth_key.txt
+#   chmod 600 secrets/*.txt
+#
+# In Docker Swarm mode replace `file:` with `external: true` and use
+# `docker secret create` to manage secrets out-of-band.
+secrets:
+  bybit_api_key:
+    file: ./secrets/bybit_api_key.txt
+  bybit_api_secret:
+    file: ./secrets/bybit_api_secret.txt
+  anthropic_api_key:
+    file: ./secrets/anthropic_api_key.txt
+  api_auth_key:
+    file: ./secrets/api_auth_key.txt
 
 services:
   # ============================================
@@ -30,6 +57,17 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Inform SecretsManager of the Docker secrets mount path.
+      # /run/secrets is the Docker Compose/Swarm default — set explicitly for
+      # clarity so it cannot be accidentally overridden by a base image ENV.
+      DOCKER_SECRETS_PATH: /run/secrets
+    # Mount secrets — Docker makes each secret available as
+    # /run/secrets/<secret_name> (a tmpfs file, not an env var).
+    secrets:
+      - bybit_api_key
+      - bybit_api_secret
+      - anthropic_api_key
+      - api_auth_key
     volumes:
       - ./logs:/app/logs
       - api-data:/app/data

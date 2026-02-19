@@ -265,6 +265,40 @@ services:
           cpus: '0.1'
           memory: 128M
 
+  # ============================================
+  # Oracle - Multi-Source Signal Fusion
+  # ============================================
+  oracle:
+    build:
+      context: ./backend/services/oracle
+      dockerfile: Dockerfile
+    container_name: hean-oracle
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
+      - FUSION_INTERVAL=5
+      - CONFIDENCE_THRESHOLD=0.6
+      - MAX_STREAM_LENGTH=200
+    networks:
+      - hean-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
 networks:
   hean-network:
     driver: bridge
