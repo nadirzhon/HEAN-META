@@ -13,6 +13,25 @@ HEAN is a fully autonomous trading engine built around an async event bus archit
 - **AI:** Claude Brain for periodic market analysis
 - **Monitoring:** Prometheus + Grafana (optional)
 
+## Visual Git Workflow
+
+Professional Git process for this monorepo is documented here:
+
+- `docs/GIT_WORKFLOW.md`
+- `docs/assets/git/README.md` (where to place GIF/screenshots)
+
+![HEAN Git Workflow](docs/assets/git/git-workflow.svg)
+
+```mermaid
+gitGraph
+  commit id: "main"
+  branch feature/your-task
+  checkout feature/your-task
+  commit id: "feat/fix"
+  checkout main
+  merge feature/your-task id: "merge"
+```
+
 ## Architecture
 
 ```

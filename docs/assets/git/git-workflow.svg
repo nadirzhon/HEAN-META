@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">HEAN Git Workflow</title>
+  <desc id="desc">Visual flow for feature development and merge in HEAN monorepo.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#121d33"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#1f2a44"/>
+      <stop offset="100%" stop-color="#1a243b"/>
+    </linearGradient>
+    <style>
+      .title { font: 700 26px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif; fill: #f4f7ff; }
+      .subtitle { font: 500 15px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif; fill: #b8c3dc; }
+      .card { fill: url(#card); stroke: #4f628a; stroke-width: 1.2; rx: 14; ry: 14; }
+      .card-title { font: 700 16px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif; fill: #f4f7ff; }
+      .card-desc { font: 500 13px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif; fill: #b8c3dc; }
+      .arrow { stroke: #85a0d6; stroke-width: 2.4; fill: none; marker-end: url(#mArrow); }
+      .step { font: 700 12px Menlo,Monaco,Consolas,monospace; fill: #9ee6c1; }
+    </style>
+    <marker id="mArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#85a0d6"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="360" fill="url(#bg)"/>
+
+  <text x="36" y="46" class="title">HEAN Professional Git Workflow</text>
+  <text x="36" y="72" class="subtitle">Clean feature branch flow with safe sync, focused commits, and PR merge</text>
+
+  <g transform="translate(36,120)">
+    <rect class="card" width="185" height="110"/>
+    <text x="18" y="34" class="card-title">1. Sync Main</text>
+    <text x="18" y="58" class="card-desc">git sync</text>
+    <text x="18" y="80" class="card-desc">ff-only + prune</text>
+    <text x="18" y="100" class="step">START</text>
+  </g>
+
+  <g transform="translate(258,120)">
+    <rect class="card" width="185" height="110"/>
+    <text x="18" y="34" class="card-title">2. Create Branch</text>
+    <text x="18" y="58" class="card-desc">git sw -c feat/...</text>
+    <text x="18" y="80" class="card-desc">one task, one branch</text>
+  </g>
+
+  <g transform="translate(480,120)">
+    <rect class="card" width="185" height="110"/>
+    <text x="18" y="34" class="card-title">3. Commit Small</text>
+    <text x="18" y="58" class="card-desc">git add -p</text>
+    <text x="18" y="80" class="card-desc">feat/fix/docs/chore</text>
+  </g>
+
+  <g transform="translate(702,120)">
+    <rect class="card" width="185" height="110"/>
+    <text x="18" y="34" class="card-title">4. Push Branch</text>
+    <text x="18" y="58" class="card-desc">git push</text>
+    <text x="18" y="80" class="card-desc">auto upstream set</text>
+  </g>
+
+  <g transform="translate(924,120)">
+    <rect class="card" width="240" height="110"/>
+    <text x="18" y="34" class="card-title">5. PR and Merge</text>
+    <text x="18" y="58" class="card-desc">review + checks + merge</text>
+    <text x="18" y="80" class="card-desc">main stays releasable</text>
+    <text x="18" y="100" class="step">DONE</text>
+  </g>
+
+  <path class="arrow" d="M221 175 L248 175"/>
+  <path class="arrow" d="M443 175 L470 175"/>
+  <path class="arrow" d="M665 175 L692 175"/>
+  <path class="arrow" d="M887 175 L914 175"/>
+
+  <text x="36" y="308" class="subtitle">Submodules in HEAN: commit and push in submodule first, then commit updated pointer in HEAN-META.</text>
+</svg>
+
