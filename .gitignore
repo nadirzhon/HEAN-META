@@ -66,6 +66,8 @@ Thumbs.db
 # Project specific
 *.db
 *.sqlite
+data/*.wal
+data/*.duckdb-wal
 
 # Node.js / Next.js
 node_modules/
