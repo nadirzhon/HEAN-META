@@ -19,11 +19,22 @@ services:
       - BRAIN_SOURCE=${BRAIN_SOURCE:-redis}
       - RISK_SOURCE=${RISK_SOURCE:-redis}
       - MICROSERVICES_GROUP_PREFIX=${MICROSERVICES_GROUP_PREFIX:-hean-core}
+      # Signal chain reliability — new feature config (all have safe defaults in HEANSettings)
+      - DLQ_AUTO_RETRY_INTERVAL_S=${DLQ_AUTO_RETRY_INTERVAL_S:-10.0}
+      - INFLIGHT_RESERVATION_TIMEOUT_S=${INFLIGHT_RESERVATION_TIMEOUT_S:-30.0}
+      - RECONCILIATION_INTERVAL_S=${RECONCILIATION_INTERVAL_S:-60}
+      - CLOSE_RETRY_MAX_ATTEMPTS=${CLOSE_RETRY_MAX_ATTEMPTS:-3}
+      - CLOSE_RETRY_BASE_DELAY_S=${CLOSE_RETRY_BASE_DELAY_S:-1.0}
     volumes:
       - ./backend/packages:/app/packages:ro
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
-    command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --workers 2
+    # CRITICAL: workers=1 — TradingSystem uses in-process shared state (EventBus,
+    # accounting, killswitch, InFlightTracker, DLQ). Multiple workers would create
+    # independent TradingSystem instances (split-brain): API queries worker-1 while
+    # trading happens in worker-2, showing stale positions/equity.
+    # For horizontal scaling, deploy multiple containers (not multiple workers).
+    command: uvicorn hean.api.main:app --host 0.0.0.0 --port 8000 --workers 1
     restart: unless-stopped
     ports:
       - "8000:8000"  # API endpoint
@@ -101,6 +112,12 @@ services:
       - TZ=UTC
       - BYBIT_TESTNET=true
       - REDIS_URL=redis://redis:6379/0
+      # Signal chain reliability — new feature config (all have safe defaults in HEANSettings)
+      - DLQ_AUTO_RETRY_INTERVAL_S=${DLQ_AUTO_RETRY_INTERVAL_S:-10.0}
+      - INFLIGHT_RESERVATION_TIMEOUT_S=${INFLIGHT_RESERVATION_TIMEOUT_S:-30.0}
+      - RECONCILIATION_INTERVAL_S=${RECONCILIATION_INTERVAL_S:-60}
+      - CLOSE_RETRY_MAX_ATTEMPTS=${CLOSE_RETRY_MAX_ATTEMPTS:-3}
+      - CLOSE_RETRY_BASE_DELAY_S=${CLOSE_RETRY_BASE_DELAY_S:-1.0}
     volumes:
       - ./backend/packages:/app/packages:ro  # hot-reload: edits applied on restart
       - ./logs:/app/logs
