@@ -124,7 +124,46 @@ No retry logic in the close function itself — single attempt only.
 - Max leverage for P(ruin) < 1% = 2-3x (current config is at the boundary)
 - SmartLeverage max_leverage_2x edge: 25bps, 3x: 35bps, 4x: 50bps
 
+## NEW Findings from Stress Test 2026-02-22
+
+### KillSwitch Poll Delay — 10 SECONDS (CRITICAL)
+- `check_drawdown()` called ONLY inside `_print_status()` at `timedelta(seconds=10)`
+  (main.py:1190). During BTC -30% crash, system continues placing orders for up to
+  10s after threshold crossed. `EQUITY_UPDATE` published inside same 10s schedule.
+
+### KillSwitch Does NOT Close Existing Positions (CRITICAL — confirmed again)
+- `_handle_killswitch()` (main.py:3154): sets `_stop_trading = True` only.
+- `panic_close_all()` exists (main.py:3232) but is called ONLY on graceful shutdown.
+- Positions remain open for up to 15 min after HARD_STOP.
+
+### BybitPrivateWebSocket Reconciliation Never Runs
+- `ExecutionRouter` creates `BybitPrivateWebSocket` at router_bybit_only.py:63 WITHOUT
+  passing `http_client`. `set_http_client()` is never called in the router.
+- `_reconcile_after_reconnect()` (ws_private.py:323): checks `if not self._http_client`
+  → logs warning and returns. Missed fills after WS reconnect are permanent.
+
+### record_fill() Is Synchronous Without Lock (main.py:2861)
+- `self._accounting.record_fill(order, fill_price, fee)` — sync version, no lock.
+- Concurrent ORDER_FILLED events (fast-path, dispatched immediately) can race on
+  `self._cash` field in PortfolioAccounting.
+
+### IntelligenceGate TypeError on Partial Context
+- `intelligence_gate.py:198`: `context.prediction.tcn_confidence > 0` raises TypeError
+  if prediction is not a proper object (e.g., MagicMock, None-like with attribute).
+  Signal goes to DLQ instead of being enriched. Confirmed by test failure.
+
+### PositionSizer 3x Multiplier Applied Without Stop-Loss
+- test_risk.py confirms: when stop_loss not constraining, max_leverage (3x) is applied
+  freely, producing 3x the expected size. At $300 capital this is the design intent
+  but poses ruin risk if 10 positions all leverage 3x simultaneously.
+
+### Idempotency Gap on HTTP Retry (orderLinkId)
+- `place_order()` (http.py:421): new `orderLinkId` per call, not per signal.
+  If HTTP request times out after exchange received it, retry creates duplicate order
+  on exchange. In-process idempotency only prevents signal-level duplicates.
+
 ## Known Gaps / Warnings
 
 - See `health-check-findings.md` for detailed vulnerability list
 - See `backend/docs/stress-test-scenarios.md` for full stress test design (6 scenarios)
+- See `stress-test-2026-02-22.md` for full findings from this session
