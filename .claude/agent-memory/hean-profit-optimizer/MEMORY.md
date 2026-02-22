@@ -8,6 +8,15 @@
 - `maker_ttl_ms = 150` — aggressive 150ms TTL, high expiry rate likely
 - `allow_taker_fallback = True` — expired makers fall back to taker (costs 0.06%)
 - `maker_price_offset_bps = 1` — 1 bps inside BBO, good fill probability
+- http.py line 480: `timeInForce = "PostOnly"` for limit, `"IOC"` for market — CORRECT
+- main.py line 3838: paper-mode close fee hardcoded as `0.00055` (5.5bps) — consistent with Bybit
+- taker fallback edge check in router.py line 977: uses `settings.backtest_taker_fee` (3bps) NOT real 5.5bps
+- VOLATILITY BUG: router.py line 1177 and router_bybit_only.py line 1190 compute `abs(...)` but discard
+  the result — `_update_volatility_history` only appends PRICES, not RETURNS. Adaptive TTL/offset uses
+  `_get_current_volatility` which correctly computes returns from prices, so no leakage here — but the
+  intermediate calculation on line 1190 is dead code wasted on every tick.
+- Position close in main.py uses `order_type="market"` always — forced taker on every exit (5.5bps)
+- No limit-order TP exits — all closes are market orders (TP hit, SL hit, TTL all use market)
 
 ## Capital & Risk (from config defaults)
 - `initial_capital = 300 USDT`

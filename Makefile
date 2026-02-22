@@ -60,11 +60,13 @@ dev-build: ## Build development images
 docker-build: ## Build Docker images
 	docker-compose build
 
-docker-up: ## Start containers in background
+docker-up: ## Start containers in background + Bonjour beacon for iOS
 	docker-compose up -d
+	@./scripts/hean-beacon.sh start
 
-docker-down: ## Stop containers
+docker-down: ## Stop containers + Bonjour beacon
 	docker-compose down
+	@./scripts/hean-beacon.sh stop
 
 docker-logs: ## View container logs
 	docker-compose logs -f
@@ -176,6 +178,9 @@ stats: ## Show container resource usage
 # Quick test (skip tests needing Bybit API keys)
 test-quick: ## Run tests excluding Bybit connection tests
 	cd backend && PYTHONPATH=$(BACKEND_PYTHONPATH) pytest tests/ --ignore=tests/test_bybit_http.py --ignore=tests/test_bybit_websocket.py -q
+
+beacon: ## Start/stop Bonjour beacon for iOS auto-discovery (start|stop|status)
+	@./scripts/hean-beacon.sh $(filter-out $@,$(MAKECMDGOALS))
 
 smoke: ## Run smoke test against running API
 	bash backend/scripts/smoke_test.sh

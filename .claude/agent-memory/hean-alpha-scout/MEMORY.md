@@ -60,9 +60,40 @@ E. GammaExposureGravityStrategy — Deribit options dealer GEX maps strike-level
 - Deribit REST API is free and real-time; Glassnode free tier is 1h resolution
 - FundingHarvester already partially captures DAR-predicted funding rate mean reversion
 
+## Alpha Ideas Explored (Session 3 — 2026-02-22)
+See: [alpha-briefs-session3.md](alpha-briefs-session3.md)
+
+1. FundingRatePressurePredictor — OI derivative + perp-spot premium + cross-exchange basis as leading indicators for NEXT funding settlement. Augments FundingHarvester.
+2. OFI-VPIN Adverse Selection Gate — True volume-synchronized VPIN (not time-based) as filter layer 13 in ImpulseEngine. Reduces false negatives by 15-20%.
+3. LiquidationGravityStrategy — Synthetic liquidation heatmap from trade history; enter WITH cascade 0.05% past cluster, exit at 0.3% overshoot. Uses existing LIQUIDATION_CASCADE anomaly.
+4. RegimeAdaptiveStrategyRotator — Exclusive activation of highest-EV strategy set per regime. Uses RiskSentinel._active_strategy_ids mechanism already in place.
+5. ImpactReversionStrategy — Counter the 1-3bps temporary price impact of whale trades within 1-5 seconds. Bypasses 12-filter ImpulseEngine cascade.
+
+## Key Academic References (Session 3)
+- Easley, Lopez de Prado, O'Hara (2012): VPIN predicts Flash Crash 77min ahead — VPIN implementation
+- Glosten & Harris (1988): temporary vs permanent price impact, bid-ask bounce — ImpactReversion
+- Kyle (1985): lambda = price impact per unit signed volume — ImpactReversion stop calibration
+- Hasbrouck (1991): information content of trades — supports ImpactReversion
+- Grinold & Kahn "Active Portfolio Management": regime-conditional IC maximization — StrategyRotator
+- arXiv:2506.05764: 100ms Bybit LOB depth imbalance predicts 10s returns (52-54% accuracy)
+- arXiv:2512.01112: Cascade overshoot 0.3-0.8% beyond initial cluster — LiquidationGravity calibration
+
+## Architecture Notes (Session 3 discoveries)
+- FundingHarvester uses EWMA + momentum + time features; does NOT use OI derivative, perp-spot premium, or cross-exchange basis
+- anomaly_detector.py WHALE_INFLOW missing `side` (buy/sell direction) — critical gap for ImpactReversion
+- consensus_swarm.py computes simplified VPIN as imbalance_strength proxy — NOT volume-synchronized
+- RiskSentinel._active_strategy_ids list at line 99 of risk_sentinel.py is the mechanism for strategy rotation
+- CoinGlass collector wired but returns mock data without API key; liq_nearest_cluster_pct hardcoded to 5.0
+- HFScalping has 30s cooldown — fundamentally different from ImpactReversion's 5s holds
+- strategy._tick_interval_ms can be overridden per class (HFScalping uses 200ms, default 500ms)
+- BaseStrategy subscribes to ORDER_BOOK_UPDATE indirectly via PhysicsEngine, NOT directly
+
 ## Known Dead Ends
 - "System CPU load as volatility proxy" — too indirect; bus RTT is a better HEAN-native signal
 - Pure "phantom fill profit" study — too few samples on testnet to reach statistical significance quickly
 - Miner hash rate proxy for BTC — 2-week difficulty adjustment lag, too slow for HEAN
 - Pure SIR narrative model — EmotionArbitrage.py already covers the wave-based analog
 - Funding rate DAR predictability as standalone strategy — FundingHarvester overlaps substantially
+- Cross-exchange Bybit vs Binance testnet basis trade — requires dual-exchange execution not in HEAN
+- Options-like synthetic structures — $500 capital too small for hedging cost
+- Pure OI momentum signal — already partially covered by OI_SPIKE anomaly detector
